@@ -27,7 +27,11 @@ The deploy job reads these encrypted **repository Actions secrets**:
 Azure uses GitHub OpenID Connect (OIDC), which exchanges a short-lived GitHub token for Azure
 access. There is no publish-profile password or Azure client secret. The federated credential must
 use issuer `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`
-and subject `repo:Dung-CS/SC2006:ref:refs/heads/main`. Assign the identity Website Contributor on
+and the exact subject GitHub issues for this repository:
+`repo:Dung-CS@180244362/SC2006@1349297134:ref:refs/heads/main`.
+This repository's token includes immutable owner and repository IDs; the legacy name-only subject
+does not match. The first live workflow exposed that mismatch, which is corrected in Azure.
+Assign the identity Website Contributor on
 the `dfence-sc2006` app, not the whole subscription. The workflow has no GitHub environment binding,
 because that would change the OIDC subject. Only the deploy job can request an identity token.
 
