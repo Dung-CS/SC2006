@@ -10,6 +10,7 @@ import { DispatchProposal } from './DispatchController';
 import { taskForReport, triageForReport } from './ReportTriagePolicy';
 import { RouteJob, RouteTeam, estimateRequiredStaff } from './RouteOptimizationService';
 import { coveringSpecialisations, externalAuthority, pestClassOf, permittedTasksFor, primarySpecialisation } from './StaffRoutingPolicy';
+import { ReportGroupProvenance, groupNearbyReports, isPendingOrder, ordersForReportGroup, reportGroupProvenance } from './ReportSpatialClustering';
 
 export const HQ_COORDINATES: Record<HqLocation, GeoPoint> = {
   Central: new GeoPoint(1.318, 103.847),
@@ -20,6 +21,9 @@ export const HQ_COORDINATES: Record<HqLocation, GeoPoint> = {
 };
 
 export interface DispatchReferral {
+  reportIds?: ReportGroupProvenance['reportIds'];
+  reportCount?: number;
+  individualCounts?: ReportGroupProvenance['individualCounts'];
   reportId?: string;
   workOrderId?: string;
   clusterId?: string;
@@ -53,6 +57,7 @@ export function buildDispatchRouteInputs(input: {
   profiles: ReadonlyMap<PestType, PestProfile>;
   reports?: Report[];
   scores?: PriorityScore[];
+  reportClusterDistanceMetres?: number;
 }): DispatchInputs {
   const pools = new Map<string, RouteTeam>();
   for (const member of input.crew) {
@@ -71,8 +76,9 @@ export function buildDispatchRouteInputs(input: {
 
   const clusters = new Map(input.clusters.map((c) => [c.id, c]));
   const reports = new Map((input.reports ?? []).filter((report) => report.isVerified()).map((r) => [r.id, r]));
-  const liveOrders = input.orders.filter((order) =>
-    ![WorkOrderStatus.Completed, WorkOrderStatus.Verified, WorkOrderStatus.Cancelled].includes(order.currentStatus()));
+  const liveOrders = input.orders.filter(isPendingOrder);
+  const groups = groupNearbyReports(input.reports ?? [], input.reportClusterDistanceMetres, input.orders, input.scores);
+  const groupByReport = new Map(groups.flatMap((group) => group.reportIds.map((id) => [id, group] as const)));
   const representedReports = new Set(liveOrders.flatMap((order) => order.sourceReportId ? [order.sourceReportId] : []));
   const scoreFor = (clusterId: string | null | undefined, pest: PestType) =>
     (input.scores ?? []).find((score) => (score.clusterId === clusterId || score.localityId === clusterId) &&
@@ -89,6 +95,7 @@ export function buildDispatchRouteInputs(input: {
       if (!referralIds.has(key)) {
         referralIds.add(key);
         referrals.push({ reportId: job.sourceReportId, workOrderId: job.workOrderId,
+          reportIds: job.reportIds, reportCount: job.reportCount, individualCounts: job.individualCounts,
           clusterId: job.clusterId ?? undefined, pestType: pest, priority: job.priority ?? PriorityTier.Medium,
           locality: job.locality ?? 'Unassigned', authority,
           reason: `${pest} cases are handled by ${authority}; no internal crew is allocated.` });
@@ -108,42 +115,44 @@ export function buildDispatchRouteInputs(input: {
     if (order.scheduledDate > input.date || order.pestType === null) continue;
     const source = order.sourceReportId ? reports.get(order.sourceReportId) : undefined;
     const linkedReports = [...reports.values()].filter((r) => r.workOrderId === order.id || r.id === order.sourceReportId ||
-      (order.taskType === taskForReport(r) && order.clusterId !== null && r.clusterId === order.clusterId && r.pestType === order.pestType));
+      (!order.sourceReportId && order.taskType === taskForReport(r) && order.clusterId !== null && r.clusterId === order.clusterId && r.pestType === order.pestType));
     const targetReport = source ?? linkedReports.sort((a, b) =>
       (tierRank[triageForReport(a).priority] ?? 2) - (tierRank[triageForReport(b).priority] ?? 2))[0];
+    const group = targetReport ? groupByReport.get(targetReport.id) : undefined;
     const cluster = order.clusterId ? clusters.get(order.clusterId) : undefined;
     const point = source?.point ?? order.targetPoint ?? targetReport?.point ?? (cluster?.boundary?.rings[0]?.length ? cluster.boundary.centroid() : undefined);
     if (!validPoint(point)) continue;
     const score = scoreFor(order.clusterId, order.pestType);
     addJob({ workOrderId: order.id, point, taskType: order.taskType, pestType: order.pestType,
       clusterId: order.clusterId, sourceReportId: order.sourceReportId ?? undefined,
-      mapClusterId: targetReport ? `pest-${targetReport.id}` : order.pestType !== PestType.Mosquito && score ?
-        `inat-${score.clusterId}-${order.pestType}` : order.clusterId ?? undefined,
-      priority: higherPriority(order.priority, score?.tier, ...linkedReports.map((r) => triageForReport(r).priority)),
+      ...(group ? reportGroupProvenance(group) : {}),
+      mapClusterId: group?.id ?? (targetReport ? `pest-${targetReport.id}` : order.pestType !== PestType.Mosquito && score ?
+        `inat-${score.clusterId}-${order.pestType}` : order.clusterId ?? undefined),
+      priority: higherPriority(order.priority, score?.tier, group?.priority, ...linkedReports.map((r) => triageForReport(r).priority)),
       locality: order.location ?? source?.localityBinding ?? cluster?.locality, status: order.currentStatus(),
       score: score?.score }, order.pestType);
   }
 
   // Reports are operational targets even when no dengue locality score exists for them.
-  for (const report of reports.values()) {
-    if (representedReports.has(report.id) || (report.workOrderId && liveOrders.some((o) => o.id === report.workOrderId))) continue;
-    if (!validPoint(report.point)) continue;
+  for (const group of groups) {
+    if (ordersForReportGroup(group, input.orders).length > 0) continue;
+    const report = group.representative;
     const taskType = taskForReport(report);
-    if (liveOrders.some((order) => report.clusterId !== null && order.clusterId === report.clusterId &&
-        order.pestType === report.pestType && order.taskType === taskType)) continue;
-    const priority = higherPriority(triageForReport(report).priority, scoreFor(report.clusterId, report.pestType)?.tier);
+    const priority = group.priority;
     addJob({ workOrderId: `report-${report.id}`, sourceReportId: report.id, clusterId: report.clusterId,
-      mapClusterId: `pest-${report.id}`, point: report.point, taskType, pestType: report.pestType,
+      ...reportGroupProvenance(group), mapClusterId: group.id, point: report.point, taskType, pestType: report.pestType,
       priority, locality: report.localityBinding || 'Unassigned', status: 'Pending' }, report.pestType);
-    if (report.clusterId) reportTargets.add(`${report.clusterId}:${report.pestType}:${taskType}`);
+    for (const member of group.reports) if (member.clusterId) reportTargets.add(`${member.clusterId}:${member.pestType}:${taskType}`);
   }
 
   for (const proposal of input.proposals) {
     const pest = proposal.pestType ?? PestType.Mosquito;
     if (proposal.sourceReportId) {
       // When passed independently of reports, daily report proposals still remain routable.
-      if (representedReports.has(proposal.sourceReportId) || jobs.some((j) => j.sourceReportId === proposal.sourceReportId) ||
-          referrals.some((r) => r.reportId === proposal.sourceReportId)) continue;
+      const ids = proposal.reportIds ?? [proposal.sourceReportId];
+      if (ids.some((id) => representedReports.has(id) || jobs.some((j) => j.sourceReportId === id || j.reportIds?.includes(id)) ||
+          referrals.some((r) => r.reportId === id || r.reportIds?.includes(id))) ||
+          groups.some((group) => group.reportIds.some((id) => ids.includes(id)) && ordersForReportGroup(group, input.orders).length > 0)) continue;
     } else {
       const target = `${proposal.clusterId}:${pest}:${proposal.suggestedTaskType}`;
       if (reportTargets.has(target)) continue;
@@ -155,6 +164,7 @@ export function buildDispatchRouteInputs(input: {
     if (!validPoint(point)) continue;
     const workOrderId = proposal.sourceReportId ? `report-${proposal.sourceReportId}` : `prop-${proposal.clusterId}-${pest}`;
     addJob({ workOrderId, sourceReportId: proposal.sourceReportId, clusterId: cluster?.id ?? null,
+      reportIds: proposal.reportIds, reportCount: proposal.reportCount, individualCounts: proposal.individualCounts,
       mapClusterId: proposal.mapClusterId ?? (proposal.sourceReportId ? `pest-${proposal.sourceReportId}` :
         pest === PestType.Mosquito ? proposal.clusterId : `inat-${proposal.clusterId}-${pest}`),
       point, taskType: proposal.suggestedTaskType, pestType: pest,

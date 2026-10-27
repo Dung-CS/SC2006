@@ -22,7 +22,7 @@ class MockRouteStrategy implements IRouteStrategy {
       coordinates: stops,
       distanceMetres,
       durationSeconds,
-      source: 'direct-distance',
+      source: 'onemap',
     };
   }
 }

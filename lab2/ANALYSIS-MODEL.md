@@ -93,6 +93,23 @@ OneMap Search) are still unverified.
 | DashboardController | 5.1, 5.2, 5.3, 5.4 | |
 | DispatchController | 6.1, 6.2, 6.3, 6.9, 8.3 | Creation and assignment |
 | WorkOrderLifecycleController | 6.5, 6.6, 6.7, 6.8, 8.4 | Owns the eight-state machine |
+| ReportSpatialClustering | — | Aggregates nearby reports into spatial groups for deduplication |
+| RouteOptimizationService | — | Plans the daily dispatch route; road-only constraint |
+| OneMapRoadRoutingStrategy | — | OneMap-backed verified driving route; rejects non-road-accessible points |
+
+### New sprint features (v0.4)
+
+**ReportSpatialGroup entity and ReportSpatialClustering control class.**
+Residents submit individual Report records that are never modified after verification. However, several reports within 100 m of each other may describe the same underlying issue. ReportSpatialClustering.groupNearbyReports() applies complete-link spatial clustering with a configurable DEFAULT_REPORT_CLUSTER_DISTANCE_METRES = 100 to aggregate nearby verified reports into ReportSpatialGroup value objects. Each group carries a epresentative report, a priority tier derived from the highest-severity member, and an individualCounts breakdown. DispatchController and MapViewController consume these groups for deduplication and map rendering respectively. Individual Report records remain immutable.
+
+**Road-only verified driving route dispatch.**
+RouteOptimizationService plans the daily dispatch list using only verified driving routes obtained from OneMapRoadRoutingStrategy. Tasks without driving road access — offshore islands and non-mainland locations — are excluded from the dispatch route and marked unplanned. Direct-distance (straight-line) fallback is prohibited; there is no silent degradation.
+
+**Map marker visual language.**
+DispatchProposalUI and the map boundary render task markers and cluster badges with a pest icon emoji. Background colour is determined strictly by PriorityTier: Critical #7F1D1D, High #B91C1C, Medium #C2410C, Low #047857. Descriptive text is removed from the marker surface.
+
+**Removal of External authority tasks list from dispatch screen.**
+The dedicated *External authority tasks* list previously shown on DispatchProposalUI is removed. External agency handovers remain available exclusively through the ReferralUI / ReferralController pathway, which writes a Referral record and no TreatmentRecord (8.6.11).
 
 **Why dispatch is split across two controllers.** `DispatchController` decides *what work should
 exist and who does it*; `WorkOrderLifecycleController` governs *how a work order moves between

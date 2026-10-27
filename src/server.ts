@@ -142,6 +142,7 @@ import { PriorityScoringEngine, DriverInputs } from './control/PriorityScoringEn
 import { ChangeClass, Driver, HqLocation, PestType, PriorityTier, ReportStatus, Role, SourceKind, StaffSpecialisation, StaffStatus, TaskType } from './entity/enums';
 import { RouteJob, RouteOptimizationService, RouteTeam } from './control/RouteOptimizationService';
 import { buildDispatchRouteInputs } from './control/DispatchRouteInputs';
+import { reportClusterDistance, withLinkedReportOrders } from './control/ReportSpatialClustering';
 import { DispatchPlanInputs, DispatchPlanService } from './control/DispatchPlanService';
 import { createVehicleStore, seedDemoVehicles } from './persistence/VehicleRepository';
 import { VehicleController } from './control/VehicleController';
@@ -180,6 +181,7 @@ function firstConfigured(...values: Array<string | undefined>): string {
 }
 
 async function main(): Promise<void> {
+  const reportClusterDistanceMetres = reportClusterDistance(process.env.DFENCE_REPORT_CLUSTER_DISTANCE_METRES);
   const config = ConfigLoader.load();
   const http = new HttpClient();
   let invalidateDispatchPlans = (): void => {};
@@ -341,6 +343,7 @@ async function main(): Promise<void> {
     reports,
     workOrders,
     savedLocations,
+    reportClusterDistanceMetres,
   );
   const locations = new SavedLocationController(ac0, savedLocations, locator, geocoding, subscriptions, {
     // 1.2.5-1.2.8 for an arbitrary point rather than a cluster centroid — the same accumulator,
@@ -825,6 +828,7 @@ async function main(): Promise<void> {
     accounts,
     // 8.1.2, 8.1.13 — source-report identity is resolved from persistence, never from the request.
     reports,
+    reportClusterDistanceMetres,
   );
   void dispatch;
 
@@ -898,8 +902,9 @@ async function main(): Promise<void> {
         if (report) order.targetPoint = report.point;
       }
     }
-    return { ...buildDispatchRouteInputs({ date, crew, orders, clusters: [...knownClusters.values()], proposals,
-      profiles: config.pestProfiles, reports: [...verified, ...actioned], scores: latestScores }), vehicles };
+    const reportOrders = await withLinkedReportOrders([...verified, ...actioned], orders, workOrders);
+    return { ...buildDispatchRouteInputs({ date, crew, orders: reportOrders, clusters: [...knownClusters.values()], proposals,
+      profiles: config.pestProfiles, reports: [...verified, ...actioned], scores: latestScores, reportClusterDistanceMetres }), vehicles };
   };
   const dispatchPlans = new DispatchPlanService(routeInputs, routePlanner);
   invalidateDispatchPlans = () => dispatchPlans.invalidateAll();

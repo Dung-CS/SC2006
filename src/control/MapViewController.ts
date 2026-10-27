@@ -26,9 +26,13 @@ import { AccessControlService } from './AccessControlService';
 import { SeriesPoint, TrendAnalyser } from './TrendAnalyser';
 import { Principal } from './Principal';
 import { triageForReport } from './ReportTriagePolicy';
+import { DEFAULT_REPORT_CLUSTER_DISTANCE_METRES, ReportGroupProvenance, ReportSpatialGroup, groupNearbyReports, reportGroupProvenance, withLinkedReportOrders } from './ReportSpatialClustering';
 
 /** 9.1.1, 9.1.2, 9.1.11 — one cluster as the map draws it. */
 export interface ClusterShape {
+  reportIds?: ReportGroupProvenance['reportIds'];
+  reportCount?: number;
+  individualCounts?: ReportGroupProvenance['individualCounts'];
   clusterId: Uuid;
   locality: string;
   /** Outer ring as [lng, lat] pairs — GeoJSON order, which is the reverse of how we say it. */
@@ -83,6 +87,9 @@ export interface MapLayers {
 
 /** 9.1.7, 9.1.8, 9.1.9, 9.1.10 — everything the detail panel shows. */
 export interface ClusterDetail {
+  reportIds?: ReportGroupProvenance['reportIds'];
+  reportCount?: number;
+  individualCounts?: ReportGroupProvenance['individualCounts'];
   clusterId: Uuid;
   locality: string;
   caseSize: number;
@@ -147,6 +154,7 @@ export class MapViewController {
     private readonly reports: ReportStore | null = null,
     private readonly workOrders: WorkOrderStore | null = null,
     private readonly locations: SavedLocationStore | null = null,
+    private readonly reportClusterDistanceMetres = DEFAULT_REPORT_CLUSTER_DISTANCE_METRES,
   ) {}
 
   /**
@@ -228,14 +236,15 @@ export class MapViewController {
     }
 
     if (this.reports !== null) {
-      const verified = await this.verifiedReports();
-      for (const r of verified) {
-        const count = r.estimatedCount ?? (r.corroborationCount > 0 ? r.corroborationCount + 1 : 1);
+      for (const group of await this.reportGroups(latestScores)) {
+        const r = group.representative;
+        const count = group.reportCount > 1 ? group.reportCount : r.estimatedCount ?? (r.corroborationCount > 0 ? r.corroborationCount + 1 : 1);
         const visual = getPestVisual(r.pestType);
-        const tier = triageForReport(r).priority as PriorityTier;
+        const tier = group.priority;
 
         shapes.push({
-          clusterId: `pest-${r.id}`,
+          clusterId: group.id,
+          ...reportGroupProvenance(group),
           locality: `${r.localityBinding || 'Singapore'} (${visual.label} Hotspot)`,
           ring: circleRing(r.point.latitude, r.point.longitude, 200),
           tier,
@@ -243,7 +252,7 @@ export class MapViewController {
           caseSize: count,
           pestType: r.pestType,
           icon: visual.emoji,
-          countLabel: r.estimatedCount === null ? 'reports' : visual.countLabel,
+          countLabel: group.reportCount > 1 || r.estimatedCount === null ? 'reports' : visual.countLabel,
         });
       }
     }
@@ -287,6 +296,12 @@ export class MapViewController {
       ...(await this.reports.findByStatus(ReportStatus.Verified)),
       ...(await this.reports.findByStatus(ReportStatus.Actioned)),
     ];
+  }
+
+  private async reportGroups(scores?: Awaited<ReturnType<PriorityScoreStore['latest']>>): Promise<ReportSpatialGroup[]> {
+    const reports = await this.verifiedReports();
+    const orders = await withLinkedReportOrders(reports, await this.workOrders?.findAllOpen() ?? [], this.workOrders);
+    return groupNearbyReports(reports, this.reportClusterDistanceMetres, orders, scores ?? await this.scores.latest());
   }
 
   /** 9.1.4 — a manager sees all open work orders; a crew member sees only their own. */
@@ -387,22 +402,24 @@ export class MapViewController {
     }
 
     if (clusterId.startsWith('pest-')) {
+      const group = (await this.reportGroups()).find((candidate) => candidate.id === clusterId);
       const reportId = clusterId.slice(5);
-      const report = this.reports !== null ? await this.reports.findById(reportId) : null;
-      const count = report?.estimatedCount ?? (report?.corroborationCount ? report.corroborationCount + 1 : 1);
+      const report = group?.representative ?? (this.reports !== null ? await this.reports.findById(reportId) : null);
+      const count = group && group.reportCount > 1 ? group.reportCount : report?.estimatedCount ?? (report?.corroborationCount ? report.corroborationCount + 1 : 1);
       const pestType = report?.pestType ?? 'Pest';
       const visual = getPestVisual(pestType);
 
       return {
         clusterId,
+        ...(group ? reportGroupProvenance(group) : {}),
         locality: `${report?.localityBinding || 'Singapore'} (${visual.label} Hotspot)`,
         caseSize: count,
         score: null,
-        tier: report ? triageForReport(report).priority as PriorityTier : null,
+        tier: group?.priority ?? (report ? triageForReport(report).priority as PriorityTier : null),
         breakdown: [],
         isDegraded: false,
         excludedDrivers: [],
-        openReports: 1,
+        openReports: group?.reportCount ?? (report?.isVerified() ? 1 : 0),
         openWorkOrders: [],
         series: [],
         trajectory: Trajectory.Stable,

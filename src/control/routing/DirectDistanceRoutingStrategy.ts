@@ -1,7 +1,7 @@
 import { GeoPoint } from '../../entity/valueTypes';
 import { IRouteStrategy, RoutePlan } from './IRouteStrategy';
 
-/** Offline fallback. Travel time uses a conservative, explicit 30 km/h planning assumption. */
+/** Estimate only. This geometry cannot establish road access or form an executable dispatch. */
 export class DirectDistanceRoutingStrategy implements IRouteStrategy {
   async calculateRoute(stops: GeoPoint[]): Promise<RoutePlan> {
     const coordinates: GeoPoint[] = [];

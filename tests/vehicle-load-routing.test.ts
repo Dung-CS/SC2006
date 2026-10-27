@@ -4,7 +4,7 @@ import { HqLocation, TaskType } from '../src/entity/enums';
 import type { Vehicle } from '../src/entity/Vehicle';
 import { RouteOptimizationService, RouteJob, RouteTeam } from '../src/control/RouteOptimizationService';
 import { generatePackingList, logisticsLoad, itemFitsCargo } from '../src/control/LogisticsPolicy';
-import { DirectDistanceRoutingStrategy } from '../src/control/routing/DirectDistanceRoutingStrategy';
+import { MockRoadRoutingStrategy } from './helpers/MockRoadRoutingStrategy';
 
 const hq = new GeoPoint(1.32, 103.85);
 const pool = (changes: Partial<RouteTeam> = {}): RouteTeam => ({
@@ -19,7 +19,7 @@ const job = (id: string, changes: Partial<RouteJob> = {}): RouteJob => ({
   workOrderId: id, point: new GeoPoint(1.321, 103.851), requiredCapability: 'Vector',
   taskType: TaskType.Inspection, priority: 'High', ...changes,
 });
-const planner = () => new RouteOptimizationService(new DirectDistanceRoutingStrategy());
+const planner = () => new RouteOptimizationService(new MockRoadRoutingStrategy());
 
 describe('Vehicle load-constrained dispatch', () => {
   it('records positive quantities, weight and dimensions for every logistics item', () => {

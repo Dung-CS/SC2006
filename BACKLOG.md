@@ -1,14 +1,19 @@
 # Dengue Prioritiser — Feature Backlog
 
-## Current routing delta - 2026-10-27
+## Current delivery delta - 2026-10-27
 
-- **Deployed and verified:** active Azure deployment `b981ad07-754f-4203-8a68-071e7c35c9be`. Priority-first planning uses the complete eligible queue, real qualified headcounts, task requirements, sequential reuse and parallel crews. Synthetic crews and emergencies are removed. Unplanned tasks are visible.
-- Bulk open-order lookup removes per-score database queries. Directed OneMap legs use a five-minute, 512-entry LRU and in-flight coalescing. First live calculation: 38.613 seconds; cold latency remains a limitation. Some routes use labelled direct-distance fallback. Greedy routing is not a global optimum guarantee.
-- Verification: 1,016 tests / 52 files, typecheck/build and final extracted-ZIP smoke pass. Live API/UI checks pass. Live plan: 10 crews, 37 tasks (1 Medium, 36 Low), no unplanned eligible tasks. Actual data has no High/Critical scores; urgent behaviour is regression-tested.
-- Master requirements v0.10 has 605 unique IDs. Historical submission copies are unchanged.
-- **Pending:** Yen Kit's crew-size confirmation (Inspection 1, Larviciding 2, Fogging 3, Drain/Refuse clearance 2); downstream epics/use-case/model/test-plan traceability. Image recognition fresh-photo timeout remains open. Planning does not persist supporting-member assignments beyond one lead.
+- **Deployed through CI/CD:** background all-pest dispatch, HQ vehicle registry, dimensioned logistics and vehicle-constrained routes. [Actions run 40515218625](https://github.com/Dung-CS/SC2006/actions/runs/40515218625) succeeded; Azure `c143da4b-d1fe-47d8-a40a-0a7ea89a8577` is active/status 4. Final live fleet/dispatch, cache and invalidation checks passed.
+- Snapshot reads do not wait for route computation. Startup, scoring/cluster changes, application writes and a 30-second fingerprint check refresh plans. The last good plan remains visible. Road waits have a shared 30-second budget before labelled estimates.
+- Verified/actioned reports outside dengue clusters, due/overdue orders and locality scores share one queue and map triage. Other pests/tasks are not suppressed by an unrelated open task. External-authority cases appear as referrals.
+- Manager-only vehicle CRUD is at `/ops/vehicles`. Migration 014 is applied; ten vehicles are explicitly DEMO data, two per HQ. Routes enforce unique available HQ vehicles, seats, kg, m3 and rotated individual-item dimensions. Conservative full-route load envelopes reuse shared gear and accumulate consumables/collection loads. Automatic pest returns are removed; explicit operator returns remain possible. Exact 3D packing and unload-trip optimisation are not implemented.
+- Tests are split: offline/CI 1,001 passed / 58 SQL skipped, and live SQL 58 passed separately. Typecheck/build and clean extracted-package smoke pass. Initial live test timeouts were corrected and rechecked; no claim of one uninterrupted full-suite run.
+- Every push/PR checks; passing `main` pushes deploy. Source is at `Dung-CS/SC2006`, main `ae99340c92fdaa5c7986d4edff22721a992d9079`. `.env` never goes to GitHub. Identity IDs are encrypted GitHub Secrets; live service credentials remain in Azure settings. OIDC has app-scoped Website Contributor.
+- Recognition's Gemini 3 request convention is corrected; a fresh known-cockroach fixture returned HTTP 200 / one detection in 2.843 seconds. This does not prove general accuracy or provider reliability. Human confirmation/manual fallback remain; no new key/billing action is owed.
+- Live verification passed: 10 demo vehicles, 10 routes and 43 tasks (Rat 2, Cockroach 2, Mosquito 39), with 29 unplanned tasks and 53 visible referrals. Internal planned priorities are Medium 36 / Low 7; no current internal High task was present, while urgent external referrals remain visible.
+- Authenticated cached snapshot reads took 1.434-3.368 seconds. Background refresh took 31.305 seconds with the shared 30-second road-provider wait budget; this is not a subsecond response claim. Vehicle-edit invalidation and last-good-plan retention passed; the test edit was restored. Headless Edge captured fleet/dispatch screens with no page errors. Root visually reviewed both: packing/route text and the fleet table/form were readable, with no obvious layout issue.
+- Master requirements v0.11 records 694 unique IDs and zero duplicates. **Pending:** review provisional crew/logistics/demo-fleet values; downstream epics, models, use cases and test-plan traceability. Multi-person planning still persists only one lifecycle lead.
 
-> **Current recognition decision, 2026-10-21:** the fresh Gemini photo timeout remains unresolved. The isolated YOLO-World S/L trial is complete; both sizes are rejected for app deployment. No replacement is selected. Manual observation remains the fallback. The 10-image set includes resized duplicates and excludes the user's photo, so the trial is not general accuracy evidence. See `../STATUS.md` and `scratchpad/smart-nation-yolo-20261021/README.md`.
+The delivery notes above supersede earlier routing and recognition status claims. The original prioritisation and trial records below are historical context.
 
 Written 2026-09-01. Shareable: https://claude.ai/code/artifact/9c6e5fdb-5865-465a-bfbf-d0187e191244
 

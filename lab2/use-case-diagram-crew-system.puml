@@ -5,7 +5,12 @@ skinparam packageStyle rectangle
 skinparam actorStyle awesome
 skinparam shadowing false
 
-actor "Registered User" as RU
+skinparam rectangle<<supporting>> {
+  BackgroundColor #F4F6F9
+  BorderColor #8C9BA5
+}
+
+actor "Registered User\n{abstract}" as RU
 actor "Cleaning Crew Member" as CCM
 actor "Scheduler" as SCH
 actor "Observation Data Service" as INAT
@@ -37,8 +42,11 @@ rectangle "D-Fence — Automated behaviour" {
   usecase "7.8 Ingest Wildlife Observations" as UC78
   usecase "7.9 Load Operator Registry" as UC79
   usecase "7.10 Evaluate Critical Override" as UC710
-  usecase "8.5 Apply Pest Severity Profile" as UC85
   usecase "4.3 Notify Resident" as UC43
+
+  rectangle "Supporting Services" <<supporting>> {
+    usecase "8.5 Apply Pest Severity Profile" as UC85
+  }
 }
 
 RU  -- UC12

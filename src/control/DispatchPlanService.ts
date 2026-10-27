@@ -18,7 +18,8 @@ export interface DispatchPlanSnapshot {
   error: string | null;
   routes: PlannedTeamRoute[];
   unplanned: Array<{ workOrderId: string; locality?: string; priority?: string; pestType?: string;
-    taskType?: string; requiredStaff?: number; reason: string }>;
+    taskType?: string; requiredStaff?: number; reportIds?: string[]; reportCount?: number;
+    individualCounts?: Array<{ reportId: string; estimatedCount: number | null }>; reason: string }>;
   referrals: unknown[];
 }
 
@@ -28,6 +29,7 @@ interface CachedPlan {
   requested: boolean;
   running: Promise<void> | null;
   timer: ReturnType<typeof setTimeout> | null;
+  retryAt: number | null;
 }
 
 /** Compute in the background. Page requests only read a snapshot and never wait for road APIs. */
@@ -40,7 +42,8 @@ export class DispatchPlanService {
   snapshot(date: string): DispatchPlanSnapshot {
     const existed = this.entries.has(date);
     const entry = this.entry(date);
-    if (!existed || entry.value.planStatus === 'failed') this.invalidate(date);
+    if (!existed || entry.value.planStatus === 'failed' ||
+        entry.retryAt !== null && entry.retryAt <= Date.now()) this.invalidate(date);
     return structuredClone(entry.value);
   }
 
@@ -51,6 +54,7 @@ export class DispatchPlanService {
 
   invalidate(date: string): void {
     const entry = this.entry(date);
+    entry.retryAt = null;
     entry.requested = true;
     entry.value.planStatus = entry.value.computedAt ? 'refreshing' : 'pending';
     if (entry.running || entry.timer) return;
@@ -78,7 +82,7 @@ export class DispatchPlanService {
         const old = [...this.entries].find(([key, item]) => key !== singaporeDate(new Date()) && !item.running && !item.timer);
         if (old) this.entries.delete(old[0]);
       }
-      entry = { fingerprint: null, requested: false, running: null, timer: null, value: {
+      entry = { fingerprint: null, requested: false, running: null, timer: null, retryAt: null, value: {
         date, planStatus: 'pending', computedAt: null, planningDurationSeconds: null, error: null,
         routes: [], unplanned: [], referrals: [],
       } };
@@ -109,18 +113,25 @@ export class DispatchPlanService {
         }
         entry.value.planStatus = entry.value.computedAt ? 'refreshing' : 'pending';
         const start = Date.now();
-        const routes = await this.planner.plan(input.teams, input.jobs, input.vehicles);
+        const roadUnverified = new Set<string>();
+        const routes = await this.planner.plan(input.teams, input.jobs, input.vehicles, roadUnverified);
         const plannedIds = new Set(routes.flatMap((route) => route.workOrderIds));
         const rank: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
         const unplanned = input.jobs.filter((job) => !plannedIds.has(job.workOrderId))
           .sort((a, b) => (rank[a.priority ?? 'Medium'] ?? 2) - (rank[b.priority ?? 'Medium'] ?? 2))
           .map((job) => ({ workOrderId: job.workOrderId, locality: job.locality, priority: job.priority,
             pestType: job.pestType, taskType: job.taskType, requiredStaff: job.requiredStaff,
-            reason: 'No qualified crew and available HQ vehicle can fit this task within staff, cargo and four-hour limits.' }));
+            reportIds: job.reportIds, reportCount: job.reportCount, individualCounts: job.individualCounts,
+            reason: roadUnverified.has(job.workOrderId)
+              ? 'A complete driving route to this task could not be verified. Road access or the routing service may be unavailable; verification will retry.'
+              : 'No qualified crew and available HQ vehicle can fit this task within staff, cargo and four-hour limits.' }));
         entry.value = { date, planStatus: entry.requested ? 'refreshing' : 'ready', routes, unplanned,
           referrals: input.referrals ?? [], computedAt: new Date().toISOString(),
           planningDurationSeconds: (Date.now() - start) / 1000, error: null };
-        entry.fingerprint = fingerprint;
+        const needsRoadRetry = unplanned.some((job) => roadUnverified.has(job.workOrderId));
+        // Unverified roads are not a permanent capacity result. Retry unchanged inputs on later reads.
+        entry.fingerprint = needsRoadRetry ? null : fingerprint;
+        entry.retryAt = needsRoadRetry ? Date.now() + 30_000 : null;
       } catch {
         entry.value.planStatus = 'failed';
         entry.value.error = 'The latest plan could not be computed. The next refresh will retry.';

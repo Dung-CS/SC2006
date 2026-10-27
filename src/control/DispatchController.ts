@@ -30,6 +30,7 @@ import { RoutingDecision, coveringSpecialisations, externalAuthority, ineligibil
 import { AccessControlService } from './AccessControlService';
 import { Principal } from './Principal';
 import { taskForReport, triageForReport } from './ReportTriagePolicy';
+import { DEFAULT_REPORT_CLUSTER_DISTANCE_METRES, ReportGroupProvenance, ReportSpatialGroup, groupNearbyReports, ordersForReportGroup, reportGroupProvenance, withLinkedReportOrders } from './ReportSpatialClustering';
 
 export interface WorkOrderDraft {
   /**
@@ -48,6 +49,9 @@ export interface WorkOrderDraft {
 
 /** One row of the proposed daily list (8.1.7). */
 export interface DispatchProposal {
+  reportIds?: ReportGroupProvenance['reportIds'];
+  reportCount?: number;
+  individualCounts?: ReportGroupProvenance['individualCounts'];
   clusterId: Uuid;
   sourceReportId?: Uuid;
   point?: GeoPoint;
@@ -131,6 +135,7 @@ export class DispatchController {
     private readonly accounts: AccountStore | null = null,
     /** 8.1.2, 8.1.13 — the production store that proves report identity and links verified reports. */
     private readonly reportStore: ReportStore | null = null,
+    private readonly reportClusterDistanceMetres = DEFAULT_REPORT_CLUSTER_DISTANCE_METRES,
   ) {}
 
   /**
@@ -147,30 +152,24 @@ export class DispatchController {
     ]);
     const active = new Map(activeClusters.map((c) => [c.id, c]));
     const occupiedTasks = new Set(openOrders.map((order) => `${order.clusterId}:${order.pestType}:${order.taskType}`));
-    const representedReports = new Set(openOrders.flatMap((order) => order.sourceReportId ? [order.sourceReportId] : []));
     const candidates: DispatchProposal[] = [];
     const tierOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
     const reportTargets = new Set<string>();
-    for (const report of [...verified, ...actioned]) {
-      if (!report.isVerified() || representedReports.has(report.id) ||
-          (report.workOrderId && openOrders.some((order) => order.id === report.workOrderId))) continue;
-      if (candidates.some((proposal) => proposal.sourceReportId === report.id)) continue;
+    const reportOrders = await withLinkedReportOrders([...verified, ...actioned], openOrders, this.workOrders);
+    for (const group of groupNearbyReports([...verified, ...actioned], this.reportClusterDistanceMetres, reportOrders, latest)) {
+      if (ordersForReportGroup(group, reportOrders).length > 0) continue;
+      const report = group.representative;
       const taskType = taskForReport(report);
-      const target = `${report.clusterId}:${report.pestType}:${taskType}`;
-      if (report.clusterId && occupiedTasks.has(target)) continue;
       const profile = this.profileFor(report.pestType);
       const authority = externalAuthority(profile);
-      const score = latest.find((item) => (item.clusterId === report.clusterId || item.localityId === report.clusterId) &&
-        (item.pestType ?? PestType.Mosquito) === report.pestType);
-      const triage = triageForReport(report);
-      const tier = score && (tierOrder[score.tier] ?? 3) < (tierOrder[triage.priority] ?? 3) ? score.tier : triage.priority as PriorityTier;
-      candidates.push({ clusterId: report.clusterId ?? `pest-${report.id}`, sourceReportId: report.id, mapClusterId: `pest-${report.id}`,
+      candidates.push({ clusterId: report.clusterId ?? group.id, sourceReportId: report.id, mapClusterId: group.id,
+        ...reportGroupProvenance(group),
         point: report.point, pestType: report.pestType,
-        locality: report.localityBinding || 'Unassigned', score: score?.score ?? 0, tier,
+        locality: report.localityBinding || 'Unassigned', score: group.score, tier: group.priority,
         suggestedTaskType: taskType, scheduledDate: date, priorityBasis: 'ReportTriage',
         ...(authority ? { referralAuthority: authority } : {}),
         allowedCapabilities: authority ? [] : coveringSpecialisations(taskType, pestClassOf(report.pestType, profile), report.pestType) });
-      if (report.clusterId) reportTargets.add(target);
+      for (const member of group.reports) if (member.clusterId) reportTargets.add(`${member.clusterId}:${member.pestType}:${taskType}`);
     }
     for (const score of latest) {
       const cluster = active.get(score.localityId || score.clusterId) ?? active.get(score.clusterId);
@@ -228,6 +227,7 @@ export class DispatchController {
     // The catalogue's AVS and NParks pests (the birds and bees) are refused the same way: see
     // `StaffRoutingPolicy.externalAuthority`.
     let linkedReports: Report[] = [];
+    let sourceGroup: ReportSpatialGroup | undefined;
     let source: Report | null = null;
     let pestType = draft.pestType ?? PestType.Mosquito;
     if (draft.sourceReportId !== undefined) {
@@ -265,18 +265,29 @@ export class DispatchController {
         const own = await this.clusters.findById(source.clusterId);
         cluster = own !== null && own.isActive ? own : null;
       }
-      const target = cluster;
-      // 8.1.13 — on a cluster, every unlinked verified report of the same pest there is linked. With
-      // no cluster, only the source: "every report with no cluster" is not a place.
-      linkedReports =
-        target === null
-          ? []
-          : (await this.reportStore.findByStatus(ReportStatus.Verified)).filter(
-              (report) =>
-                report.clusterId === target.id &&
-                report.pestType === pestType &&
-                report.workOrderId === null,
-            );
+      // Link the same possible issue as the proposal, including nearby reports outside a cluster.
+      // Distant reports and other recorded conditions retain their own work and lifecycle.
+      const activeReports = [...await this.reportStore.findByStatus(ReportStatus.Verified),
+        ...await this.reportStore.findByStatus(ReportStatus.Actioned)];
+      const openOrders = await this.workOrders.findAllOpen();
+      const groupOrders = await withLinkedReportOrders(activeReports, openOrders, this.workOrders);
+      sourceGroup = groupNearbyReports(activeReports, this.reportClusterDistanceMetres, groupOrders)
+        .find((group) => group.reportIds.includes(source!.id));
+      const groupClash = sourceGroup && ordersForReportGroup(sourceGroup, groupOrders)
+        .find((order) => order.taskType === draft.taskType);
+      if (groupClash) throw new DuplicateWorkOrder(groupClash, 'report');
+      if (sourceGroup) {
+        linkedReports = sourceGroup.reports.filter((report) => report.workOrderId === null &&
+          report.currentStatus() === ReportStatus.Verified);
+      } else if (cluster !== null) {
+        const clusterId = cluster.id;
+        linkedReports = (await this.reportStore.findByStatus(ReportStatus.Verified)).filter(
+          (report) =>
+            report.clusterId === clusterId &&
+            report.pestType === pestType &&
+            report.workOrderId === null,
+        );
+      }
       if (!linkedReports.some((report) => report.id === source?.id)) {
         linkedReports.push(source);
       }
@@ -302,7 +313,9 @@ export class DispatchController {
     const clash =
       cluster === null
         ? undefined
-        : (await this.workOrders.findOpenForCluster(cluster.id)).find((w) => w.taskType === draft.taskType && w.pestType === pestType);
+        : (await this.workOrders.findOpenForCluster(cluster.id)).find((w) => w.taskType === draft.taskType && w.pestType === pestType &&
+          (source === null || w.sourceReportId === null || sourceGroup?.reportIds.includes(w.sourceReportId) ||
+            sourceGroup?.reports.some((report) => report.workOrderId === w.id)));
     if (clash !== undefined) {
       throw new DuplicateWorkOrder(clash); // 8.1.11, 8.1.12
     }

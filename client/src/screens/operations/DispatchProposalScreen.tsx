@@ -195,6 +195,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
         isBaseReturn: wp.isBaseReturn,
         isHq: wp.isHq,
         priority: wp.priority,
+        pestType: wp.pestType,
         taskType: wp.taskType,
       };
     }),
@@ -233,20 +234,6 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
         <div role="alert"><p>{plan.error ?? 'The latest dispatch calculation failed.'} The last completed plan, if available, remains visible.</p>
           <button type="button" onClick={routesLoad.retry}>Try again</button></div>
       ) : null}
-      {referrals.length > 0 ? (
-        <section aria-label="External authority tasks">
-          <h2>External authority tasks ({referrals.length})</h2>
-          <p>These tasks remain in dispatch oversight and require the named authority.</p>
-          <ul>{referrals.map((referral, index) => (
-            <li key={`${referral.reportId ?? referral.workOrderId ?? referral.clusterId}-${referral.pestType}-${index}`}>
-              <strong>{referral.priority}: {referral.locality} · {label(referral.pestType)}</strong>
-              {' '}Authority: {referral.authority}. {referral.reason}{' '}
-              {referral.reportId ? <a href={`/ops/referrals/${referral.reportId}`} onClick={link(props, `/ops/referrals/${referral.reportId}`)}>Review referral</a> : null}
-            </li>
-          ))}</ul>
-        </section>
-      ) : null}
-
       <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div>
           <label htmlFor="date" style={{ marginRight: '8px', fontWeight: 600 }}>

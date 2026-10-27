@@ -811,12 +811,12 @@ ul[data-part='list'] > li {
 }
 
 .cluster-map-pill {
-  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 9999px;
+  border-radius: 50%;
   font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 700;
@@ -824,7 +824,6 @@ ul[data-part='list'] > li {
   color: #ffffff;
   border: 2px solid #ffffff;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.15);
-  white-space: nowrap;
   cursor: pointer;
   user-select: none;
   transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
@@ -842,29 +841,17 @@ ul[data-part='list'] > li {
   z-index: 1000 !important;
 }
 
-.cluster-map-pill.tier-Critical {
-  background: #991b1b !important;
-  border-color: #fecaca !important;
-  box-shadow: 0 0 0 2px #7f1d1d, 0 4px 10px rgba(153, 27, 27, 0.5) !important;
-}
-
-.cluster-map-pill.tier-High {
-  background: #dc2626 !important;
-  border-color: #fee2e2 !important;
-}
-
-.cluster-map-pill.tier-Medium {
-  background: #ea580c !important;
-  border-color: #ffedd5 !important;
-}
-
-.cluster-map-pill.tier-Low {
-  background: #059669 !important;
-  border-color: #d1fae5 !important;
-}
+.cluster-map-pill.priority-critical,
+.route-stop-pin.priority-critical { background: #7f1d1d; }
+.cluster-map-pill.priority-high,
+.route-stop-pin.priority-high { background: #b91c1c; }
+.cluster-map-pill.priority-medium,
+.route-stop-pin.priority-medium { background: #c2410c; }
+.cluster-map-pill.priority-low,
+.route-stop-pin.priority-low { background: #047857; }
 
 .cluster-pill-icon {
-  font-size: 13px;
+  font-size: 18px;
   line-height: 1;
   display: inline-block;
 }
@@ -881,13 +868,13 @@ ul[data-part='list'] > li {
 }
 
 .route-stop-pin {
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 19px;
   font-weight: 700;
   color: #ffffff;
   border: 2px solid #ffffff;
@@ -905,22 +892,8 @@ ul[data-part='list'] > li {
 }
 
 .route-stop-pin.is-completed {
-  background: #16a34a !important;
   opacity: 0.85;
 }
-
-.route-stop-pin.is-base-return {
-  background: #dc2626 !important;
-}
-
-.route-stop-pin.team-0 { background: #2563eb; }
-.route-stop-pin.team-1 { background: #16a34a; }
-.route-stop-pin.team-2 { background: #d97706; }
-.route-stop-pin.team-3 { background: #9333ea; }
-.route-stop-pin.team-4 { background: #ea580c; }
-.route-stop-pin.team-5 { background: #0891b2; }
-.route-stop-pin.team-6 { background: #4f46e5; }
-.route-stop-pin.team-7 { background: #db2777; }
 
 .route-popup-card {
   font-size: 0.85rem;

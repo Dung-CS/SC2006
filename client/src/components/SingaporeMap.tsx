@@ -84,6 +84,7 @@ export interface MapRouteWaypoint {
   isBaseReturn?: boolean;
   isHq?: boolean;
   priority?: string;
+  pestType?: string;
   taskType?: string;
 }
 
@@ -151,19 +152,37 @@ const MARKER_NAMES: Record<MapMarker['kind'], string> = {
 };
 
 const PEST_ICONS: Record<string, { emoji: string; color: string; label: string }> = {
-  Mosquito: { emoji: '🦟', color: '#DC2626', label: 'Mosquito' },
-  Rat: { emoji: '🐀', color: '#D97706', label: 'Rat' },
-  Cockroach: { emoji: '🪳', color: '#92400E', label: 'Cockroach' },
-  Snake: { emoji: '🐍', color: '#059669', label: 'Snake' },
-  BeeWasp: { emoji: '🐝', color: '#CA8A04', label: 'Bee / Wasp' },
-  HouseCrow: { emoji: '🦅', color: '#4B5563', label: 'House Crow' },
-  Pigeon: { emoji: '🐦', color: '#64748B', label: 'Pigeon' },
-  Fly: { emoji: '🪰', color: '#475569', label: 'Fly' },
-  Ant: { emoji: '🐜', color: '#DC2626', label: 'Ant' },
-  Termite: { emoji: '🪵', color: '#854D0E', label: 'Termite' },
-  WildBoar: { emoji: '🐗', color: '#78350F', label: 'Wild Boar' },
-  Macaque: { emoji: '🐒', color: '#B45309', label: 'Macaque' },
+  Mosquito: { emoji: '\uD83E\uDD9F', color: '#DC2626', label: 'Mosquito' },
+  Rat: { emoji: '\uD83D\uDC00', color: '#D97706', label: 'Rat' },
+  Cockroach: { emoji: '\uD83E\uDEB3', color: '#92400E', label: 'Cockroach' },
+  Fly: { emoji: '\uD83E\uDEB0', color: '#475569', label: 'Fly' },
+  BedBug: { emoji: '\uD83D\uDC1B', color: '#92400E', label: 'Bed Bug' },
+  Flea: { emoji: '\uD83D\uDC1B', color: '#92400E', label: 'Flea' },
+  Termite: { emoji: '\uD83E\uDEB5', color: '#854D0E', label: 'Termite' },
+  Ant: { emoji: '\uD83D\uDC1C', color: '#DC2626', label: 'Ant' },
+  Snake: { emoji: '\uD83D\uDC0D', color: '#059669', label: 'Snake' },
+  WildBoar: { emoji: '\uD83D\uDC17', color: '#78350F', label: 'Wild Boar' },
+  Macaque: { emoji: '\uD83D\uDC12', color: '#B45309', label: 'Macaque' },
+  MonitorLizard: { emoji: '\uD83E\uDD8E', color: '#059669', label: 'Monitor Lizard' },
+  Otter: { emoji: '\uD83E\uDDA6', color: '#059669', label: 'Otter' },
+  Civet: { emoji: '\uD83D\uDC08', color: '#78350F', label: 'Civet' },
+  Bat: { emoji: '\uD83E\uDD87', color: '#4B5563', label: 'Bat' },
+  Pangolin: { emoji: '\uD83E\uDD8E', color: '#78350F', label: 'Pangolin' },
+  Crocodile: { emoji: '\uD83D\uDC0A', color: '#059669', label: 'Crocodile' },
+  HouseCrow: { emoji: '\uD83E\uDD85', color: '#4B5563', label: 'House Crow' },
+  Pigeon: { emoji: '\uD83D\uDC26', color: '#64748B', label: 'Pigeon' },
+  JavanMyna: { emoji: '\uD83D\uDC26', color: '#4B5563', label: 'Javan Myna' },
+  BeeWasp: { emoji: '\uD83D\uDC1D', color: '#CA8A04', label: 'Bee / Wasp' },
+  Other: { emoji: '\uD83D\uDC1B', color: '#64748B', label: 'Other pest' },
 };
+
+export function getMapPestIcon(pestType?: string): string {
+  return PEST_ICONS[pestType ?? '']?.emoji ?? '\uD83D\uDC1B';
+}
+
+export function getMapPriorityClass(priority?: string): string {
+  return ['Critical', 'High', 'Medium', 'Low'].includes(priority ?? '') ? `priority-${priority?.toLowerCase()}` : 'priority-low';
+}
 
 const REPORT_TYPE_ICONS: Record<string, { emoji: string; color: string; label: string }> = {
   StandingWater: { emoji: '💧', color: '#0284C7', label: 'Standing Water' },
@@ -393,12 +412,11 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         const center = shape.getBounds().getCenter();
         const badgeIcon = L.divIcon({
           className: 'cluster-badge-container',
-          html: `<div class="cluster-map-pill tier-${cluster.tier} ${selected ? 'is-selected' : ''}" role="button" tabindex="0" aria-label="${escapeHtml(cluster.locality)}: ${cluster.caseSize} ${escapeHtml(cluster.countLabel ?? 'case(s)')}">
-            <span class="cluster-pill-icon" aria-hidden="true">${cluster.icon ?? '🦟'}</span>
-            <span class="cluster-pill-cases">${cluster.caseSize} ${escapeHtml(cluster.countLabel ?? 'cases')}</span>
+          html: `<div class="cluster-map-pill ${getMapPriorityClass(cluster.tier)} ${selected ? 'is-selected' : ''}" role="button" tabindex="0" aria-label="${escapeHtml(cluster.locality)}: ${escapeHtml(cluster.tierLabel)}">
+            <span class="cluster-pill-icon" aria-hidden="true">${getMapPestIcon(cluster.pestType)}</span>
           </div>`,
-          iconSize: [92, 28],
-          iconAnchor: [46, 14],
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
         });
         const badgeMarker = L.marker(center, { icon: badgeIcon, interactive: true });
         badgeMarker.bindTooltip(`${escapeHtml(cluster.locality)} — ${escapeHtml(cluster.tierLabel)}`, {
@@ -492,7 +510,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
 
       const bounds = L.latLngBounds([]);
 
-      routes.forEach((r, teamIdx) => {
+      routes.forEach((r) => {
         if (r.coordinates.length >= 2) {
           const latlngs = r.coordinates.map((c) => [c.latitude, c.longitude] as [number, number]);
           latlngs.forEach((pt) => bounds.extend(pt));
@@ -512,17 +530,18 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
             bounds.extend([wp.point.latitude, wp.point.longitude]);
             const isHq = wp.isHq;
             const isDone = wp.isCompleted;
-            const isBaseReturn = wp.isBaseReturn;
-            const teamClass = `team-${teamIdx % 8}`;
 
             const icon = L.divIcon({
               className: 'custom-route-marker',
-              html: `<div class="route-stop-pin ${isHq ? 'is-hq' : teamClass} ${isDone ? 'is-completed' : ''} ${isBaseReturn ? 'is-base-return' : ''}">${isHq ? '🏢' : idx}</div>`,
-              iconSize: [28, 28],
-              iconAnchor: [14, 14],
+              html: `<div class="route-stop-pin ${isHq ? 'is-hq' : getMapPriorityClass(wp.priority)}" aria-label="${escapeHtml(isHq ? wp.label : `${wp.label}: ${wp.priority ?? 'Low'} priority`)}">${isHq ? '🏢' : `<span aria-hidden="true">${getMapPestIcon(wp.pestType)}</span>`}</div>`,
+              iconSize: [isHq ? 30 : 36, isHq ? 30 : 36],
+              iconAnchor: [isHq ? 15 : 18, isHq ? 15 : 18],
             });
 
-            const marker = L.marker([wp.point.latitude, wp.point.longitude], { icon });
+            const marker = L.marker([wp.point.latitude, wp.point.longitude], {
+              icon,
+              title: isHq ? wp.label : `${wp.label}: ${wp.priority ?? 'Low'} priority`,
+            });
             marker.bindPopup(`
               <div class="route-popup-card">
                 <strong>Team ${escapeHtml(r.teamId)}</strong>

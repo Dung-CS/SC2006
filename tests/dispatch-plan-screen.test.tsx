@@ -63,12 +63,13 @@ describe('Precomputed dispatch and vehicle-load display', () => {
     expect(screen.getByText('Provisional item values')).toBeTruthy();
   });
 
-  it('retains external authority tasks when there are no internal routes', async () => {
+  it('does not display external authority tasks on dispatch when there are no internal routes', async () => {
     mount({ planStatus: 'ready', referrals: [{ reportId: 'snake-1', pestType: 'Snake', priority: 'Critical',
       locality: 'Snake report', authority: 'NParks', reason: 'Specialist authority response required.' }] });
-    expect(await screen.findByRole('heading', { name: 'External authority tasks (1)' })).toBeTruthy();
-    expect(screen.getByText(/Critical: Snake report/)).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Review referral' }).getAttribute('href')).toBe('/ops/referrals/snake-1');
+    await screen.findByRole('heading', { name: /Active Clusters & Multi-Team Road Routes/ });
+    expect(screen.queryByRole('heading', { name: /External authority tasks/ })).toBeNull();
+    expect(screen.queryByText(/Critical: Snake report/)).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Review referral' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
     expect(screen.queryByText(/No eligible tasks/)).toBeNull();
   });

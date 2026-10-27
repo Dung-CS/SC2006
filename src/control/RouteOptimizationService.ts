@@ -1,7 +1,7 @@
 import { GeoPoint } from '../entity/valueTypes';
 import { StaffStatus, PriorityTier, TaskType, PestType } from '../entity/enums';
 import { IRouteStrategy, RoutePlan } from './routing/IRouteStrategy';
-import { DirectDistanceRoutingStrategy } from './routing/DirectDistanceRoutingStrategy';
+import { isUsableDrivingRoute } from '../boundary/gateways/OneMapGateway';
 import type { Vehicle } from '../entity/Vehicle';
 import { generatePackingList, logisticsLoad, itemFitsCargo, LOGISTICS_LOAD_BASIS, PackingItem } from './LogisticsPolicy';
 export { generatePackingList } from './LogisticsPolicy';
@@ -20,6 +20,9 @@ export interface RouteTeam {
 
 export interface RouteJob {
   workOrderId: string;
+  reportIds?: string[];
+  reportCount?: number;
+  individualCounts?: Array<{ reportId: string; estimatedCount: number | null }>;
   clusterId?: string | null;
   sourceReportId?: string;
   mapClusterId?: string;
@@ -41,6 +44,9 @@ export interface PlannedWaypoint {
   label: string;
   point: GeoPoint;
   workOrderId?: string;
+  reportIds?: string[];
+  reportCount?: number;
+  individualCounts?: Array<{ reportId: string; estimatedCount: number | null }>;
   clusterId?: string | null;
   sourceReportId?: string;
   mapClusterId?: string;
@@ -170,11 +176,11 @@ interface CrewAssignment {
 }
 
 export class RouteOptimizationService {
-  constructor(private readonly strategy: IRouteStrategy, private readonly roadWaitBudgetMs = 30_000) {}
+  constructor(private readonly strategy: IRouteStrategy, private readonly roadWaitBudgetMs = 30_000,
+    private readonly perCandidateWaitMs = 5_000) {}
 
-  async plan(teams: RouteTeam[], jobs: RouteJob[], vehicles?: Vehicle[]): Promise<PlannedTeamRoute[]> {
+  async plan(teams: RouteTeam[], jobs: RouteJob[], vehicles?: Vehicle[], roadUnverified = new Set<string>()): Promise<PlannedTeamRoute[]> {
     const roadDeadline = Date.now() + this.roadWaitBudgetMs;
-    const fallback = new DirectDistanceRoutingStrategy();
     const poolIds = new Set<string>();
     const pools = teams.filter((team) => {
       if (poolIds.has(team.teamId)) return false;
@@ -196,7 +202,8 @@ export class RouteOptimizationService {
     });
     const assignments: CrewAssignment[] = [];
     const reserved = new Map<RouteTeam, number>();
-    const cache = new Map<string, RoutePlan>();
+    const cache = new Map<string, RoutePlan | null>();
+    const roadVerified = new Set<string>();
     const jobIds = new Set<string>();
     const pending = jobs.filter((job) => {
       if (jobIds.has(job.workOrderId)) return false;
@@ -265,38 +272,44 @@ export class RouteOptimizationService {
         }
         candidates.sort((a, b) => a.cost - b.cost);
         for (const candidate of candidates) {
-          const calculate = async (routeJobs: RouteJob[]): Promise<RoutePlan> => {
+          const calculate = async (routeJobs: RouteJob[]): Promise<RoutePlan | null> => {
             const stops = this.stops(candidate.pool.hq, routeJobs);
             const key = stops.map((point) => `${point.latitude},${point.longitude}`).join(';');
-            let route = cache.get(key);
-            if (!route) {
-              const remaining = roadDeadline - Date.now();
-              if (remaining <= 0) route = await fallback.calculateRoute(stops);
-              else {
-                let timer: ReturnType<typeof setTimeout> | undefined;
-                try {
-                  route = await Promise.race([
-                    this.strategy.calculateRoute(stops),
-                    new Promise<RoutePlan>((resolve, reject) => {
-                      timer = setTimeout(() => { void fallback.calculateRoute(stops).then(resolve, reject); }, remaining);
-                    }),
-                  ]);
-                } finally { if (timer) clearTimeout(timer); }
-              }
-              cache.set(key, route);
+            if (cache.has(key)) return cache.get(key)!;
+            let route: RoutePlan | null = null;
+            const remaining = roadDeadline - Date.now();
+            if (remaining > 0) {
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              try {
+                route = await Promise.race([
+                  this.strategy.calculateRoute(stops),
+                  new Promise<never>((_resolve, reject) => {
+                    timer = setTimeout(() => reject(new Error('Road verification wait budget exhausted')),
+                      Math.min(remaining, this.perCandidateWaitMs));
+                  }),
+                ]);
+                if (route.source !== 'onemap' || !isUsableDrivingRoute(route, stops)) route = null;
+              } catch { route = null; }
+              finally { if (timer) clearTimeout(timer); }
             }
+            cache.set(key, route);
             return route;
           };
           let plan = await calculate(candidate.jobs);
           const shortened = this.shorten(candidate.pool.hq, candidate.jobs);
           if (shortened.some((item, i) => item !== candidate.jobs[i])) {
             const shorterPlan = await calculate(shortened);
-            if (Number.isFinite(shorterPlan.durationSeconds) && shorterPlan.durationSeconds >= 0 &&
-                (!Number.isFinite(plan.durationSeconds) || shorterPlan.durationSeconds < plan.durationSeconds)) {
+            if (shorterPlan && (!plan || shorterPlan.durationSeconds < plan.durationSeconds)) {
               candidate.jobs = shortened;
               plan = shorterPlan;
             }
           }
+          if (!plan) {
+            if (!roadVerified.has(job.workOrderId)) roadUnverified.add(job.workOrderId);
+            continue;
+          }
+          roadVerified.add(job.workOrderId);
+          roadUnverified.delete(job.workOrderId);
           const duration = plan.durationSeconds + this.effort(candidate.jobs) + this.lag(candidate.pool);
           if (!Number.isFinite(plan.durationSeconds) || plan.durationSeconds < 0 || duration > MAX_DISPATCH_SECONDS) continue;
           reserved.set(candidate.pool, (reserved.get(candidate.pool) ?? 0) + candidate.addedHeads);
@@ -384,6 +397,7 @@ export class RouteOptimizationService {
       waypointOrder.push({
         label: `Stop ${index + 1}: ${job.locality ?? job.workOrderId} (${job.taskType ?? 'Task'})`,
         point: job.point, workOrderId: job.workOrderId, clusterId: job.clusterId, sourceReportId: job.sourceReportId, mapClusterId: job.mapClusterId, taskType: job.taskType, pestType: job.pestType,
+        reportIds: job.reportIds, reportCount: job.reportCount, individualCounts: job.individualCounts,
         priority: job.priority, requiredStaff: job.requiredStaff, status: isDone ? 'Completed' : job.status === 'InProgress' ? 'InProgress' : 'Pending',
         isCompleted: isDone, estimatedEffortMinutes: job.estimatedEffortMinutes ?? 35,
         requiresBaseReturn: job.requiresBaseReturn ?? false, isBaseReturn: false, isHq: false,

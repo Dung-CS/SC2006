@@ -242,6 +242,14 @@ package "Scoring" {
 }
 
 package "Community reporting" {
+  class ReportSpatialGroup <<entity>> {
+    id : string
+    reports : Report[]
+    representative : Report
+    priority : PriorityTier
+    reportIds : string[]
+    individualCounts : ReportCount[]
+  }
   class Report <<entity>> {
     latitude
     longitude
@@ -410,6 +418,16 @@ PriorityScore "0..*" -- "1" PestProfile : scored under >
 PestProfile "1" -- "0..*" ObservationRecord : observed as >
 PestProfile "1" -- "0..*" Report : classified by >
 PestProfile "1" -- "0..*" WorkOrder : classified by >
+
+ReportSpatialGroup "1" o-- "1..*" Report : aggregates nearby
+ReportSpatialGroup "0..*" -- "1" PriorityTier : classified by >
+note right of ReportSpatialGroup
+  Complete-link spatial cluster of reports within
+  DEFAULT_REPORT_CLUSTER_DISTANCE_METRES = 100 m.
+  Individual Report records are NOT modified; this is
+  a read-only aggregation used by DispatchController
+  and MapViewController to surface possible duplicates.
+end note
 
 Report "1" *-- "0..3" ReportPhoto : evidence
 Report "1" -- "0..*" Corroboration : corroborated by >

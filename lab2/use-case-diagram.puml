@@ -20,8 +20,13 @@ skinparam packageStyle rectangle
 skinparam actorStyle awesome
 skinparam shadowing false
 
+skinparam rectangle<<supporting>> {
+  BackgroundColor #F4F6F9
+  BorderColor #8C9BA5
+}
+
 ' ---------- Actors ----------
-actor "Registered User" as RU
+actor "Registered User\n{abstract}" as RU
 actor "Resident" as RES
 actor "Operations Manager" as OM
 actor "Cleaning Crew Member" as CCM
@@ -98,11 +103,13 @@ rectangle "D-Fence" {
   usecase "7.10 Evaluate Critical Override" as UC710
 
   ' ---------- 8. Shared, included by others ----------
-  usecase "8.1 Geocode Address" as UC81
-  usecase "8.2 View Driver Breakdown" as UC82
-  usecase "8.3 Link Verified Reports" as UC83
-  usecase "8.4 Record Treatment" as UC84
-  usecase "8.5 Apply Pest Severity Profile" as UC85
+  rectangle "Supporting Services (Reusable / Included)" <<supporting>> {
+    usecase "8.1 Geocode Address" as UC81
+    usecase "8.2 View Driver Breakdown" as UC82
+    usecase "8.3 Link Verified Reports" as UC83
+    usecase "8.4 Record Treatment" as UC84
+    usecase "8.5 Apply Pest Severity Profile" as UC85
+  }
 }
 
 ' ---------- Actor associations ----------

@@ -87,6 +87,20 @@ package "Boundary — External services" #F7FAFD {
 }
 
 package "Control" #FAF7FD {
+  class ReportSpatialClustering <<control>> {
+    groupNearbyReports(reports : Report[], distanceMetres : number) : ReportSpatialGroup[]
+    DEFAULT_REPORT_CLUSTER_DISTANCE_METRES : 100
+  }
+  class RouteOptimizationService <<control>> {
+    plan(teams, jobs, vehicles, roadUnverified)
+    ' Road-only: non-mainland / unreachable tasks without driving road
+    ' access are excluded and marked unplanned. No straight-line fallback.
+  }
+  class OneMapRoadRoutingStrategy <<control>> {
+    getRoute(origin, destination)
+    ' Enforces complete verified driving road access.
+    ' Non-road-accessible points are rejected; no direct-distance fallback.
+  }
   class AuthenticationController <<control>> {
     register()
     signIn()
@@ -286,8 +300,22 @@ NotificationController --> Alert
 DashboardController --> PriorityScore
 DispatchController --> WorkOrder
 DispatchController --> Report
+ReportSpatialClustering --> Report : aggregates nearby
+DispatchController --> ReportSpatialClustering : uses for deduplication
+MapViewController --> ReportSpatialClustering : renders clusters
+DispatchController --> RouteOptimizationService : plans route
+RouteOptimizationService --> OneMapRoadRoutingStrategy : delegates routing
 WorkOrderLifecycleController --> WorkOrder
 WorkOrderLifecycleController --> TreatmentRecord
+
+note top of DispatchProposalUI
+  Renders task markers and cluster badges with pest icon emoji,
+  background coloured strictly by PriorityTier (Critical #7F1D1D,
+  High #B91C1C, Medium #C2410C, Low #047857); descriptive text
+  removed from marker surface. The dedicated External authority
+  tasks list is REMOVED from this screen; external agency
+  handovers are handled exclusively by ReferralUI / ReferralController.
+end note
 
 note top of AccessControlService
   Cross-cutting. Every controller consults it before

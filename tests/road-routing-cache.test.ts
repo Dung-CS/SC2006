@@ -36,7 +36,7 @@ describe('Road routing directed-leg reuse', () => {
     expect((await second).durationSeconds).toBe(20);
     const failing = vi.fn().mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue(leg(a, b));
     const retry = strategy(failing);
-    expect((await retry.calculateRoute([a, b])).source).toBe('direct-distance');
+    await expect(retry.calculateRoute([a, b])).rejects.toThrow('unavailable');
     expect((await retry.calculateRoute([a, b])).source).toBe('onemap');
     expect(failing).toHaveBeenCalledTimes(2);
   });

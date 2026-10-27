@@ -320,6 +320,51 @@ package "Work-order lifecycle" #FAF7FD {
   DispatchController --> WorkOrderLifecycleController : every status change
 }
 
+package "Spatial clustering and routing" #FAF7FD {
+  class ReportSpatialClustering <<control>> {
+    + groupNearbyReports(reports : Report[], distanceMetres : number) : ReportSpatialGroup[]
+    + {static} DEFAULT_REPORT_CLUSTER_DISTANCE_METRES : number
+  }
+  class ReportSpatialGroup <<value>> {
+    + id : string
+    + reports : Report[]
+    + representative : Report
+    + priority : PriorityTier
+    + reportIds : string[]
+    + individualCounts : ReportCount[]
+  }
+  class RouteOptimizationService <<control>> {
+    - routing : RoadRoutingStrategy
+    + plan(teams : CrewTeam[], jobs : DispatchJob[], vehicles : Vehicle[], roadUnverified : GeoPoint[]) : DispatchPlan
+    ' Non-road-accessible tasks are excluded and marked unplanned.
+    ' No straight-line / direct-distance fallback is permitted.
+  }
+  interface RoadRoutingStrategy <<interface>> {
+    + getRoute(origin : GeoPoint, destination : GeoPoint) : DrivingRoute
+  }
+  class OneMapRoadRoutingStrategy <<control>> {
+    - gateway : OneMapGateway
+    + getRoute(origin : GeoPoint, destination : GeoPoint) : DrivingRoute
+    ' Rejects non-road-accessible points; throws RouteUnavailableError.
+    ' No direct-distance fallback.
+  }
+  RouteOptimizationService *-- RoadRoutingStrategy
+  RoadRoutingStrategy <|.. OneMapRoadRoutingStrategy
+  ReportSpatialClustering ..> ReportSpatialGroup : produces
+  note bottom of OneMapRoadRoutingStrategy
+    **Strategy.** RoadRoutingStrategy is the interface; OneMapRoadRoutingStrategy
+    is the only concrete implementation. Non-road-accessible points (e.g. offshore
+    islands) raise RouteUnavailableError; the planner marks those tasks unplanned.
+    Prohibiting a direct-distance fallback prevents silently incorrect routes.
+  end note
+  note bottom of ReportSpatialClustering
+    Complete-link spatial clustering over verified Report coordinates.
+    DEFAULT_REPORT_CLUSTER_DISTANCE_METRES = 100. Individual Report records
+    are NOT modified; ReportSpatialGroup is a transient read-only aggregate
+    consumed by DispatchController and MapViewController.
+  end note
+}
+
 package "Remaining control classes (full signatures in src/control)" #FAF7FD {
   class AuthenticationController <<control>>
   class StaffAccountController <<control>>

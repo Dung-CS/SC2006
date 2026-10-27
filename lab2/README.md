@@ -48,10 +48,12 @@ trace still resolves.
 
 | File | View |
 |---|---|
-| `use-case-diagram.puml` → `D-Fence-UseCases.*` | Master — all 41, complete but dense |
-| `use-case-diagram-resident.puml` → `D-Fence-Resident.*` | Resident |
-| `use-case-diagram-operations.puml` → `D-Fence-Operations.*` | Operations Manager |
-| `use-case-diagram-crew-system.puml` → `D-Fence-Crew-and-System.*` | Cleaning Crew and system actors |
+| `use-case-diagram.puml` → `D-Fence-UseCases.*` | Master — all 48 use cases, complete structural reference |
+| `use-case-diagram-resident.puml` → `D-Fence-Resident.*` | Diagram A: Resident |
+| `use-case-diagram-operations.puml` → `D-Fence-Operations.*` | Diagram B: Operations Manager |
+| `use-case-diagram-crew.puml` → `D-Fence-Crew.*` | Diagram C: Cleaning Crew (field work) |
+| `use-case-diagram-system.puml` → `D-Fence-System.*` | Diagram D: Automated System Services & Ingestion |
+| `use-case-diagram-crew-system.puml` → `D-Fence-Crew-and-System.*` | Combined Crew & System view (backwards compatibility) |
 
 Rendered and visually checked with PlantUML 1.2024.7 on Java 21. Re-render after any edit:
 

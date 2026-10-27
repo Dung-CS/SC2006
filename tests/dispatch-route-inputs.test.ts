@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ConfigLoader } from '../src/config/ConfigLoader';
 import { buildDispatchRouteInputs } from '../src/control/DispatchRouteInputs';
 import { RouteOptimizationService } from '../src/control/RouteOptimizationService';
-import { DirectDistanceRoutingStrategy } from '../src/control/routing/DirectDistanceRoutingStrategy';
+import { MockRoadRoutingStrategy } from './helpers/MockRoadRoutingStrategy';
 import { Account } from '../src/entity/Account';
 import { Cluster } from '../src/entity/Cluster';
 import { WorkOrder } from '../src/entity/WorkOrder';
@@ -40,7 +40,7 @@ describe('Real dispatch candidate admission and staffing', () => {
         suggestedTaskType: TaskType.Fogging, pestType: PestType.Mosquito, scheduledDate: date }] });
     expect(input.jobs).toHaveLength(9);
     expect(input.jobs.find((job) => job.priority === PriorityTier.High)?.requiredStaff).toBe(3);
-    const routes = await new RouteOptimizationService(new DirectDistanceRoutingStrategy()).plan(input.teams, input.jobs);
+    const routes = await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(input.teams, input.jobs);
     expect(routes.flatMap((r) => r.workOrderIds)).toContain('prop-urgent-Mosquito');
     expect(routes.find((r) => r.workOrderIds.includes('prop-urgent-Mosquito'))?.workOrderIds[0]).toBe('prop-urgent-Mosquito');
   });
@@ -104,7 +104,7 @@ describe('Mixed-pest dispatch admission', () => {
     expect(input.jobs.map((j) => j.pestType)).toEqual([PestType.Rat, PestType.Cockroach, PestType.Termite, PestType.Mosquito]);
     expect(input.jobs.slice(0, 3).every((j) => j.priority === PriorityTier.High)).toBe(true);
     expect(input.referrals).toMatchObject([{ reportId: 'snake', pestType: PestType.Snake, priority: 'Critical' }]);
-    const routes = await new RouteOptimizationService(new DirectDistanceRoutingStrategy()).plan(input.teams, input.jobs);
+    const routes = await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(input.teams, input.jobs);
     expect(routes.flatMap((r) => r.workOrderIds)).toEqual(expect.arrayContaining(['report-rat', 'report-roach', 'report-termite']));
   });
 

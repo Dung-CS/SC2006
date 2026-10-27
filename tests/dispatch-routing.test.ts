@@ -45,7 +45,7 @@ import { PremisesMix } from '../src/entity/valueTypes';
 import { GeoPoint } from '../src/entity/valueTypes';
 import { RouteOptimizationService } from '../src/control/RouteOptimizationService';
 import { DispatchPlanService } from '../src/control/DispatchPlanService';
-import { DirectDistanceRoutingStrategy } from '../src/control/routing/DirectDistanceRoutingStrategy';
+import { MockRoadRoutingStrategy } from './helpers/MockRoadRoutingStrategy';
 import { PestClass, PestType, ReportStatus, ReportType, Role, StaffSpecialisation, TaskType, WorkOrderStatus } from '../src/entity/enums';
 import { InMemoryReportStore } from '../src/persistence/memory/InMemoryReportStores';
 
@@ -480,7 +480,7 @@ describe('HTTP — the boundary refuses what the screen would not offer', () => 
   it('H7 — route preview exposes insufficient-crew urgent work and leaves stored orders unchanged', async () => {
     const point = new GeoPoint(1.32, 103.85);
     const handler = new WorkOrderRoutes(f.ac, f.dispatch, f.lifecycle, f.staff,
-      new RouteOptimizationService(new DirectDistanceRoutingStrategy()), async () => ({
+      new RouteOptimizationService(new MockRoadRoutingStrategy()), async () => ({
         teams: [{ teamId: 'Central-Vector', hq: point, capabilities: ['Vector'], staffCount: 1 }],
         jobs: [
           { workOrderId: 'urgent', point, requiredCapability: 'Vector', taskType: TaskType.Fogging,

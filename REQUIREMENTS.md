@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.11 · drafted 2026-09-02, revised 2026-10-27 · status: DRAFT for team review
+Version 0.12 · drafted 2026-09-02, revised 2026-10-27 · status: DRAFT for team review
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -24,6 +24,13 @@ payload, cargo volume and bay dimensions fit its crew and packing list. Task typ
 mandates an intermediate return. Demo vehicles and provisional equipment envelopes are labelled.
 This version records the requested contract; its final validation and deployment status must be
 established separately from the earlier v0.10 deployment evidence below.
+
+**v0.12 revises dispatch map, road routing and referral display obligations, and adds spatial report
+grouping.** Dispatch task markers show pest icons coloured by priority, and the external referral list
+is no longer displayed on Dispatch; the dedicated referral workflow remains. Executable routes require
+complete validated driving-road geometry. Spatial grouping uses an adjustable 100 m default, a bounded
+diameter, and preserves each original report as a distinct record. This is a requirements amendment;
+implementation verification and deployment status are recorded separately.
 
 ## How to read this document
 
@@ -775,9 +782,9 @@ manager creates or assigns the work orders.)*
 - **8.7.24** The planner shall shorten a candidate route before deciding whether it fits the elapsed-time limit.
 - **8.7.25** The planner shall preserve descending priority-tier order when shortening a route.
 - **8.7.26** The planner shall retain an intermediate outpost return explicitly requested for a task, rather than infer a mandatory return from its pest or task type. *(Revised in v0.11: vehicle logistics limits replace automatic task-based returns.)*
-- **8.7.27** The planner shall use road travel duration returned by OneMap when it is available for the candidate route.
+- **8.7.27** The planner shall create executable routes only from complete, validated driving-road geometry returned by OneMap for every leg.
 - **8.7.28** The planner shall reject a candidate route whose road travel and other elapsed time exceed 14,400 seconds.
-- **8.7.29** The planner shall use a labelled direct-distance travel estimate when road routing is unavailable.
+- **8.7.29** The planner shall not use a direct-distance or straight-line estimate as an executable travel route when validated driving-road geometry is unavailable.
 - **8.7.30** The planner shall display the routing source used for each route.
 - **8.7.31** The planner shall retain the feasible allocation while shortening routes, rather than remove a higher-priority task to obtain a shorter route.
 - **8.7.32** The planner shall report each route's actual calculated duration without clipping it to the dispatch limit.
@@ -787,8 +794,9 @@ manager creates or assigns the work orders.)*
 - **8.7.36** The planner shall honour an explicit maximum-stop limit supplied for a crew.
 - **8.7.37** Requesting a route preview shall not create work orders or change their lifecycle status.
 - **8.7.38** The route preview shall list eligible candidate tasks that remain unallocated, with their priority, required staff count and an explanation of the remaining capacity constraint.
-- **8.7.39** The planner shall reuse successful directed road-leg calculations for up to five minutes in a bounded cache of at most 512 entries; failed road requests shall remain retryable.
-- **8.7.40** A background calculation shall limit its total wait for road-provider responses to thirty seconds and use labelled direct-distance estimates for subsequent route checks when that budget is exhausted.
+- **8.7.39** The planner shall reuse successful, validated directed driving-road geometry for up to five minutes in a bounded cache of at most 512 entries; failed or invalid road responses shall remain retryable.
+- **8.7.40** A background calculation shall limit its total wait for road-provider responses to thirty seconds. Legs without a successful, validated road response at that deadline shall remain unverified, and affected tasks shall remain unplanned without a direct-distance fallback.
+- **8.7.41** The planner shall mark a task unplanned when a validated road result confirms that no drivable route connects it, including offshore or no-road locations. It shall not treat a timeout or unverified response as proof that a task is unreachable.
 
 ## 8.8 Task capabilities, crew sizes and effort
 
@@ -863,6 +871,17 @@ tier so that an unscored verified report does not disappear beneath dengue-only 
 - **8.9.25** The dispatch snapshot shall retain externally handled cases in a referral list instead of silently dropping them.
 - **8.9.26** Each referral-list item shall state its priority and responsible external authority.
 - **8.9.27** Map report hotspots and dispatch report candidates shall use the same report-triage policy.
+- **8.9.28** The system shall use a configurable report-grouping distance in metres, defaulting to 100 m and accepting values from 1 m to 1,000 m.
+- **8.9.29** A spatial report group shall contain reports with the same pest type.
+- **8.9.30** A spatial report group shall contain reports with the same report type and derived task type.
+- **8.9.31** The distance between every pair of report locations in a group shall not exceed the configured grouping distance.
+- **8.9.32** The system shall select a group's representative report from its actual member reports, using highest priority and then ascending report id as tie-breaks.
+- **8.9.33** The system shall preserve every group's original report, photograph and animal count as separate source data without summing counts.
+- **8.9.34** The map, dispatch candidate and route preview shall use the same stable identifier for a spatial report group.
+- **8.9.35** The system shall use the highest member priority as the spatial report group's priority.
+- **8.9.36** An open work order linked to any group member shall suppress a duplicate proposal for that group.
+- **8.9.37** The system shall keep existing lifecycle work orders as separate records when it groups reports.
+- **8.9.38** The planner shall exclude reports linked to completed or verified work orders from a new group proposal.
 
 ## 8.10 Logistics loads and vehicle allocation
 
@@ -1157,10 +1176,10 @@ otherwise.*
 *(Added in v0.10. Section 11.9 retains its permanent numbers in its existing location above §10.)*
 
 - **11.10.1** The Dispatch Proposal screen shall display each planned crew's route as a distinct map line.
-- **11.10.2** The dispatch map shall display numbered task-stop markers in route order.
+- **11.10.2** The dispatch map shall display task-stop markers in route order.
 - **11.10.3** The dispatch map shall display each planned crew's outpost marker.
-- **11.10.4** The dispatch map shall use road-following geometry when OneMap returns it.
-- **11.10.5** The dispatch map shall distinguish Critical, High, Medium and Low clusters through text labels and distinct colours.
+- **11.10.4** The dispatch map shall draw route lines only from complete, validated driving-road geometry.
+- **11.10.5** The dispatch map shall distinguish Critical, High, Medium and Low cluster priorities through distinct colours, identified by the legend in 11.10.6.
 - **11.10.6** The dispatch map shall include a legend naming all four priority tiers.
 - **11.10.7** The Dispatch Proposal screen shall allow the manager to switch between all active clusters and clusters represented in the current dispatch preview.
 - **11.10.8** The Dispatch Proposal screen shall provide a control on a target or stop card that centres the map on that target.
@@ -1173,6 +1192,7 @@ otherwise.*
 - **11.10.15** The Report a Site screen shall distinguish a model-detected count from the Resident's editable confirmed count.
 - **11.10.16** The Report a Site screen shall display a loading state while image analysis runs.
 - **11.10.17** The Report a Site screen shall retain manually entered report fields when image analysis fails.
+- **11.10.18** Each pest marker on the dispatch map shall show only a pest icon, coloured by priority, with no descriptive marker text. The marker shall have an accessible name; hover or popup detail may retain the descriptive information.
 
 ## 11.11 Dispatch refresh, load display and fleet controls
 
@@ -1184,7 +1204,7 @@ vehicle on its registry row and on any route that uses it.)*
 - **11.11.3** The Dispatch screen shall display the completed plan's computation timestamp in Singapore time.
 - **11.11.4** The Dispatch screen shall poll for a ready snapshot while a background calculation is pending or refreshing.
 - **11.11.5** The Dispatch screen shall show a failed-calculation explanation without removing the last completed routes.
-- **11.11.6** The Dispatch screen shall display a referral list with each case's priority and responsible authority.
+- **11.11.6** The Dispatch screen shall not display an external referral list. Operations Managers can review and manage referrals on the dedicated screen in 11.2.28.
 - **11.11.7** Each route card shall display the allocated vehicle's name and registration.
 - **11.11.8** Each route card using a demo vehicle shall display a Demo label explaining that its capacities are illustrative.
 - **11.11.9** Each route card shall display its used and maximum payload in kilograms.
@@ -1236,7 +1256,7 @@ statements above describe their dated baseline.
 |---|---|---|
 | 2.5; 8.2.8–8.2.10 | `StaffAccountController`, `StaffRoutingPolicy`, `AdminRoutes`, `StaffAccountsScreen` | Staff provisioning, capability rejection, audited edits and outpost-readiness checks |
 | 5.4; 11.10.12–11.10.17 | `PestRecognitionService`, `PestVisionGateway`, vision strategies, `ReportRoutes`, `ReportSiteScreen`, `PhotoCarousel`, `VisionDetectionOverlay` | Valid and invalid image/result cases, human confirmation, unknown count, provider failure, cache and UI checks; fresh-photo checks from the hosting region remain necessary |
-| 8.7; 8.8; 11.10.1–11.10.11 | `RouteOptimizationService`, server route inputs, `WorkOrderRoutes`, `DispatchProposalScreen`, `SingaporeMap` | Priority-starvation regression, complete candidate queue, real staff count, capability limits, sequential/parallel crews, road-time cap and route-preview checks |
+| 8.7; 8.8; 11.10.1–11.10.18 | `RouteOptimizationService`, server route inputs, `WorkOrderRoutes`, `DispatchProposalScreen`, `SingaporeMap` | Priority-starvation regression, complete candidate queue, real staff count, capability limits, sequential/parallel crews, validated complete driving-road geometry, unplanned offshore/no-road jobs, distinct timeout/unverified reasons, pest-icon-only priority-coloured markers and accessible names |
 | All v0.10 additions | `EPICS-STORIES.md`, Lab 2/3 use cases and models, Lab 4 test plan | Carry forward the new IDs; no completion claim is made for these downstream document updates by this revision |
 
 The accountable lead in 8.2.1 remains the only assignee persisted by the current lifecycle. A
@@ -1252,7 +1272,8 @@ checks remain separate verification steps; no v0.11 production-deployment claim 
 |---|---|---|
 | 2.6; 11.2.29; 11.11.12–11.11.14 | `VehicleController`, `VehicleRepository`, `VehicleRoutes`, `VehicleRegistryScreen`, migration 014 | Manager-only create/edit, invalid capacity refusal, durable records, explicit demo flags, HQ filtering and unavailable-vehicle exclusion |
 | 8.9.1–8.9.17; 10.1.6; 11.11.1–11.11.5 | `DispatchPlanService`, server refresh hooks, `DispatchProposalScreen` | Snapshot reads during a blocked calculation, startup/new-cluster refresh, unchanged fingerprints, change-during-calculation rerun, failure retention and browser status transitions |
-| 8.1.11; 8.9.18–8.9.27; 9.1.17; 11.11.6 | `DispatchController`, `DispatchRouteInputs`, shared report triage, `MapViewController` | Non-dengue high/critical reports outside clusters, overdue work, source/pest/task deduplication and visible external referrals |
+| 8.1.11; 8.9.18–8.9.38; 9.1.17 | `DispatchController`, `DispatchRouteInputs`, spatial report grouping, shared report triage, `MapViewController` | Non-dengue high/critical reports outside clusters, overdue work, complete-link group boundaries, source provenance, shared group identity, member-order suppression, separate lifecycle orders and retained referral snapshot data |
+| 11.2.28; 11.11.6 | `ReferralScreen`, `DispatchProposalScreen` | Referral review and outcome recording on the dedicated screen; no external referral list on Dispatch |
 | 8.10; 11.11.7–11.11.11 | `LogisticsPolicy`, `RouteOptimizationService`, route cards | Item weight/dimensions, shared versus per-task loads, vehicle uniqueness, seats, payload, volume, rotated item fit, parallel load splits and explicit-return rules |
 | All v0.11 additions | `EPICS-STORIES.md`, use cases, data dictionaries, models and Lab 4 test plan | Carry the new permanent IDs through downstream artefacts; those updates are not certified by this master-file revision |
 
@@ -1280,7 +1301,7 @@ reader of this document alone can tell assumption from requirement.*
 | 1.1.1 | A 60-minute poll interval is useful | **Verified 2026-09-03** — the publisher revises on the order of days; 1.1.19–1.1.21 make the hourly cycle a cheap metadata check | See below |
 | 8.1.3 | Five task types match real dispatch | **Unverified** — see the actor note in §Actors | Domain challenge in Q&A |
 | 8.8.4–8.8.9 | Inspection 1, Larviciding 2, Fogging 3, Drain clearance 2 and Refuse clearance 2 staff; task effort 30/40/45/50/40 minutes respectively | Provisional application defaults proposed during the routing correction on 2026-10-27; no external staffing standard or measured productivity evidence | A crew is undersized or the plan overstates throughput; confirm operational requirements before real use |
-| 8.7.22–8.7.29 | Four-hour dispatch window; direct-distance fallback when road routing fails | Product planning rule. Fallback duration is an estimate, not a road-service guarantee | Road conditions or service delays can exceed the planned window |
+| 8.7.22–8.7.29; 8.7.39–8.7.41 | Four-hour dispatch window; complete validated driving-road geometry; no direct-distance executable fallback; unplanned handling for confirmed no-road locations and unverified provider outcomes | Product planning rule; the planner accepts only validated road geometry and durations | Road conditions or service delays can exceed the planned window; an unverified provider response does not establish reachability |
 | 2.6.17–2.6.18; 11.11.8 | Ten initial demo vehicles: a 750 kg / 6 m³ van and a 1,000 kg / 3 m³ pickup per HQ, with illustrative seats and bay dimensions | Yen Kit authorised clearly labelled demo vehicles on 2026-10-27; capacities are application demonstration values with no external fleet evidence | Demo records must be confirmed or replaced before real fleet decisions |
 | 8.10.1–8.10.11 | Equipment weights, rectangular dimensions, consumable quantities and full collection/specimen load envelopes | Provisional application defaults; no measured equipment inventory or operational loading study | Actual equipment, waste or specimens may exceed the envelope; confirm recorded values before operational use |
 | 8.10.15–8.10.17; 8.10.25 | Weight sum, aggregate rectangular volume and individual-item fit across axis rotations | Deliberate first-version load check; no exact 3D bin-packing or axle-load model | Individually fitting items may not fit together; the plan is not a certified loading diagram |
@@ -1340,6 +1361,14 @@ Requirements are written against these sources. Verification status is from
 
 # 14. Revision history and review dispositions
 
+**v0.12 (2026-10-27)** — at Yen Kit's request, remove the referral list from Dispatch while keeping dedicated referral workflows; require complete validated driving-road geometry; distinguish provider timeouts from confirmed no-road cases; add configurable spatial report grouping.
+
+- Revised 8.7.27–8.7.29 and 8.7.39–8.7.41 to prohibit direct-distance executable fallbacks, validate complete road geometry, and leave unverified or confirmed inaccessible jobs unplanned with accurate reasons.
+- Revised 11.11.6 and traceability so referrals remain available through 11.2.28 while Dispatch no longer displays the external-authority list.
+- Revised 11.10.2, 11.10.4 and 11.10.5 and added 11.10.18 for icon-only pest task markers coloured by priority, validated road-only route lines, accessible names and optional hover or popup details.
+- Added 8.9.28–8.9.38 for 100 m default configurable spatial report grouping, bounded group diameter, deterministic actual-member representatives, separate source data, shared IDs, order suppression and lifecycle integrity.
+- Updated the routing acceptance evidence and planning-risk table to match.
+
 **v0.11 (2026-10-27)** — updated after Yen Kit identified slow route calculation and non-dengue
 tasks missing from dispatch, and requested item dimensions, load limits and a vehicle registry.
 
@@ -1347,7 +1376,7 @@ tasks missing from dispatch, and requested item dimensions, load limits and a ve
   and explicitly labelled demo records. The seeder adds two different-capacity vehicles per HQ only
   when the registry is empty.
 - Added §8.9 for background snapshots, source-change refresh, retained last-good plans, complete
-  verified report coverage, overdue work, duplicate suppression and visible external referrals.
+  verified report coverage, overdue work, duplicate suppression and retained external referral data for dedicated referral workflows.
 - Added §8.10 for item weights and dimensions, accumulated logistics envelopes, vehicle reservation,
   seats, payload, volume, individual-item fit and explicit return instructions.
 - Revised 8.1.11 to distinguish pest types on one cluster. Revised 8.7.2 to include report targets

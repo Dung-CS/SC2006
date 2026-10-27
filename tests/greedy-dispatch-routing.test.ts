@@ -12,24 +12,21 @@ const job = (id: string, overrides: Partial<RouteJob> = {}): RouteJob => ({
   workOrderId: id, point: new GeoPoint(1.351, 103.821), requiredCapability: 'Vector',
   taskType: TaskType.Inspection, priority: 'High', ...overrides,
 });
-class Direct implements IRouteStrategy {
+class MockRoad implements IRouteStrategy {
   async calculateRoute(stops: GeoPoint[]): Promise<RoutePlan> {
     const distanceMetres = stops.slice(1).reduce((total, p, i) => total + stops[i]!.distanceTo(p), 0);
-    return { coordinates: stops, distanceMetres, durationSeconds: distanceMetres / 9.72, source: 'direct-distance' };
+    return { coordinates: stops, distanceMetres, durationSeconds: distanceMetres / 9.72, source: 'onemap' };
   }
 }
 
 describe('Priority-first greedy dispatch with real crew capacity', () => {
-  it('finishes a plan with labelled estimates when a road provider does not finish within the shared wait budget', async () => {
+  it('leaves tasks unplanned when a road provider does not finish within the shared wait budget', async () => {
     const stalled: IRouteStrategy = { calculateRoute: async () => new Promise(() => {}) };
     const routes = await new RouteOptimizationService(stalled, 5).plan([pool({ staffCount: 1 })], [job('high')]);
-    expect(routes).toHaveLength(1);
-    expect(routes[0]!.route.source).toBe('direct-distance');
-    expect(routes[0]!.workOrderIds).toEqual(['high']);
-    expect(routes[0]!.totalDurationSeconds).toBeLessThanOrEqual(14400);
+    expect(routes).toEqual([]);
   });
   it('allocates a distant high task before nearby low tasks consume the shift', async () => {
-    const routes = await new RouteOptimizationService(new Direct()).plan([pool({ staffCount: 1 })], [
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 1 })], [
       job('low', { priority: 'Low', estimatedEffortMinutes: 120 }),
       job('high', { point: new GeoPoint(1.43, 103.9), estimatedEffortMinutes: 140 }),
     ]);
@@ -37,7 +34,7 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
   });
 
   it('fills separate parallel crews without counting the same heads twice', async () => {
-    const routes = await new RouteOptimizationService(new Direct()).plan([pool({ staffCount: 5 })],
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 5 })],
       ['one', 'two', 'three'].map((id) => job(id, { requiredStaff: 2, estimatedEffortMinutes: 180 })));
     expect(routes).toHaveLength(2);
     expect(routes.reduce((sum, r) => sum + r.staffCount, 0)).toBe(4);
@@ -45,7 +42,7 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
   });
 
   it('reuses staff for sequential jobs and grows a crew only from unreserved heads', async () => {
-    const routes = await new RouteOptimizationService(new Direct()).plan([pool({ staffCount: 3 })], [
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 3 })], [
       job('small', { requiredStaff: 1 }), job('large', { priority: 'Medium', requiredStaff: 3 }),
     ]);
     expect(routes).toHaveLength(1);
@@ -55,7 +52,7 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
   });
 
   it('leaves infeasible high work pending and uses capacity for lower work that fits', async () => {
-    const routes = await new RouteOptimizationService(new Direct()).plan([pool({ staffCount: 2 })], [
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 2 })], [
       job('high-fog', { taskType: TaskType.Fogging }), job('low-check', { priority: 'Low' }),
     ]);
     expect(routes.flatMap((r) => r.workOrderIds)).toEqual(['low-check']);
@@ -64,7 +61,7 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
   });
 
   it('never substitutes unavailable or unqualified staff', async () => {
-    const planner = new RouteOptimizationService(new Direct());
+    const planner = new RouteOptimizationService(new MockRoad());
     expect(await planner.plan([pool({ status: StaffStatus.Unavailable })], [job('high')])).toEqual([]);
     expect(await planner.plan([pool({ status: StaffStatus.Dispatched })], [job('high')])).toEqual([]);
     expect(await planner.plan([pool({ capabilities: ['Other'] })], [job('high')])).toEqual([]);
@@ -72,7 +69,7 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
   });
 
   it('preserves the versatile pool for tasks only it can clear', async () => {
-    const routes = await new RouteOptimizationService(new Direct()).plan([
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([
       pool({ teamId: 'versatile', staffCount: 1, maxStops: 1, capabilities: ['Vector', 'Structural'] }),
       pool({ teamId: 'vector', staffCount: 1, maxStops: 1 }),
     ], [job('vector', { score: 100 }), job('structural', { requiredCapability: 'Structural', score: 1 })]);
@@ -81,14 +78,14 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
   });
 
   it('accepts any permitted capability and enforces max stops', async () => {
-    const routes = await new RouteOptimizationService(new Direct()).plan([pool({ staffCount: 1, maxStops: 1 })], [
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 1, maxStops: 1 })], [
       job('first', { requiredCapability: 'Other', allowedCapabilities: ['Other', 'Vector'] }), job('second'),
     ]);
     expect(routes.flatMap((r) => r.workOrderIds)).toHaveLength(1);
   });
 
   it('includes mobilisation lag in the same four-hour budget', async () => {
-    const routes = await new RouteOptimizationService(new Direct()).plan([
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([
       pool({ staffCount: 1, status: StaffStatus.OnCall, onCallLagHours: 2 }),
     ], [job('high', { estimatedEffortMinutes: 150 }), job('low', { priority: 'Low', estimatedEffortMinutes: 60 })]);
     expect(routes.flatMap((r) => r.workOrderIds)).toEqual(['low']);
@@ -111,7 +108,7 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
   });
 
   it('shortens the chosen circuit while keeping every higher tier ahead of lower tiers', async () => {
-    const routes = await new RouteOptimizationService(new Direct()).plan([pool({ staffCount: 1 })], [
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 1 })], [
       job('west-high', { point: new GeoPoint(1.35, 103.8), score: 10 }),
       job('east-low', { point: new GeoPoint(1.35, 103.85), priority: 'Low' }),
       job('far-west-high', { point: new GeoPoint(1.35, 103.78), score: 9 }),
@@ -151,13 +148,13 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
         [...insertionOnly.slice(0, index), next.point, ...insertionOnly.slice(index)],
       ).sort((a, b) => distance(a) - distance(b))[0]!;
     }
-    const routes = await new RouteOptimizationService(new Direct()).plan([pool({ staffCount: 1 })], jobs);
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 1 })], jobs);
     expect(routes[0]!.workOrderIds).toHaveLength(7);
     expect(routes[0]!.route.distanceMetres).toBeLessThan(distance(insertionOnly) - 100);
   });
 
   it('rejects invalid lag and avoids repeated job or pool identifiers', async () => {
-    const planner = new RouteOptimizationService(new Direct());
+    const planner = new RouteOptimizationService(new MockRoad());
     expect(await planner.plan([pool({ status: StaffStatus.OnCall, onCallLagHours: NaN })], [job('one')])).toEqual([]);
     const routes = await planner.plan([pool({ staffCount: 1, maxStops: 1 }), pool({ staffCount: 1, maxStops: 1 })],
       [job('one'), job('one'), job('two')]);

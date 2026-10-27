@@ -1,0 +1,74 @@
+@startuml D-Fence-System
+' Lab 2/3 v0.3. Role view 4 of 4 — Automated System Services. Subset of use-case-diagram.puml, same IDs.
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam shadowing false
+
+skinparam rectangle<<supporting>> {
+  BackgroundColor #F4F6F9
+  BorderColor #8C9BA5
+}
+
+actor "Scheduler" as SCH
+actor "NEA Data Service" as NEA
+actor "Weather Data Service" as WX
+actor "OneMap" as ONEMAP
+actor "Observation Data Service" as INAT
+actor "Telegram Service" as TG
+actor "Resident" as RES
+
+rectangle "D-Fence — Automated Behaviour" {
+  usecase "7.1 Ingest Cluster Data" as UC71
+  usecase "7.2 Detect Cluster Change" as UC72
+  usecase "7.3 Ingest Rainfall Data" as UC73
+  usecase "7.4 Ingest Weather Forecast" as UC74
+  usecase "7.5 Compute Priority Scores" as UC75
+  usecase "7.6 Evaluate Alert Triggers" as UC76
+  usecase "7.7 Refresh Geocoding Token" as UC77
+  usecase "7.8 Ingest Wildlife Observations" as UC78
+  usecase "7.9 Load Operator Registry" as UC79
+  usecase "7.10 Evaluate Critical Override" as UC710
+
+  usecase "4.3 Notify Resident" as UC43
+
+  rectangle "Supporting Services" <<supporting>> {
+    usecase "8.5 Apply Pest Severity Profile" as UC85
+  }
+}
+
+SCH -- UC71
+SCH -- UC73
+SCH -- UC74
+SCH -- UC75
+SCH -- UC76
+SCH -- UC77
+SCH -- UC78
+SCH -- UC79
+
+UC71 -- NEA
+UC79 -- NEA
+UC73 -- WX
+UC74 -- WX
+UC77 -- ONEMAP
+UC78 -- INAT
+
+UC71 ..> UC72 : <<include>>
+UC75 ..> UC85 : <<include>>
+UC75 ..> UC710 : <<include>>
+UC76 ..> UC43 : <<include>>
+
+UC43 -- TG
+UC43 -- RES
+
+note right of UC75
+  Triggered by 7.1 completing and by
+  6.8 verifying a work order (8.5.3).
+end note
+
+note bottom of UC78
+  Observations with obscured coordinates
+  or accuracy worse than 500 m are
+  rejected at ingestion (1.5.6, 1.5.7).
+end note
+@enduml

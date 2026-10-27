@@ -20,7 +20,7 @@
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { SingaporeMap, MapCluster, MapMarker, ONEMAP_ATTRIBUTION } from '../client/src/components/SingaporeMap';
+import { SingaporeMap, MapCluster, MapMarker, ONEMAP_ATTRIBUTION, getMapPestIcon, getMapPriorityClass } from '../client/src/components/SingaporeMap';
 import { ApiClient, Fetcher } from '../client/src/lib/ApiClient';
 import { ScreenProps } from '../client/src/screens/ScreenProps';
 import { ResidentMapScreen } from '../client/src/screens/resident/ResidentMapScreen';
@@ -67,6 +67,16 @@ const MARKERS: MapMarker[] = [
 ];
 
 describe('The drawn map — §9.1, §10.4.5, §11.7', () => {
+  it('uses pest-only icons with priority colours for every catalogue pest', () => {
+    const pests = ['Mosquito', 'Rat', 'Cockroach', 'Fly', 'BedBug', 'Flea', 'Termite', 'Ant', 'Snake', 'WildBoar', 'Macaque', 'MonitorLizard', 'Otter', 'Civet', 'Bat', 'Pangolin', 'Crocodile', 'HouseCrow', 'Pigeon', 'JavanMyna', 'BeeWasp', 'Other'];
+    for (const pest of pests) expect(getMapPestIcon(pest)).toBeTruthy();
+    expect(getMapPestIcon('Otter')).toBe('\uD83E\uDDA6');
+    expect(getMapPriorityClass('Critical')).toBe('priority-critical');
+    expect(getMapPriorityClass('High')).toBe('priority-high');
+    expect(getMapPriorityClass('Medium')).toBe('priority-medium');
+    expect(getMapPriorityClass('Low')).toBe('priority-low');
+  });
+
   it('N1 — the map is an application region, keyboard-operable, and says what it contains (11.7.2)', () => {
     render(<SingaporeMap label="test-map" clusters={CLUSTERS} />);
 

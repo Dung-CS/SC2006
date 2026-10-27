@@ -38,17 +38,43 @@ export interface DrivingRouteLeg {
   durationSeconds: number;
 }
 
+/** Conservative access tolerance: a road snapped farther away does not serve this task. */
+export const MAX_ROAD_SNAP_METRES = 250;
+
+export function isUsableDrivingRoute(route: DrivingRouteLeg, stops: GeoPoint[]): boolean {
+  if (!Number.isFinite(route.distanceMetres) || route.distanceMetres < 0 ||
+      !Number.isFinite(route.durationSeconds) || route.durationSeconds < 0 ||
+      !Array.isArray(route.coordinates) || route.coordinates.length < 2 || stops.length < 2 ||
+      route.coordinates.some((point) => !point || !Number.isFinite(point.latitude) || Math.abs(point.latitude) > 90 ||
+        !Number.isFinite(point.longitude) || Math.abs(point.longitude) > 180)) return false;
+  const near = (a: GeoPoint, b: GeoPoint): boolean => a.distanceTo(b) <= MAX_ROAD_SNAP_METRES;
+  if (!near(stops[0]!, route.coordinates[0]!) || !near(stops.at(-1)!, route.coordinates.at(-1)!)) return false;
+  let index = 0;
+  for (const stop of stops) {
+    while (index < route.coordinates.length && !near(stop, route.coordinates[index]!)) index++;
+    if (index === route.coordinates.length) return false;
+  }
+  return true;
+}
+
 function decodePolyline(encoded: string, precision = 5): GeoPoint[] {
   const factor = 10 ** precision;
   let index = 0, lat = 0, lng = 0;
   const points: GeoPoint[] = [];
+  const component = (): number => {
+    let shift = 0, result = 0;
+    while (index < encoded.length && shift <= 30) {
+      const value = encoded.charCodeAt(index++) - 63;
+      if (value < 0 || value > 63) throw new Error('Invalid OneMap route polyline');
+      result |= (value & 0x1f) << shift;
+      if (value < 0x20) return (result & 1) ? ~(result >> 1) : result >> 1;
+      shift += 5;
+    }
+    throw new Error('Incomplete OneMap route polyline');
+  };
   while (index < encoded.length) {
-    let b = 0, shift = 0, result = 0;
-    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    lat += (result & 1) ? ~(result >> 1) : result >> 1;
-    shift = 0; result = 0;
-    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    lng += (result & 1) ? ~(result >> 1) : result >> 1;
+    lat += component();
+    lng += component();
     points.push(new GeoPoint(lat / factor, lng / factor));
   }
   return points;
@@ -167,8 +193,8 @@ export class OneMapGateway implements GeocodingSource {
       }));
   }
 
-  /** Fetch one driving leg. A malformed or unavailable response throws so the strategy can fall back. */
-  async drivingRoute(start: GeoPoint, end: GeoPoint): Promise<DrivingRouteLeg> {
+  /** Fetch verified driving geometry; failure must never become a straight-line dispatch. */
+  async drivingRoute(start: GeoPoint, end: GeoPoint, refreshed = false): Promise<DrivingRouteLeg> {
     await this.ensureToken();
     const query = new URLSearchParams({
       start: `${start.latitude},${start.longitude}`,
@@ -178,30 +204,35 @@ export class OneMapGateway implements GeocodingSource {
     const res = await this.http.get(`${this.baseUrl}/api/public/routingsvc/route?${query}`, {
       headers: { Authorization: this.token as string }, attempts: 2,
     });
-    if (res.status === 401) {
+    if (res.status === 401 && !refreshed) {
       await this.requestToken();
-      return this.drivingRoute(start, end);
+      return this.drivingRoute(start, end, true);
     }
     if (!res.ok) throw new Error(`OneMap driving route failed: ${res.status}`);
     const body = (await res.json()) as DrivingRouteResponse;
     const raw = body.route_geometry;
     let coordinates: GeoPoint[] = [];
+    const point = (pair: unknown): GeoPoint => {
+      if (!Array.isArray(pair) || pair.length !== 2 ||
+          pair.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
+        throw new Error('OneMap driving route returned an invalid coordinate');
+      }
+      return new GeoPoint(pair[0] as number, pair[1] as number);
+    };
     if (Array.isArray(raw)) {
-      coordinates = raw.map((pair) => {
-        const values = Array.isArray(pair) ? pair : [];
-        return new GeoPoint(Number(values[0]), Number(values[1]));
-      });
+      coordinates = raw.map(point);
     } else if (typeof raw === 'string') {
       const isPipe = raw.includes('|') && raw.includes(',') && !/[A-Za-z]/.test(raw.slice(0, 30));
       if (isPipe) {
-        coordinates = raw.split('|').map((pair) => pair.split(',').map(Number)).filter((pair) => pair.length === 2 && pair.every(Number.isFinite)).map(([lat, lon]) => new GeoPoint(lat!, lon!));
+        coordinates = raw.split('|').map((pair) => {
+          const values = pair.split(',');
+          if (values.some((value) => value.trim() === '')) throw new Error('OneMap driving route returned an empty coordinate');
+          return point(values.map(Number));
+        });
       } else if (raw.startsWith('[') && raw.endsWith(']')) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) coordinates = parsed.map((pair) => new GeoPoint(Number(pair[0]), Number(pair[1])));
-        } catch {
-          coordinates = decodePolyline(raw);
-        }
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error('OneMap driving route returned invalid geometry');
+        coordinates = parsed.map(point);
       } else {
         coordinates = decodePolyline(raw);
       }
@@ -209,10 +240,12 @@ export class OneMapGateway implements GeocodingSource {
     if (!coordinates.length || coordinates.some((p) => !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude))) {
       throw new Error('OneMap driving route returned invalid geometry');
     }
-    const distanceMetres = Number(body.route_summary?.total_distance);
-    const durationSeconds = Number(body.route_summary?.total_time);
-    if (!Number.isFinite(distanceMetres) || !Number.isFinite(durationSeconds)) throw new Error('OneMap driving route omitted distance or duration');
-    return { coordinates, distanceMetres, durationSeconds };
+    const distanceMetres = body.route_summary?.total_distance;
+    const durationSeconds = body.route_summary?.total_time;
+    if (typeof distanceMetres !== 'number' || typeof durationSeconds !== 'number') throw new Error('OneMap driving route omitted distance or duration');
+    const route = { coordinates, distanceMetres, durationSeconds };
+    if (!isUsableDrivingRoute(route, [start, end])) throw new Error('OneMap driving route did not verify road access to both endpoints');
+    return route;
   }
 
   /** Reads `exp` out of the JWT without verifying it — this is scheduling, not authentication. */
