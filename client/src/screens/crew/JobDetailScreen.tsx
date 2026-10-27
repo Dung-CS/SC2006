@@ -19,13 +19,19 @@ import { StateView } from '../../components/States';
 import { Field, field, FormField } from '../../components/Field';
 import { evaluate, formIsValid, required } from '../../components/FieldValidation';
 import { link } from '../../components/Link';
+import { Pill, statusTone, tierTone, Facts } from '../../components/Presentation';
+import { label } from '../../lib/labels';
 import { WorkOrderStatus } from '../../../../src/entity/enums';
 import { ScreenProps } from '../ScreenProps';
 
 interface JobPayload {
   workOrder: {
     id: string;
-    clusterId: string;
+    clusterId: string | null;
+    sourceReportId?: string | null;
+    pestType?: string | null;
+    location?: string;
+    point?: { latitude: number; longitude: number } | null;
     taskType: string;
     status: string;
     scheduledDate: string;
@@ -67,6 +73,7 @@ export function JobDetailScreen(props: ScreenProps): JSX.Element {
 
   const job = value?.workOrder;
   const status = job?.status;
+  const location = job?.location ?? (job?.point == null ? 'Singapore' : `${job.point.latitude}, ${job.point.longitude}`);
 
   return (
     <section data-screen="JobDetail" data-requirement="11.2.20">
@@ -77,19 +84,47 @@ export function JobDetailScreen(props: ScreenProps): JSX.Element {
       <StateView state={state} onRetry={retry}>
         {job === undefined ? null : (
           <article>
-            <h1>{job.taskType}</h1>
-            <p data-part="status">{job.status}</p>
-            <p data-part="scheduled">Scheduled {job.scheduledDate}</p>
-            <p data-part="priority">{job.priority} priority</p>
-            <p data-part="instructions">{job.instructions}</p>
-            {job.startedAt === null ? null : (
-              <p data-part="started">
-                Started {new Date(job.startedAt).toISOString().slice(0, 16).replace('T', ' ')}
-              </p>
-            )}
+            <h1>
+              {label(job.taskType)}{' '}
+              <Pill tone={statusTone(job.status)}>{label(job.status)}</Pill>
+            </h1>
+            <p className="job-card-location" data-part="location" style={{ fontSize: '1rem', marginBottom: '1rem' }}>
+              📍 {location}
+            </p>
+            <Facts
+              items={[
+                {
+                  label: 'Status',
+                  value: <Pill tone={statusTone(job.status)}>{label(job.status)}</Pill>,
+                  part: 'status',
+                },
+                {
+                  label: 'Priority',
+                  value: (
+                      <><Pill tone={tierTone(job.priority)} tier={job.priority}>{job.priority}</Pill>{job.clusterId === null && job.priority === 'Medium' ? ' — Unscored report default' : job.clusterId === null && job.priority === 'Critical' ? ' — Critical injury override' : ''}</>
+                  ),
+                  part: 'priority',
+                },
+                { label: 'Scheduled', value: job.scheduledDate, part: 'scheduled' },
+                { label: 'Location', value: location, part: 'location' },
+                ...(job.point == null ? [] : [{ label: 'Coordinates', value: `${job.point.latitude}, ${job.point.longitude}`, part: 'coordinates' }]),
+                ...(job.clusterId === null ? [{ label: 'Target', value: 'Verified report' }] : []),
+                ...(job.pestType == null ? [{ label: 'Pest', value: 'Unknown pest; manager review required before assignment' }] : [{ label: 'Pest', value: label(job.pestType) }]),
+                { label: 'Instructions', value: job.instructions, part: 'instructions', wide: true },
+                ...(job.startedAt === null
+                  ? []
+                  : [
+                      {
+                        label: 'Started',
+                        value: new Date(job.startedAt).toISOString().slice(0, 16).replace('T', ' '),
+                        part: 'started',
+                      },
+                    ]),
+              ]}
+            />
             {job.issueFlag ? (
-              <p role="status" data-part="issue">
-                Issue raised: {job.issueReason ?? 'no reason recorded'}
+              <p role="status" data-part="issue" style={{ color: '#A4342B', fontWeight: 600 }}>
+                ⚠️ Issue raised: {job.issueReason ?? 'no reason recorded'}
               </p>
             ) : null}
 

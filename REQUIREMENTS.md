@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.9 · drafted 2026-09-02, revised 2026-09-16 · status: DRAFT for team review
+Version 0.11 · drafted 2026-09-02, revised 2026-10-27 · status: DRAFT for team review
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -9,6 +9,21 @@ Product name: D-Fence.
 NEA or AVS intervention**, on the TA's suggestion and Yen Kit's decision of 2026-09-16. The scoring
 model is generalised to `pest priority x urgency` and specified in `PEST-PRIORITY-MODEL.md`. The
 dengue behaviour is unchanged and numerically identical — see 4.2.5.
+
+**v0.10 records the expanded application contract:** staff specialisations and regional outposts,
+staff readiness, task crew sizes, priority-first route planning, route maps and packing lists,
+photo-assisted pest recognition, confirmed specimen counts and report triage. These are requirements,
+not a statement that every obligation is deployed or verified. The routing corrections passed local
+regression, type, build and isolated bundle checks and were deployed and checked on Azure on 2026-10-27. Crew sizes in §8.8 are provisional design values pending Yen Kit's
+confirmation. Historical Lab 1 and submission copies remain frozen.
+
+**v0.11 adds background dispatch plans, a complete multi-pest task queue and vehicle load limits.**
+The planner refreshes after source changes while the page reads a completed snapshot. Verified report
+targets outside dengue clusters remain eligible. Each route uses a recorded HQ vehicle whose seats,
+payload, cargo volume and bay dimensions fit its crew and packing list. Task type alone no longer
+mandates an intermediate return. Demo vehicles and provisional equipment envelopes are labelled.
+This version records the requested contract; its final validation and deployment status must be
+established separately from the earlier v0.10 deployment evidence below.
 
 ## How to read this document
 
@@ -103,7 +118,7 @@ and the team shall record the resolution there before the Lab 5 demo.
 | Scoring cycle | One complete recomputation of priority scores for all active clusters. |
 | Driver | One normalised input to the priority score (e.g. rainfall 24h). |
 | Verified report | A resident report an Operations Manager has set to status Verified. |
-| Work order | A unit of dispatched field work against one cluster. |
+| Work order | A unit of dispatched field work against a cluster, a verified report, or both. |
 | Treatment record | The dated record written when a work order is verified complete. |
 | Stale | A data source with no successful retrieval within its defined staleness window. |
 | Screen | A named, addressable view of the application, listed in §11.2. |
@@ -126,6 +141,18 @@ and the team shall record the resolution there before the Lab 5 demo.
 | Critical override | A rule that forces a case to the top of the queue irrespective of its score, defined by 4.4. |
 | Referral | The act of routing a case to an External Dispatch Authority instead of creating an internal work order, defined by §8.6. |
 | Registered operator | A vector control operator listed in the NEA registry ingested under 1.6. |
+| Staff specialisation | The recorded task and pest capability of a Cleaning Crew Member, distinct from the account role. Defined in §2.5. |
+| Outpost | One regional HQ depot from which a planned crew departs and to which it returns. |
+| Planned crew | A group of qualified staff counted against one outpost's actual roster for one route. It does not create work orders or change their lead assignees. |
+| Required staff | The minimum number of qualified people needed together at a task, defined in §8.8. |
+| Route capacity | The staff, vehicle seats, payload, cargo space and elapsed time available within a four-hour dispatch window. |
+| Recognition result | A suggested pest type and visible specimen boxes from analysis of photo pixels, subject to human confirmation. |
+| Report triage | A preliminary priority suggestion based on the reported pest, confirmed count and reported context. It is distinct from the locality priority score in §4. |
+| Dispatch snapshot | The most recently completed plan for a selected Singapore date, returned with computation time and refresh status. |
+| Vehicle payload | The maximum cargo mass in kilograms recorded for one vehicle; this is separate from its seat count. |
+| Usable cargo volume | The cubic metres available for logistics after allowing for fixed vehicle fittings. |
+| Logistics envelope | A provisional planning weight and rectangular size for one equipment, consumable, collection or containment unit. |
+| Demo vehicle | An explicitly labelled illustrative fleet record; its capacities are not evidence of an actual vehicle. |
 
 ---
 
@@ -271,6 +298,54 @@ live feed — see 1.6.7 and §13.)*
 - **2.4.1** The system shall record the acting user id, action, target entity id and timestamp for every operation that changes stored state.
 - **2.4.2** The system shall prevent modification or deletion of an audit record by any role.
 
+## 2.5 Staff capabilities, outposts and readiness
+
+*(Added in v0.10. Staff types are specialisations within Cleaning Crew, not additional account roles.)*
+
+- **2.5.1** The system shall support the staff specialisations {Vector Control, Sanitation, Structural, General Inspection}.
+- **2.5.2** The system shall require an Operations Manager to select a specialisation when creating a Cleaning Crew account through the Staff Accounts screen.
+- **2.5.3** The system shall support the outposts {Central, North East, North West, South East, South West}.
+- **2.5.4** The system shall require an Operations Manager to select an outpost when creating a staff account through the Staff Accounts screen.
+- **2.5.5** The system shall allow only an Operations Manager to change a staff member's recorded specialisation.
+- **2.5.6** The system shall allow only an Operations Manager to change a staff member's recorded outpost.
+- **2.5.7** The system shall support the operational staff statuses {Available, On Call, Unavailable, Dispatched}.
+- **2.5.8** The system shall allow only an Operations Manager to change a staff member's operational status.
+- **2.5.9** The system shall record an on-call mobilisation delay in hours for each On Call member, using two hours when none is supplied.
+- **2.5.10** The system shall record the previous and new values in the audit trail for a specialisation, outpost or operational-status change.
+- **2.5.11** The Staff Accounts screen shall display the active roster count for each outpost and specialisation pair.
+- **2.5.12** The Staff Accounts screen shall display the Available count for each outpost and specialisation pair.
+- **2.5.13** The Staff Accounts screen shall display the On Call count for each outpost and specialisation pair.
+- **2.5.14** The Staff Accounts screen shall display availability as Available divided by active roster count, expressed as a percentage for each non-empty pair.
+- **2.5.15** The Staff Accounts screen shall distinguish an empty roster from a roster whose availability is zero.
+- **2.5.16** The Staff Accounts screen shall show readiness bands for availability of at least 80%, 50% to below 80%, above zero to below 50%, and zero.
+- **2.5.17** The system shall treat a legacy crew account with no recorded specialisation as ineligible for dispatch.
+- **2.5.18** The system shall exclude a crew account with no recorded outpost from route-planning capacity.
+
+## 2.6 HQ vehicle registry
+
+*(Added in v0.11. Vehicle records belong to regional HQs, not to staff accounts. Unavailable records
+remain stored so that a manager can restore them without recreating the vehicle.)*
+
+- **2.6.1** The system shall permit only an Operations Manager to read the vehicle registry.
+- **2.6.2** The system shall permit only an Operations Manager to add a vehicle.
+- **2.6.3** The system shall permit only an Operations Manager to edit an existing vehicle.
+- **2.6.4** The system shall require every vehicle to reference one outpost from the set in 2.5.3.
+- **2.6.5** The system shall require a registration unique across the registry, compared without case sensitivity.
+- **2.6.6** The system shall require a non-empty vehicle name.
+- **2.6.7** The system shall record a vehicle's maximum cargo payload in kilograms.
+- **2.6.8** The system shall record a vehicle's usable cargo volume in cubic metres.
+- **2.6.9** The system shall record its cargo bay length, width and height in centimetres.
+- **2.6.10** The system shall record its total seat capacity including the driver.
+- **2.6.11** The system shall allow the manager to mark a vehicle Available or Unavailable without deleting its record.
+- **2.6.12** The system shall persist accepted vehicle records across a server restart when PostgreSQL storage is configured.
+- **2.6.13** The system shall reject a non-finite or non-positive vehicle capacity or cargo dimension.
+- **2.6.14** The system shall reject a seat capacity that is not a positive whole number.
+- **2.6.15** The system shall reject usable cargo volume greater than bay length × width × height divided by 1,000,000.
+- **2.6.16** The system shall store whether each vehicle is demo data.
+- **2.6.17** The system shall seed two explicitly labelled demo vehicles with different load limits at each HQ only when the vehicle registry is empty.
+- **2.6.18** The demo seeder shall preserve an existing registry, including unavailable or edited demo vehicles.
+- **2.6.19** An accepted vehicle change shall trigger a background dispatch-plan refresh.
+
 ---
 
 # 3. Saved Locations and Exposure
@@ -383,7 +458,7 @@ exists so that it is not asked to — see `PEST-PRIORITY-MODEL.md` §6.)*
 - **5.1.2** The system shall require each report to carry a location given as a map pin or an address.
 - **5.1.3** The system shall require each report to carry a type from the set {Standing water, Uncleared refuse, Blocked drain, Overgrown vegetation, Other}.
 - **5.1.4** The system shall require each report to carry a description of no more than 500 characters.
-- **5.1.5** The system shall allow up to three photographs per report.
+- **5.1.5** The system shall require between one and three photographs per report. *(Revised in v0.10 to match the evidence requirement in the current report journey.)*
 - **5.1.6** The system shall reject a photograph larger than 5 MB or of a format other than JPEG or PNG.
 - **5.1.7** The system shall associate each report with the active cluster containing its location.
 - **5.1.8** The system shall associate a report whose location falls in no active cluster with the nearest locality within one kilometre.
@@ -420,6 +495,56 @@ exists so that it is not asked to — see `PEST-PRIORITY-MODEL.md` §6.)*
 - **5.3.5** The system shall withhold a report's photographs from all Residents other than the reporter until the report is Verified.
 - **5.3.6** The system shall allow the moderation queue to be filtered by pest type. *(Added in v0.9.)*
 - **5.3.7** The system shall sort the moderation queue so that reports matching a critical override rule appear first, ahead of the order defined by 5.3.2. *(Added in v0.9. A verified snake-indoors report that waits its turn in an oldest-first queue defeats 4.4.)*
+
+## 5.4 Photo-assisted pest recognition and confirmed counts
+
+*(Added in v0.10. Recognition assists reporting. It does not verify a report, prove absence of pests,
+or replace the scoring and referral rules. Provider availability and detection accuracy remain
+separate validation questions.)*
+
+- **5.4.1** The system shall offer photo analysis on the Report a Site screen.
+- **5.4.2** The system shall analyse decoded photo pixels rather than infer pest identity from the file name or image metadata.
+- **5.4.3** The system shall require authentication for the photo-analysis endpoint.
+- **5.4.4** The system shall keep image-provider credentials on the server.
+- **5.4.5** The system shall accept only JPEG or PNG image bytes at the server analysis boundary.
+- **5.4.6** The system shall reject analysis input whose image signature does not match its declared format.
+- **5.4.7** The system shall limit the decoded image submitted for analysis to 1,400,000 bytes.
+- **5.4.8** The client shall preserve the photo's aspect ratio when preparing an analysis copy whose longest side is at most 1280 pixels.
+- **5.4.9** The system shall return exactly one recognition outcome from {Detected, No detection, Unavailable}.
+- **5.4.10** A Detected outcome shall identify a pest type from the enumeration in 5.1.15.
+- **5.4.11** A Detected outcome shall include one bounding box for each returned visible specimen.
+- **5.4.12** The system shall set the recognition count to the number of validated specimen boxes.
+- **5.4.13** The system shall reject a recognition result containing more than 500 specimen boxes.
+- **5.4.14** The system shall reject a specimen with a non-finite confidence or a confidence outside 0.6 to 1.0 inclusive.
+- **5.4.15** The system shall reject a recognition result with invalid, empty or duplicate bounding boxes.
+- **5.4.16** The system shall return Unavailable for a result containing more than one pest type, rather than combine unlike specimens into one report count.
+- **5.4.17** The Report a Site screen shall display the returned boxes over the analysed image.
+- **5.4.18** The Report a Site screen shall require an explicit user action before applying the detected species and count to the report.
+- **5.4.19** The system shall allow the Resident to edit the applied pest type and count.
+- **5.4.20** The system shall preserve the original detection boxes when the Resident edits the report count.
+- **5.4.21** The system shall store no report count until the Resident confirms their observed count.
+- **5.4.22** The system shall retain an unconfirmed count as unknown rather than substitute zero.
+- **5.4.23** The system shall state that No detection does not prove that the photograph is pest-free.
+- **5.4.24** The system shall offer manual pest and count entry after No detection or Unavailable.
+- **5.4.25** The server shall abort a provider inference request after ten seconds.
+- **5.4.26** The client shall leave the analysis waiting state after at most 25 seconds with a manual-entry message.
+- **5.4.27** The system shall return Unavailable when credentials are absent, the provider refuses the request, transport fails or the response cannot be validated.
+- **5.4.28** The system shall limit analysis requests to five per account per minute.
+- **5.4.29** The system shall limit simultaneous analysis requests to two per server process.
+- **5.4.30** The system shall return a retry or manual-entry message when the analysis request limit is reached.
+- **5.4.31** The system shall reuse only completed, validated Detected or No detection results for an identical prepared image and provider configuration.
+- **5.4.32** The system shall expire a cached recognition result after 24 hours.
+- **5.4.33** The system shall retain at most 128 recognition results per server process, evicting the least recently used result when full.
+- **5.4.34** The system shall exclude source image bytes from the recognition-result cache.
+- **5.4.35** The Report a Site screen shall label a result reused from the exact-photo cache as previous analysis.
+- **5.4.36** The system shall combine simultaneous identical inference requests into one provider request.
+- **5.4.37** The system shall not cache Unavailable as a completed recognition result.
+- **5.4.38** The Report a Site screen shall display a preliminary triage tier with its reason before submission.
+- **5.4.39** The preliminary triage shall use the selected pest, user-confirmed count, location context, injury flag and fouling flag where supplied.
+- **5.4.40** The preliminary triage shall not infer an injury, indoor location or fouling from image recognition.
+- **5.4.41** The system shall display count-based triage as awaiting count confirmation while the count is unknown.
+- **5.4.42** The system shall retain the submitted confirmed count in report details available to the Resident and Operations Manager.
+- **5.4.43** The system shall label preliminary report triage separately from the locality priority score defined in §4.
 
 ---
 
@@ -509,11 +634,11 @@ exists so that it is not asked to — see `PEST-PRIORITY-MODEL.md` §6.)*
 - **8.1.4** The system shall require each work order to carry a scheduled date that is not in the past.
 - **8.1.5** The system shall default a new work order's priority to the priority tier of its target cluster.
 - **8.1.6** The system shall allow instructions of up to 1000 characters on a work order.
-- **8.1.7** The system shall propose a daily dispatch list consisting of the highest-scoring active clusters that have no open work order.
-- **8.1.8** The system shall limit the proposed dispatch list to a configurable number of clusters, defaulting to ten.
+- **8.1.7** The system shall propose a daily dispatch list of eligible cluster and verified report targets with no equivalent open task, ordered by Critical, High, Medium and Low tier, then by score descending. *(Revised in v0.11 to include report targets independently of dengue scoring.)*
+- **8.1.8** The system shall limit the displayed proposed dispatch list to a configurable number of targets, defaulting to ten. *(Revised in v0.10: this presentation limit shall not truncate the route-planning candidate queue in 8.7.2.)*
 - **8.1.9** The system shall allow an Operations Manager to accept, edit or reject each item on the proposed dispatch list individually.
 - **8.1.10** The system shall create work orders only for accepted dispatch-list items.
-- **8.1.11** The system shall refuse to create a second open work order of the same task type for the same cluster.
+- **8.1.11** The system shall refuse to create a second open work order of the same task type and pest type for the same cluster. *(Revised in v0.11: an existing mosquito task shall not suppress a distinct rat or structural-pest task.)*
 - **8.1.12** The system shall offer the existing open work order when creation is refused under 8.1.11.
 - **8.1.13** The system shall link every verified open report inside the target cluster to a newly created work order.
 - **8.1.14** The system shall refuse to create a work order against a report whose pest type is of pest class Wildlife. *(Added in v0.9. The system's Cleaning Crew is not equipped or authorised to handle wildlife; §8.6 defines what happens instead.)*
@@ -523,13 +648,16 @@ exists so that it is not asked to — see `PEST-PRIORITY-MODEL.md` §6.)*
 
 ## 8.2 Assignment
 
-- **8.2.1** The system shall allow an Operations Manager to assign a work order to exactly one Cleaning Crew Member.
+- **8.2.1** The system shall allow an Operations Manager to assign a work order to exactly one Cleaning Crew Member as its accountable lead. *(Clarified in v0.10: the lead owns the lifecycle in §8.3; the planned crew size in §8.8 may exceed one.)*
 - **8.2.2** The system shall display each candidate crew member's count of open work orders at the point of assignment.
 - **8.2.3** The system shall refuse to assign a work order to a deactivated account.
 - **8.2.4** The system shall notify the assignee within one minute of assignment.
 - **8.2.5** The system shall allow an Operations Manager to reassign a work order whose status is Assigned, Accepted or In Progress. *(Corrected in v0.3: the previous wording permitted reassignment of a Verified work order, which contradicts 8.3.12, 8.5.1 and 8.5.3, all of which treat Verified as terminal.)*
 - **8.2.6** The system shall notify both the previous and the new assignee on reassignment.
 - **8.2.7** The system shall retain every previous assignee in the work order's audit history.
+- **8.2.8** The system shall refuse assignment to a crew member whose recorded specialisation does not cover both the task and the pest class under §8.8.
+- **8.2.9** The system shall display an ineligibility reason for each staff member excluded from the assignment recommendation.
+- **8.2.10** The system shall rank eligible assignment candidates by primary specialisation first, then by open work-order count ascending, then by email address ascending.
 
 ## 8.3 Lifecycle
 
@@ -614,6 +742,160 @@ honest rather than cosmetic: the system declines work it has no authority to do,
 - **8.6.10** The system shall not create, assign or dispatch a work order to a Cleaning Crew Member as a consequence of a referral.
 - **8.6.11** The system shall exclude a referred report from the days since last treatment driver, and shall not write a treatment record on referral. *(Added in v0.9. The system did not treat the locality, so claiming treatment recency would corrupt 4.1.17's feedback loop.)*
 
+## 8.7 Priority-first multi-crew route planning
+
+*(Added in v0.10, including Yen Kit's routing correction of 2026-10-27. Allocation precedes route
+shortening. The greedy planner seeks feasible use of the roster; it does not promise a global
+maximum task count or a mathematically shortest circuit. Planning remains a preview until the
+manager creates or assigns the work orders.)*
+
+- **8.7.1** The system shall allow an Operations Manager to request route plans for a selected Singapore calendar date.
+- **8.7.2** The planner shall consider all eligible ranked proposals and verified report targets alongside eligible open work orders scheduled on or before the selected date, irrespective of the number of existing orders or the display limit in 8.1.8. *(Revised in v0.11 to retain overdue and non-dengue work.)*
+- **8.7.3** The planner shall exclude cases requiring external referral from internal crew routes.
+- **8.7.4** The planner shall exclude duplicate representations of the same target task from its candidate queue.
+- **8.7.5** The planner shall exclude a task whose location or pest capability cannot be established from stored evidence.
+- **8.7.6** The planner shall derive capacity from actual active staff grouped by outpost, specialisation and readiness.
+- **8.7.7** The planner shall exclude Unavailable and Dispatched staff from new route capacity.
+- **8.7.8** The planner shall not invent an outpost crew when the eligible roster is empty.
+- **8.7.9** The planner shall not insert synthetic emergency tasks into an operational route.
+- **8.7.10** The planner shall process priority tiers in the strict order Critical, High, Medium, Low.
+- **8.7.11** Within a tier, the planner shall first consider tasks with fewer qualified staff pools, then lower required staff-minutes, then descending priority score when available. These are greedy tie-breaks, not a guarantee of maximum task throughput.
+- **8.7.12** The planner shall allocate a lower-tier task only after no remaining higher-tier task can be added to the current plan within staff, capability, vehicle and elapsed-time limits.
+- **8.7.13** The planner shall retry a previously unallocated higher-tier task when a subsequent allocation changes route feasibility.
+- **8.7.14** The planner shall test a task against qualified capacity at every eligible outpost before leaving it unallocated.
+- **8.7.15** The planner shall leave a task unallocated when no qualified crew has enough staff, rather than send a crew with another specialisation.
+- **8.7.16** The planner shall use additional qualified crews from the same outpost when the remaining roster can support parallel routes.
+- **8.7.17** The planner shall count each person against at most one parallel planned crew.
+- **8.7.18** The planner shall allow a planned crew to reuse its members across sequential tasks on its own route.
+- **8.7.19** The planner shall reserve at least the required staff count for every task on a crew's route.
+- **8.7.20** Each planned route shall begin at its crew's outpost.
+- **8.7.21** Each planned route shall end at its crew's outpost.
+- **8.7.22** The planner shall limit each route to 14,400 seconds including travel, task effort, required handovers and on-call mobilisation.
+- **8.7.23** The planner shall include the recorded mobilisation delay before an On Call crew's first task.
+- **8.7.24** The planner shall shorten a candidate route before deciding whether it fits the elapsed-time limit.
+- **8.7.25** The planner shall preserve descending priority-tier order when shortening a route.
+- **8.7.26** The planner shall retain an intermediate outpost return explicitly requested for a task, rather than infer a mandatory return from its pest or task type. *(Revised in v0.11: vehicle logistics limits replace automatic task-based returns.)*
+- **8.7.27** The planner shall use road travel duration returned by OneMap when it is available for the candidate route.
+- **8.7.28** The planner shall reject a candidate route whose road travel and other elapsed time exceed 14,400 seconds.
+- **8.7.29** The planner shall use a labelled direct-distance travel estimate when road routing is unavailable.
+- **8.7.30** The planner shall display the routing source used for each route.
+- **8.7.31** The planner shall retain the feasible allocation while shortening routes, rather than remove a higher-priority task to obtain a shorter route.
+- **8.7.32** The planner shall report each route's actual calculated duration without clipping it to the dispatch limit.
+- **8.7.33** The planner shall report each route's travel time separately from its on-site effort time.
+- **8.7.34** The planner shall report route capacity use as total duration divided by 14,400 seconds.
+- **8.7.35** The planner shall return each route's task sequence, outpost, crew size, operational status, on-call delay and allocated vehicle.
+- **8.7.36** The planner shall honour an explicit maximum-stop limit supplied for a crew.
+- **8.7.37** Requesting a route preview shall not create work orders or change their lifecycle status.
+- **8.7.38** The route preview shall list eligible candidate tasks that remain unallocated, with their priority, required staff count and an explanation of the remaining capacity constraint.
+- **8.7.39** The planner shall reuse successful directed road-leg calculations for up to five minutes in a bounded cache of at most 512 entries; failed road requests shall remain retryable.
+- **8.7.40** A background calculation shall limit its total wait for road-provider responses to thirty seconds and use labelled direct-distance estimates for subsequent route checks when that budget is exhausted.
+
+## 8.8 Task capabilities, crew sizes and effort
+
+*(Added in v0.10. The tables below define application planning rules, not official staffing or
+safety standards. Default crew sizes and effort are design assumptions. A known task-specific
+staff requirement takes precedence over its default.)*
+
+| Specialisation | Permitted tasks | Permitted pest classes |
+|---|---|---|
+| Vector Control | Fogging, Larviciding, Inspection | VectorBorne |
+| Sanitation | Refuse clearance, Drain clearance, Inspection | VectorBorne, Structural, Nuisance |
+| Structural | Inspection | Structural |
+| General Inspection | Inspection | VectorBorne, Structural, Nuisance |
+
+| Task type | Default required staff | Default on-site effort |
+|---|---:|---:|
+| Inspection | 1 | 30 minutes |
+| Larviciding | 2 | 40 minutes |
+| Fogging | 3 | 45 minutes |
+| Drain clearance | 2 | 50 minutes |
+| Refuse clearance | 2 | 40 minutes |
+
+- **8.8.1** The system shall match crew eligibility against both the permitted task and permitted pest class in the specialisation table.
+- **8.8.2** The system shall prohibit fogging for Rat cases regardless of staff specialisation.
+- **8.8.3** The system shall exclude a pest assigned to an external authority from internal crew eligibility.
+- **8.8.4** The planner shall use the task's stated required staff count when it is supplied as a positive integer.
+- **8.8.5** The planner shall use the default staff count in the task table when no task-specific staff count is supplied.
+- **8.8.6** The planner shall reject a supplied staff requirement that is not a positive integer.
+- **8.8.7** The planner shall use a supplied on-site effort estimate in preference to the task default.
+- **8.8.8** The planner shall use the default on-site effort in the task table when no task-specific effort is supplied.
+- **8.8.9** The planner shall treat on-site effort as elapsed crew time rather than divide it by crew size.
+- **8.8.10** The route preview shall display the required staff count for each task.
+- **8.8.11** The system shall generate a packing checklist for each route from its assigned task types and pest targets.
+- **8.8.12** Each packing-list item shall state its quantity, category and task-related reason, with its numeric load data defined by 8.10.1 to 8.10.5.
+- **8.8.13** The packing checklist shall distinguish {Safety, Specialist Equipment, Consumables and Chemicals, Containment and Transport}.
+- **8.8.14** The route preview shall allow the user to mark packing-list items as checked.
+- **8.8.15** The route preview shall show each task waypoint as Pending, In Progress or Completed from the work-order status supplied to the planner.
+- **8.8.16** The route preview shall display the completed task count and total task count.
+- **8.8.17** The route preview shall calculate progress as completed task count divided by total task count.
+- **8.8.18** A progress control in the route preview shall not bypass the work-order lifecycle or completion evidence in §8.3.
+
+## 8.9 Background plans and complete task coverage
+
+*(Added in v0.11. A page request reads a snapshot. It does not wait for road-service calculations.
+Report triage and locality scoring remain distinct bases; the task queue uses the higher applicable
+tier so that an unscored verified report does not disappear beneath dengue-only proposals.)*
+
+- **8.9.1** The system shall start computing today's dispatch plan in the background after startup.
+- **8.9.2** The system shall schedule a background plan refresh when an ingested cluster is new or changes.
+- **8.9.3** The system shall schedule a background plan refresh after updated priority scores are stored.
+- **8.9.4** The system shall schedule a background plan refresh after a successful report, work-order, staff or vehicle mutation.
+- **8.9.5** The system shall check dispatch-source fingerprints at intervals of no more than 30 seconds to detect changes made outside the active process.
+- **8.9.6** The system shall reuse a completed plan when the source fingerprint is unchanged.
+- **8.9.7** The dispatch route GET endpoint shall return a snapshot without awaiting route calculation.
+- **8.9.8** The snapshot shall state one status from {pending, refreshing, ready, failed}.
+- **8.9.9** A completed snapshot shall state when it was computed.
+- **8.9.10** A completed snapshot shall state the duration of its background route calculation.
+- **8.9.11** The system shall retain the last successfully computed plan while a replacement is being calculated.
+- **8.9.12** The system shall distinguish a pending first calculation from a ready plan with no routable tasks.
+- **8.9.13** The system shall retain the last successfully computed plan if a later calculation fails.
+- **8.9.14** The system shall report a failed refresh with a retry explanation.
+- **8.9.15** The system shall combine overlapping refresh requests for one date rather than run duplicate calculations concurrently.
+- **8.9.16** The system shall run another calculation after the current one when its source inputs change during that calculation.
+- **8.9.17** The system shall keep each selected date's snapshot separate from other dates' snapshots.
+- **8.9.18** The candidate queue shall include eligible reports of every covered pest type whose status is Verified or Actioned.
+- **8.9.19** The candidate queue shall retain an eligible report whose point lies outside every active dengue cluster.
+- **8.9.20** The candidate queue shall include eligible open work orders scheduled on or before the selected Singapore date.
+- **8.9.21** The candidate queue shall include all eligible scored locality-and-pest proposals without applying the proposal display limit.
+- **8.9.22** The planner shall use the highest applicable tier from the stored work order, current locality-and-pest score and linked report triage.
+- **8.9.23** The candidate queue shall avoid scheduling the same source report and task twice through report, proposal and work-order representations.
+- **8.9.24** An open task for one pest type shall not suppress a different pest type's task at the same locality.
+- **8.9.25** The dispatch snapshot shall retain externally handled cases in a referral list instead of silently dropping them.
+- **8.9.26** Each referral-list item shall state its priority and responsible external authority.
+- **8.9.27** Map report hotspots and dispatch report candidates shall use the same report-triage policy.
+
+## 8.10 Logistics loads and vehicle allocation
+
+*(Added in v0.11. Item dimensions and weights are provisional planning envelopes, not measured
+equipment specifications. Aggregate volume and individual-item fit do not prove that all items
+can be packed together in three dimensions. The planner makes no exact packing guarantee.)*
+
+- **8.10.1** Each logistics item shall carry a numeric quantity.
+- **8.10.2** Each logistics item shall carry a unit weight in kilograms.
+- **8.10.3** Each logistics item shall carry unit length, width and height in centimetres.
+- **8.10.4** The planner shall calculate an item's total weight as numeric quantity multiplied by unit weight.
+- **8.10.5** The planner shall calculate an item's total volume as quantity × length × width × height divided by 1,000,000 cubic metres.
+- **8.10.6** The planner shall sum item weights to obtain a route's logistics weight.
+- **8.10.7** The planner shall sum item volumes to obtain a route's logistics volume.
+- **8.10.8** The planner shall count shared reusable equipment once per route rather than once per sequential task.
+- **8.10.9** The planner shall accumulate consumable quantities for every task on the route.
+- **8.10.10** The planner shall accumulate the configured loaded collection or specimen envelope for every applicable task on the route.
+- **8.10.11** The planner shall label provisional item load values as provisional.
+- **8.10.12** Each planned operational route shall reserve one Available vehicle from its crew's HQ.
+- **8.10.13** The planner shall reserve a vehicle for at most one parallel route in the same plan.
+- **8.10.14** The planner shall require the allocated vehicle's seat count to cover the planned crew.
+- **8.10.15** The planner shall reject a route whose logistics weight exceeds its allocated vehicle's payload limit.
+- **8.10.16** The planner shall reject a route whose logistics volume exceeds its allocated vehicle's usable cargo volume.
+- **8.10.17** The planner shall reject a route containing an individual item that cannot fit the vehicle's cargo bay in any axis-aligned orientation.
+- **8.10.18** The planner shall consider another eligible HQ vehicle when the first vehicle cannot fit a candidate route.
+- **8.10.19** The planner shall allow a separate crew-and-vehicle route when adding a task would exceed an existing route's load limits and unreserved capacity remains.
+- **8.10.20** The planner shall leave a task unallocated when no qualified crew and vehicle can fit it within all route limits.
+- **8.10.21** The planner shall not mandate an intermediate outpost return solely because of a task's pest type.
+- **8.10.22** The planner shall include an explicitly requested outpost-return leg in the route's elapsed-time check.
+- **8.10.23** The route payload shall state the allocated vehicle's identity and demo-data flag.
+- **8.10.24** The route payload shall state the used and maximum weight and volume.
+- **8.10.25** The planner shall describe its load check as aggregate volume and individual-item fit rather than proof of an exact three-dimensional packing solution.
+
 ---
 
 # 9. Map, Trend and History
@@ -634,6 +916,7 @@ honest rather than cosmetic: the system declines work it has no authority to do,
 - **9.1.14** The system shall constrain the map to Singapore, so that panning cannot leave the area the data describes.
 - **9.1.15** The system shall open the Resident's map on that Resident's own saved locations when they have any, and on the extent of the active clusters otherwise. *(Added in v0.7. A resident opens this screen to ask about their block; an island-wide frame answers a question nobody asked.)*
 - **9.1.16** The system shall continue to present every fact in 9.1.1 to 9.1.5 as text on the same screen, so that the information survives without the drawing. *(Added in v0.7 to make explicit what 11.7.5 already implies, because "we have a map now" is exactly the argument under which a textual record gets deleted.)*
+- **9.1.17** The report-hotspot map shall derive report priority from the shared triage policy used by dispatch candidates under 8.9.27.
 
 ### 11.9 The visual design
 
@@ -655,6 +938,7 @@ honest rather than cosmetic: the system declines work it has no authority to do,
 - **10.1.3** The system shall complete a scoring cycle for 500 active clusters within 60 seconds.
 - **10.1.4** The system shall render a map of up to 300 cluster polygons within three seconds.
 - **10.1.5** The system shall support 50 concurrent authenticated users without exceeding the response time in 10.1.2.
+- **10.1.6** The dispatch snapshot GET endpoint shall return 95% of reads within one second, independently of the time required for a background route calculation. *(Added in v0.11 as an acceptance target; it is not a measured production service guarantee.)*
 
 ## 10.2 Reliability and availability
 
@@ -675,10 +959,10 @@ honest rather than cosmetic: the system declines work it has no authority to do,
 ## 10.4 Privacy and legal
 
 - **10.4.1** The system shall not expose a reporter's identity to any user other than that reporter and an Operations Manager.
-- **10.4.2** The system shall store no personal data beyond email address, role and saved locations.
+- **10.4.2** The system shall limit personal data to account email and authentication records, role, saved locations, report and work-order records required by this specification, an optional linked Telegram chat id, and staff specialisation, outpost, readiness and on-call delay. *(Revised in v0.10: the previous whitelist contradicted Telegram linking, reporting and staff administration already required elsewhere.)*
 - **10.4.3** The system shall delete a user's personal data within seven days of an account deletion request.
 - **10.4.4** The system shall display the required attribution for every government data source it uses.
-- **10.4.5** The system shall retrieve data only from public sources that require no third-party authentication credentials.
+- **10.4.5** The system shall use publicly accessible data sources for environmental and observation ingestion under §1. *(Revised in v0.10: authorised OneMap, Telegram, authentication and image-analysis services may use server-held service credentials under 10.3.4; the previous universal prohibition contradicted those integrations.)*
 - **10.4.6** The system shall respect the published rate limit of every external API it calls.
 
 ## 10.5 Usability and HCI
@@ -716,7 +1000,7 @@ the list the Lab 1 UI mockups must cover.*
 
 - **11.1.1** The system shall present a primary navigation menu on every screen available to an authenticated user.
 - **11.1.2** The system shall present a Resident with primary navigation items for Map, My Locations, Report a Site, My Reports and Settings.
-- **11.1.3** The system shall present an Operations Manager with primary navigation items for Dashboard, Map, Moderation, Work Orders and Data Sources.
+- **11.1.3** The system shall present an Operations Manager with primary navigation items for Dashboard, Map, Moderation, Work Orders, Dispatch, Staff, Vehicles and Data Sources. *(Revised in v0.11 to include the HQ vehicle registry.)*
 - **11.1.4** The system shall present a Cleaning Crew Member with primary navigation items for My Jobs, Map and Profile.
 - **11.1.5** The system shall display no navigation item that the signed-in user's role may not access.
 - **11.1.6** The system shall indicate which primary navigation item corresponds to the current screen.
@@ -742,7 +1026,7 @@ the list the Lab 1 UI mockups must cover.*
 - **11.2.13** The system shall provide a Cluster Detail screen showing score, drivers, trend, reports and work orders.
 - **11.2.14** The system shall provide a Moderation Queue screen.
 - **11.2.15** The system shall provide a Report Review screen supporting verification and rejection.
-- **11.2.16** The system shall provide a Dispatch Proposal screen listing the system's proposed daily targets.
+- **11.2.16** The system shall provide a Dispatch Proposal screen with views for proposed daily targets and planned multi-crew routes. *(Revised in v0.10.)*
 - **11.2.17** The system shall provide a Work Order Create screen.
 - **11.2.18** The system shall provide a Work Order Detail screen for an Operations Manager, including assignment and verification controls.
 - **11.2.19** The system shall provide a My Jobs screen for a Cleaning Crew Member.
@@ -756,6 +1040,7 @@ the list the Lab 1 UI mockups must cover.*
 
 - **11.2.27** The system shall provide a Pest Reference screen listing every covered pest type with its responsible authority and its published contact number. *(Added in v0.9. A resident who has just seen a snake needs the AVS number faster than they need a report form.)*
 - **11.2.28** The system shall provide a Referral screen for an Operations Manager, supporting referral under 8.6.1 and outcome recording under 8.6.8. *(Added in v0.9.)*
+- **11.2.29** The system shall provide a Vehicle Registry screen for an Operations Manager at `/ops/vehicles`.
 
 ## 11.3 Dialog map and transitions
 
@@ -867,12 +1152,55 @@ otherwise.*
   the application launches full-screen when added to the home screen on iOS. *(iOS ignores the
   manifest for both.)*
 
+## 11.10 Dispatch maps, crew cards and evidence display
+
+*(Added in v0.10. Section 11.9 retains its permanent numbers in its existing location above §10.)*
+
+- **11.10.1** The Dispatch Proposal screen shall display each planned crew's route as a distinct map line.
+- **11.10.2** The dispatch map shall display numbered task-stop markers in route order.
+- **11.10.3** The dispatch map shall display each planned crew's outpost marker.
+- **11.10.4** The dispatch map shall use road-following geometry when OneMap returns it.
+- **11.10.5** The dispatch map shall distinguish Critical, High, Medium and Low clusters through text labels and distinct colours.
+- **11.10.6** The dispatch map shall include a legend naming all four priority tiers.
+- **11.10.7** The Dispatch Proposal screen shall allow the manager to switch between all active clusters and clusters represented in the current dispatch preview.
+- **11.10.8** The Dispatch Proposal screen shall provide a control on a target or stop card that centres the map on that target.
+- **11.10.9** Each route card shall display its crew size, required task staff counts, total duration, capacity use and routing source.
+- **11.10.10** Each route card shall display an ordered waypoint list including departure, tasks and return to outpost.
+- **11.10.11** Each route card shall display its packing checklist and task progress.
+- **11.10.12** The Report Detail and Report Review screens shall display all photographs attached to a report.
+- **11.10.13** A report-photograph viewer shall allow the user to select another attached photograph without leaving the report.
+- **11.10.14** A report-photograph viewer shall display a readable fallback when an image fails to load or has no usable visible dimensions.
+- **11.10.15** The Report a Site screen shall distinguish a model-detected count from the Resident's editable confirmed count.
+- **11.10.16** The Report a Site screen shall display a loading state while image analysis runs.
+- **11.10.17** The Report a Site screen shall retain manually entered report fields when image analysis fails.
+
+## 11.11 Dispatch refresh, load display and fleet controls
+
+*(Added in v0.11. All load limits retain visible units. A demo badge remains visible beside a demo
+vehicle on its registry row and on any route that uses it.)*
+
+- **11.11.1** The Dispatch screen shall show a pending-plan message while its first background calculation is incomplete.
+- **11.11.2** The Dispatch screen shall keep completed routes visible while showing that a replacement plan is refreshing.
+- **11.11.3** The Dispatch screen shall display the completed plan's computation timestamp in Singapore time.
+- **11.11.4** The Dispatch screen shall poll for a ready snapshot while a background calculation is pending or refreshing.
+- **11.11.5** The Dispatch screen shall show a failed-calculation explanation without removing the last completed routes.
+- **11.11.6** The Dispatch screen shall display a referral list with each case's priority and responsible authority.
+- **11.11.7** Each route card shall display the allocated vehicle's name and registration.
+- **11.11.8** Each route card using a demo vehicle shall display a Demo label explaining that its capacities are illustrative.
+- **11.11.9** Each route card shall display its used and maximum payload in kilograms.
+- **11.11.10** Each route card shall display its used and maximum cargo volume in cubic metres.
+- **11.11.11** Each logistics checklist row shall display numeric quantity, unit weight, dimensions, total weight and total volume.
+- **11.11.12** The Vehicle Registry screen shall provide an HQ filter.
+- **11.11.13** The Vehicle Registry screen shall provide create and edit forms for the recorded vehicle fields in §2.6.
+- **11.11.14** The Vehicle Registry screen shall identify demo records as illustrative data before they are used for operational planning.
+
 ---
 
 # 12. Traceability
 
-Every requirement number above is traced forward in `EPICS-STORIES.md`, which names the epic and user
-story that delivers it. Use case descriptions written in Lab 1 must cite these numbers; the dialog map
+Every requirement number above shall be traced forward in the delivery artefacts below. The existing
+`EPICS-STORIES.md` maps the earlier baseline; v0.10 and v0.11 additions require the updates identified below.
+Use case descriptions written in Lab 1 must cite these numbers; the dialog map
 drawn in Lab 2 must cover every screen in §11.2; test cases written in Lab 4 must cite the requirement
 number they verify.
 
@@ -894,6 +1222,39 @@ Open points requiring a team decision are listed at the end of `EPICS-STORIES.md
 **Numbers are permanent.** No v0.8 number was reused or renumbered in v0.9. Requirements 4.1.1,
 4.1.3, 4.1.7 and 4.1.14 were revised in place, each carrying a dated note stating what changed and
 why, in the manner already used for 1.1.15 and 8.2.5.
+
+**v0.10 traceability and verification status (2026-10-27).** This revision records the current
+contract. Source inspection alone is not deployment or test evidence. Local validation for the routing
+correction passed 1,016 tests across 52 suites, type checking, a fresh production build and an isolated
+smoke check from a clean package extraction. Azure deployment `b981ad07-754f-4203-8a68-071e7c35c9be`
+passed live API and browser checks. Evidence: `scratchpad/routing-20261027-final-tests.log` and
+`../../scratchpad/smart-nation-routing-20261027-deploy/live-verification.json`. The live sample had
+no High or Critical candidates; those cases are covered by regression tests. Historical test-plan
+statements above describe their dated baseline.
+
+| Requirement group | Implementation reference | Acceptance evidence required |
+|---|---|---|
+| 2.5; 8.2.8–8.2.10 | `StaffAccountController`, `StaffRoutingPolicy`, `AdminRoutes`, `StaffAccountsScreen` | Staff provisioning, capability rejection, audited edits and outpost-readiness checks |
+| 5.4; 11.10.12–11.10.17 | `PestRecognitionService`, `PestVisionGateway`, vision strategies, `ReportRoutes`, `ReportSiteScreen`, `PhotoCarousel`, `VisionDetectionOverlay` | Valid and invalid image/result cases, human confirmation, unknown count, provider failure, cache and UI checks; fresh-photo checks from the hosting region remain necessary |
+| 8.7; 8.8; 11.10.1–11.10.11 | `RouteOptimizationService`, server route inputs, `WorkOrderRoutes`, `DispatchProposalScreen`, `SingaporeMap` | Priority-starvation regression, complete candidate queue, real staff count, capability limits, sequential/parallel crews, road-time cap and route-preview checks |
+| All v0.10 additions | `EPICS-STORIES.md`, Lab 2/3 use cases and models, Lab 4 test plan | Carry forward the new IDs; no completion claim is made for these downstream document updates by this revision |
+
+The accountable lead in 8.2.1 remains the only assignee persisted by the current lifecycle. A
+multi-person route preview is capacity planning. It is not evidence that every supporting member
+has an individual assignment record, notification or job view.
+
+**v0.11 traceability and verification status (2026-10-27).** The new contract covers the reported
+delay, the omission of non-dengue report tasks, and vehicle logistics. Earlier v0.10 deployment
+evidence does not establish v0.11 completion. Final tests, a fresh build, package execution and live
+checks remain separate verification steps; no v0.11 production-deployment claim is made here.
+
+| Requirement group | Implementation reference | Acceptance evidence required |
+|---|---|---|
+| 2.6; 11.2.29; 11.11.12–11.11.14 | `VehicleController`, `VehicleRepository`, `VehicleRoutes`, `VehicleRegistryScreen`, migration 014 | Manager-only create/edit, invalid capacity refusal, durable records, explicit demo flags, HQ filtering and unavailable-vehicle exclusion |
+| 8.9.1–8.9.17; 10.1.6; 11.11.1–11.11.5 | `DispatchPlanService`, server refresh hooks, `DispatchProposalScreen` | Snapshot reads during a blocked calculation, startup/new-cluster refresh, unchanged fingerprints, change-during-calculation rerun, failure retention and browser status transitions |
+| 8.1.11; 8.9.18–8.9.27; 9.1.17; 11.11.6 | `DispatchController`, `DispatchRouteInputs`, shared report triage, `MapViewController` | Non-dengue high/critical reports outside clusters, overdue work, source/pest/task deduplication and visible external referrals |
+| 8.10; 11.11.7–11.11.11 | `LogisticsPolicy`, `RouteOptimizationService`, route cards | Item weight/dimensions, shared versus per-task loads, vehicle uniqueness, seats, payload, volume, rotated item fit, parallel load splits and explicit-return rules |
+| All v0.11 additions | `EPICS-STORIES.md`, use cases, data dictionaries, models and Lab 4 test plan | Carry the new permanent IDs through downstream artefacts; those updates are not certified by this master-file revision |
 
 ---
 
@@ -918,6 +1279,13 @@ reader of this document alone can tell assumption from requirement.*
 | 4.1.16 | 90 days is the default treatment recency | Judgement | Untreated clusters over- or under-weighted |
 | 1.1.1 | A 60-minute poll interval is useful | **Verified 2026-09-03** — the publisher revises on the order of days; 1.1.19–1.1.21 make the hourly cycle a cheap metadata check | See below |
 | 8.1.3 | Five task types match real dispatch | **Unverified** — see the actor note in §Actors | Domain challenge in Q&A |
+| 8.8.4–8.8.9 | Inspection 1, Larviciding 2, Fogging 3, Drain clearance 2 and Refuse clearance 2 staff; task effort 30/40/45/50/40 minutes respectively | Provisional application defaults proposed during the routing correction on 2026-10-27; no external staffing standard or measured productivity evidence | A crew is undersized or the plan overstates throughput; confirm operational requirements before real use |
+| 8.7.22–8.7.29 | Four-hour dispatch window; direct-distance fallback when road routing fails | Product planning rule. Fallback duration is an estimate, not a road-service guarantee | Road conditions or service delays can exceed the planned window |
+| 2.6.17–2.6.18; 11.11.8 | Ten initial demo vehicles: a 750 kg / 6 m³ van and a 1,000 kg / 3 m³ pickup per HQ, with illustrative seats and bay dimensions | Yen Kit authorised clearly labelled demo vehicles on 2026-10-27; capacities are application demonstration values with no external fleet evidence | Demo records must be confirmed or replaced before real fleet decisions |
+| 8.10.1–8.10.11 | Equipment weights, rectangular dimensions, consumable quantities and full collection/specimen load envelopes | Provisional application defaults; no measured equipment inventory or operational loading study | Actual equipment, waste or specimens may exceed the envelope; confirm recorded values before operational use |
+| 8.10.15–8.10.17; 8.10.25 | Weight sum, aggregate rectangular volume and individual-item fit across axis rotations | Deliberate first-version load check; no exact 3D bin-packing or axle-load model | Individually fitting items may not fit together; the plan is not a certified loading diagram |
+| 8.9.5; 10.1.6 | A 30-second source-fingerprint check and sub-one-second snapshot-read acceptance target | Application design targets selected to separate page reads from background computation; no production SLA is implied | A source change can be visible before its new plan completes; the timestamp and refresh state must remain visible |
+| 5.4.14, 5.4.32–5.4.33 | Recognition confidence floor 0.6; exact-photo cache 24 hours and 128 entries | Implementation design values, not measured recognition accuracy or a provider availability guarantee | Incorrect detection can pass the confidence threshold; human confirmation remains required |
 | 5.1.4, 5.1.5, 3.1.1 | 500 characters, three photographs, five locations | Judgement | None material |
 | 4.1.5 | The default driver weights in `SCORING-SPEC.md` §3 | Judgement, argued from the live payload | Ranking reflects the team's priorities rather than measured risk |
 | 4.1.4 | The normalisation method chosen per driver | Judgement, argued from the live payload | A driver saturates too early or too late and stops discriminating |
@@ -971,6 +1339,45 @@ Requirements are written against these sources. Verification status is from
 ---
 
 # 14. Revision history and review dispositions
+
+**v0.11 (2026-10-27)** — updated after Yen Kit identified slow route calculation and non-dengue
+tasks missing from dispatch, and requested item dimensions, load limits and a vehicle registry.
+
+- Added §2.6 for persistent HQ vehicles, editable load limits, bay dimensions, seats, availability
+  and explicitly labelled demo records. The seeder adds two different-capacity vehicles per HQ only
+  when the registry is empty.
+- Added §8.9 for background snapshots, source-change refresh, retained last-good plans, complete
+  verified report coverage, overdue work, duplicate suppression and visible external referrals.
+- Added §8.10 for item weights and dimensions, accumulated logistics envelopes, vehicle reservation,
+  seats, payload, volume, individual-item fit and explicit return instructions.
+- Revised 8.1.11 to distinguish pest types on one cluster. Revised 8.7.2 to include report targets
+  and overdue work. Revised 8.7.26 to remove automatic pest-based returns in favour of load limits.
+- Added the Vehicle Registry screen, dispatch-state/load displays, shared map triage and a snapshot
+  response-time acceptance target. Existing referral authority and single lead-assignee rules remain.
+- Retained all previous requirement IDs and historical submission snapshots. The new traceability
+  table separates acceptance obligations from final execution and deployment evidence.
+
+**v0.10 (2026-10-27)** — updated at Yen Kit's request to cover the new application features and
+the correction to routing that omitted higher-priority tasks.
+
+- Added §2.5 for staff specialisations, five outposts, readiness statuses, on-call delay, audited
+  changes and availability counts.
+- Added §5.4 for photo analysis, specimen boxes, explicit confirmation, editable counts, unknown
+  counts, preliminary triage, bounded provider requests, manual fallback and exact-photo caching.
+- Added §8.7 for the full real candidate queue, strict tier-first greedy allocation, qualified
+  outpost capacity, parallel crews, staff reuse, road duration and the four-hour cap.
+- Added §8.8 for task capability rules, provisional crew sizes and effort, packing checklists and
+  progress display. Wildlife and other externally referred cases remain outside internal dispatch.
+- Added §11.10 for dispatch maps, numbered stops, crew cards and report-image viewing.
+- Revised 8.1.7–8.1.8 so the displayed proposal limit cannot truncate routing candidates.
+- Clarified 8.2.1 as one accountable lead; planning a multi-person crew does not create additional
+  lifecycle assignees. Added capability-based assignment requirements 8.2.8–8.2.10.
+- Revised the report photo minimum in 5.1.5 to match the current report journey.
+- Resolved the narrow personal-data whitelist in 10.4.2 and the universal credential prohibition
+  in 10.4.5, which conflicted with the services and records specified elsewhere.
+- Added the v0.10 traceability table with implementation references, required checks and explicit
+  downstream-document work. This revision makes no claim that the routing correction is deployed,
+  every new requirement has passed, or image recognition has validated general accuracy.
 
 **v0.5 (2026-09-03)** — revised after the first live read of the NEA payload and two decisions taken
 by Yen Kit. Material changes:

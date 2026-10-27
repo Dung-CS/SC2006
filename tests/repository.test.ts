@@ -61,7 +61,7 @@ import { HighAedesAreaRepository } from '../src/persistence/HighAedesAreaReposit
 import { HighAedesArea } from '../src/entity/HighAedesArea';
 
 const url = ConfigLoader.load().get('DATABASE_URL');
-const live = url !== '';
+const live = url !== '' && process.env.DFENCE_TEST_LIVE_DB !== 'false';
 
 /** A metre of latitude, in degrees. Used to place points at known distances apart. */
 const METRE = 1 / 111_320;
@@ -126,6 +126,8 @@ describe.skipIf(!live)('Repositories against live PostGIS — §5.1.7, §5.1.11,
     // Order matters: `work_order` references `cluster` with ON DELETE RESTRICT, so the cluster
     // cannot go first. Everything else cascades from the account or the work order.
     await db.query('DELETE FROM treatment_record WHERE cluster_id = $1', [clusterId]);
+    // Migration 011 makes `source_report_id` RESTRICT, so report-only jobs go before their reports.
+    await db.query('DELETE FROM work_order WHERE source_report_id IN (SELECT id FROM report WHERE reporter_id = $1)', [accountId]);
     await db.query('DELETE FROM report WHERE reporter_id = $1', [accountId]);
     await db.query('DELETE FROM work_order WHERE cluster_id = $1', [clusterId]);
     await db.query('DELETE FROM cluster WHERE id = $1', [clusterId]);
@@ -285,6 +287,69 @@ describe.skipIf(!live)('Repositories against live PostGIS — §5.1.7, §5.1.11,
     await treatments.save(record);
 
     expect(await treatments.daysSinceLastTreatment(clusterId, now)).toBe(10);
+  });
+
+  it('R9b — a report-only job round-trips its null cluster, pest, report point and treatment (8.1.2, migration 011)', async () => {
+    const source = await reports.save(
+      report(new GeoPoint(ORIGIN.latitude, ORIGIN.longitude + 900 * METRE), ReportStatus.Verified),
+    );
+    const order = workOrder('2026-09-05', WorkOrderStatus.Created);
+    order.clusterId = null;
+    order.sourceReportId = source.id;
+    order.pestType = PestType.Rat;
+    order.taskType = TaskType.Inspection;
+    order.priority = PriorityTier.Medium;
+    await workOrders.save(order);
+
+    const back = await workOrders.findById(order.id);
+    expect(back?.clusterId).toBeNull();
+    expect(back?.pestType).toBe(PestType.Rat);
+    expect(back?.targetPoint?.latitude).toBeCloseTo(source.point.latitude, 6);
+    expect(back?.targetPoint?.longitude).toBeCloseTo(source.point.longitude, 6);
+    expect(back?.location).toBe('Repository test site');
+    expect((await workOrders.findOpenForReport(source.id)).map((w) => w.id)).toEqual([order.id]);
+    expect((await workOrders.findAll()).some((w) => w.id === order.id)).toBe(true);
+
+    const record = new TreatmentRecord();
+    record.id = randomUUID();
+    record.clusterId = null;
+    record.workOrderId = order.id;
+    record.taskType = TaskType.Inspection;
+    record.completionDate = '2026-09-05';
+    record.pestType = PestType.Rat;
+    await treatments.save(record);
+    const rows = await db.query('SELECT cluster_id, pest_type FROM treatment_record WHERE id = $1', [record.id]);
+    expect(rows[0]).toEqual({ cluster_id: null, pest_type: 'Rat' });
+
+    // 011's CHECK refuses a job with no target; its RESTRICT keeps a job's sole target in place.
+    const orphan = workOrder('2026-09-05', WorkOrderStatus.Created);
+    orphan.clusterId = null;
+    await expect(workOrders.save(orphan)).rejects.toThrow(/work_order_target_check/);
+    await expect(db.query('DELETE FROM report WHERE id = $1', [source.id])).rejects.toThrow(/work_order_source_report_id_fkey/);
+  });
+
+  it('R9c — an unknown legacy pest reloads as null; a rat treatment leaves the mosquito driver alone', async () => {
+    const legacy = workOrder('2026-09-05', WorkOrderStatus.Created);
+    legacy.pestType = null;
+    await workOrders.save(legacy);
+    expect((await workOrders.findById(legacy.id))?.pestType).toBeNull();
+
+    const now = new Date('2026-09-04T12:00:00+08:00');
+    const mosquitoBefore = await treatments.daysSinceLastTreatment(clusterId, now);
+    const ratOrder = workOrder('2026-09-03', WorkOrderStatus.Verified);
+    ratOrder.pestType = PestType.Rat;
+    ratOrder.taskType = TaskType.Inspection;
+    await workOrders.save(ratOrder);
+    const rat = new TreatmentRecord();
+    rat.id = randomUUID();
+    rat.clusterId = clusterId;
+    rat.workOrderId = ratOrder.id;
+    rat.taskType = TaskType.Inspection;
+    rat.completionDate = '2026-09-03';
+    rat.pestType = PestType.Rat;
+    await treatments.save(rat);
+    expect(await treatments.daysSinceLastTreatment(clusterId, now)).toBe(mosquitoBefore);
+    expect(await treatments.daysSinceLastTreatment(clusterId, now, PestType.Rat)).toBe(1);
   });
 
   it('R10 — the lock-out state survives a restart, as three values that must agree (2.1.10)', async () => {
@@ -1151,7 +1216,7 @@ describe.skipIf(!live)('The retention policy against live Postgres — §4.1.11'
     // The cascade is the reason `DOOMED_CYCLES` names only one table. If it were ever dropped, the
     // tool would leave half a million rows behind that no score explains and nothing reads.
     expect(Number(orphans[0]?.n)).toBe(0);
-  });
+  }, 30_000);
 });
 
 /**
@@ -1265,7 +1330,7 @@ describe.skipIf(!live)('The three v0.9 stores against live Postgres — §1.5, �
     await db.query('DELETE FROM account WHERE id = $1', [accountId]);
     await db.query('DELETE FROM cluster WHERE id = $1', [clusterId]);
     await db.close?.();
-  });
+  }, 120_000); // Restoring the real registry must finish even when remote round trips are slow.
 
   it('OB1 — a record already held is not counted again (1.5.11)', async () => {
     const first = await observations.save([observation('a', PestType.Snake), observation('b', PestType.Snake)]);

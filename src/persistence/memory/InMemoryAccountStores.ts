@@ -39,8 +39,9 @@ export class InMemoryAccountStore implements AccountStore {
 
   async save(account: Account): Promise<Account> {
     account.id = account.id || randomUUID();
-    this.accounts.set(account.id, account);
-    return account;
+    const copy = Object.assign(Object.create(Object.getPrototypeOf(account)), account) as Account;
+    this.accounts.set(account.id, copy);
+    return copy;
   }
 
   async findByRole(role: Role): Promise<Account[]> {

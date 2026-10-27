@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { useLoad } from '../../lib/useLoad';
 import { ConfirmDialog, StateView, Toast } from '../../components/States';
 import { link } from '../../components/Link';
+import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
 
 interface LocationCard {
@@ -33,6 +34,11 @@ export function MyLocationsScreen(props: ScreenProps): JSX.Element {
     // 11.4.2 — an empty state says what to do next, not merely that there is nothing here.
     emptyMessage: 'You have not saved any locations yet. Add your home or workplace to be told when a cluster appears nearby.',
   });
+
+  const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(
+    value?.locations ?? [],
+    10,
+  );
   const [pendingDelete, setPendingDelete] = useState<LocationCard | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -62,7 +68,7 @@ export function MyLocationsScreen(props: ScreenProps): JSX.Element {
 
       <StateView state={state} onRetry={retry}>
         <ul data-part="locations">
-          {(value?.locations ?? []).map((location) => (
+          {pagedItems.map((location) => (
             <li key={location.id} data-status={location.status}>
               <h2>{location.name}</h2>
               <p data-part="label">{location.label}</p>
@@ -80,6 +86,14 @@ export function MyLocationsScreen(props: ScreenProps): JSX.Element {
             </li>
           ))}
         </ul>
+
+        <Pagination
+          currentPage={currentPage}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          itemName="locations"
+        />
       </StateView>
 
       {pendingDelete === null ? null : (

@@ -29,6 +29,12 @@ import {
 import { Driver, PriorityTier, SourceKind, ChangeClass } from '../src/entity/enums';
 import { RawPayload } from '../src/ports/types';
 import { ClusterSource } from '../src/ports/ExternalGateway';
+import { IngestionJobFactory } from '../src/control/ingestion/IngestionJobFactory';
+import { DataStoreFactory } from '../src/persistence/DataStoreFactory';
+import { Database } from '../src/persistence/Database';
+import { InMemoryAccountStore } from '../src/persistence/memory/InMemoryAccountStores';
+import { InMemoryWorkOrderStore } from '../src/persistence/memory/InMemoryWorkOrderStores';
+import { InMemoryReportStore } from '../src/persistence/memory/InMemoryReportStores';
 
 /** Two features from the real payload, trimmed to what 1.1.3 requires plus the habitat text. */
 function payload(caseSize = 258): unknown {
@@ -439,6 +445,44 @@ class FakeJob extends AbstractIngestionJob {
     return super.run(trigger);
   }
 }
+
+describe('Ingestion strategies and factories', () => {
+  it('executes a job through the strategy contract', async () => {
+    const job = new FakeJob(SourceKind.Clusters, new InMemoryIngestionRunStore());
+
+    const result = await job.execute();
+
+    expect(result.source).toBe(SourceKind.Clusters);
+    expect(result.outcome).toBe(RunOutcome.Success);
+  });
+
+  it('resolves a job by source kind and reports missing registrations', () => {
+    const job = new FakeJob(SourceKind.Clusters, new InMemoryIngestionRunStore());
+    const factory = new IngestionJobFactory(new Map([[SourceKind.Clusters, job]]));
+
+    expect(factory.create(SourceKind.Clusters)).toBe(job);
+    expect(() => factory.create(SourceKind.Rainfall)).toThrow(/no ingestion job configured/);
+  });
+
+  it('selects in-memory and Postgres stores from the supplied database', () => {
+    const database = new Database('postgres://unused');
+
+    expect(DataStoreFactory.createAccountStore(null)).toBeInstanceOf(InMemoryAccountStore);
+    expect(DataStoreFactory.createWorkOrderStore(null)).toBeInstanceOf(InMemoryWorkOrderStore);
+    expect(DataStoreFactory.createReportStore(null)).toBeInstanceOf(InMemoryReportStore);
+    expect(DataStoreFactory.createClusterStore(null).constructor.name).toBe('InMemoryClusterStore');
+    expect(DataStoreFactory.createAuditStore(null).constructor.name).toBe('InMemoryAuditStore');
+    expect(DataStoreFactory.createRainfallStore(null).constructor.name).toBe('InMemoryRainfallStore');
+    expect(DataStoreFactory.createPriorityScoreStore(null).constructor.name).toBe('InMemoryPriorityScoreStore');
+    expect(DataStoreFactory.createAccountStore(database).constructor.name).toBe('AccountRepository');
+    expect(DataStoreFactory.createWorkOrderStore(database).constructor.name).toBe('WorkOrderRepository');
+    expect(DataStoreFactory.createClusterStore(database).constructor.name).toBe('ClusterRepository');
+    expect(DataStoreFactory.createReportStore(database).constructor.name).toBe('ReportRepository');
+    expect(DataStoreFactory.createAuditStore(database).constructor.name).toBe('AuditRepository');
+    expect(DataStoreFactory.createRainfallStore(database).constructor.name).toBe('RainfallRepository');
+    expect(DataStoreFactory.createPriorityScoreStore(database).constructor.name).toBe('PriorityScoreRepository');
+  });
+});
 
 describe('Manual ingestion trigger — §1.1.18, §2.3.4', () => {
   function build(failRainfall = false): {

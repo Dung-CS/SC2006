@@ -27,6 +27,7 @@
 import { RouteHandler, Request, Response } from './RouteHandler';
 import { AccessControlService } from '../../control/AccessControlService';
 import { ReportController, DuplicateReport, ReportRejected, ReportDraft } from '../../control/ReportController';
+import { PestRecognitionService } from '../../control/PestRecognitionService';
 import { GeoPoint } from '../../entity/valueTypes';
 import { LocationContext, PestType, ReportType } from '../../entity/enums';
 
@@ -40,11 +41,15 @@ interface SubmitBody {
   locationContext?: string;
   /** 5.1.17 */
   injuryReported?: boolean;
+  estimatedCount?: number | null;
   description?: string;
   photos?: Array<{ filename?: string; contentType?: string; sizeBytes?: number; storageKey?: string }>;
 }
 
 export class ReportRoutes extends RouteHandler {
+  // ponytail: per-process budget; use a shared limiter before scaling to multiple app instances.
+  private static readonly visionBudget = new Map<string, { until: number; count: number }>();
+  private static visionActive = 0;
   constructor(
     ac: AccessControlService,
     private readonly reports: ReportController,
@@ -58,7 +63,7 @@ export class ReportRoutes extends RouteHandler {
   }
 
   override writeRoutes(): string[] {
-    return ['/api/reports', '/api/reports/:id/corroborate'];
+    return ['/api/reports', '/api/reports/:id/corroborate', '/api/reports/recognize-pest'];
   }
 
   async handle(req: Request, res: Response): Promise<void> {
@@ -92,6 +97,25 @@ export class ReportRoutes extends RouteHandler {
         case '/api/reports/:id/corroborate': {
           const report = await this.reports.confirmExisting(req.params.id ?? '', principal);
           res.json({ reportId: report.id, corroborationCount: report.corroborationCount });
+          return;
+        }
+        case '/api/reports/recognize-pest': {
+          await this.ac.authorise(principal, 'report:create', { kind: 'report' });
+          const now = Date.now();
+          for (const [id, budget] of ReportRoutes.visionBudget) {
+            if (budget.until <= now) ReportRoutes.visionBudget.delete(id);
+          }
+          const budget = ReportRoutes.visionBudget.get(principal.accountId);
+          if (ReportRoutes.visionActive >= 2 || (budget?.count ?? 0) >= 5 || ReportRoutes.visionBudget.size >= 10000) {
+            res.header?.('Retry-After', '60');
+            res.status(429).json({ error: 'Photo analysis is busy or its minute limit was reached', remedy: 'wait a minute, or enter your observation manually' });
+            return;
+          }
+          ReportRoutes.visionBudget.set(principal.accountId, { until: budget?.until ?? now + 60000, count: (budget?.count ?? 0) + 1 });
+          ReportRoutes.visionActive += 1;
+          try {
+            res.json(await PestRecognitionService.recognize(req.body));
+          } finally { ReportRoutes.visionActive -= 1; }
           return;
         }
         default:
@@ -136,6 +160,7 @@ export class ReportRoutes extends RouteHandler {
         ? {}
         : { locationContext: body.locationContext as LocationContext }), // 5.1.16
       ...(body.injuryReported === undefined ? {} : { injuryReported: body.injuryReported }), // 5.1.17
+      ...(body.estimatedCount === undefined ? {} : { estimatedCount: body.estimatedCount }),
       description: body.description ?? '',
       photos: (body.photos ?? []).map((p) => ({
         filename: p.filename ?? 'photo',

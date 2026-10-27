@@ -35,6 +35,8 @@ export class Report {
   locationContext: LocationContext | null = null;
   /** 5.1.17 — optional on any report; 4.4.8 turns on it. */
   injuryReported = false;
+  /** Estimated specimen count / density from citizen report or AI vision. */
+  estimatedCount: number | null = null;
   description!: string;
   /** 5.1.7 — the active cluster containing the point, or null when none does. */
   clusterId!: Uuid | null;
@@ -94,6 +96,7 @@ export class Report {
   publicProjection(): {
     id: Uuid;
     type: ReportType;
+    pestType: PestType;
     description: string;
     point: GeoPoint;
     localityBinding: string;
@@ -101,10 +104,12 @@ export class Report {
     corroborationCount: number;
     submittedAt: Date;
     photosVisible: boolean;
+    estimatedCount: number | null;
   } {
     return {
       id: this.id,
       type: this.type,
+      pestType: this.pestType,
       description: this.description,
       point: this.point,
       localityBinding: this.localityBinding,
@@ -112,6 +117,7 @@ export class Report {
       corroborationCount: this.corroborationCount,
       submittedAt: this.submittedAt,
       photosVisible: this.status !== ReportStatus.Submitted && this.status !== ReportStatus.Rejected,
+      estimatedCount: this.estimatedCount,
     };
   }
 }

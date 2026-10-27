@@ -16,6 +16,10 @@ import { useLoad } from '../../lib/useLoad';
 import { Freshness, QUEUE_REFRESH_MS, StateView } from '../../components/States';
 import { link } from '../../components/Link';
 import { WorkOrderStatus } from '../../../../src/entity/enums';
+import { Pill, statusTone, tierTone } from '../../components/Presentation';
+import { label } from '../../lib/labels';
+import { staffPhotoUrl } from '../../lib/staffVisuals';
+import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
 
 /** 11.2.22 — the crew accounts a manager may assign to, used here only to put a name to an id. */
@@ -27,6 +31,7 @@ interface ListPayload {
   workOrders: Array<{
     id: string;
     clusterId: string;
+    location?: string;
     assigneeId: string | null;
     taskType: string;
     status: string;
@@ -42,32 +47,22 @@ export function WorkOrderListScreen(props: ScreenProps): JSX.Element {
   const { state, value, retry, lastLoadedAt } = useLoad<ListPayload>(props.api, path, {
     isEmpty: (v) => v.workOrders.length === 0,
     emptyMessage: 'No work orders match. Raise one from the dispatch list or from a cluster.',
-    // 8.3.x — the crew move orders through the state table from their own devices. Without the
-    // poll a manager watching this list sees Assigned long after the job was completed, and the
-    // first they learn of it is when they go looking for something to verify.
     refreshMs: QUEUE_REFRESH_MS,
   });
 
-  /*
-   * The Assigned column read `assigneeId`, so a manager scanning this list was shown a column of
-   * raw UUIDs — "282c0058-ce23-4556-a2f3-033aa2938f49" — which answers the question "is it
-   * assigned" and nothing else. The crew roster is a list the manager is already authorised for
-   * and already loads on the dispatch screen, so it is read here too and used to put an address
-   * against the id.
-   *
-   * Not polled: a crew roster changes when someone is hired, and the id is still shown when the
-   * lookup misses, so a stale roster degrades to exactly the previous behaviour rather than to a
-   * blank cell.
-   */
   const roster = useLoad<CrewPayload>(props.api, '/api/ops/staff/crew');
   const crewById = new Map((roster.value?.crew ?? []).map((member) => [member.accountId, member.email]));
+
+  const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(
+    value?.workOrders ?? [],
+    10,
+  );
 
   return (
     <section data-screen="WOList" data-requirement="11.2.25">
       <h1>Work orders</h1>
       <Freshness at={lastLoadedAt} everyMs={QUEUE_REFRESH_MS} onRefresh={retry} />
-      {/* The action and the filter were adjacent inline elements with no separator, so they ran
-          together as "New work orderFilter by status". They are now a toolbar row. */}
+
       <div data-part="toolbar">
         <a href="/ops/work-orders/new" data-variant="primary" onClick={link(props, '/ops/work-orders/new')}>
           New work order
@@ -91,6 +86,7 @@ export function WorkOrderListScreen(props: ScreenProps): JSX.Element {
           <thead>
             <tr>
               <th scope="col">Task</th>
+              <th scope="col">Location</th>
               <th scope="col">Status</th>
               <th scope="col">Scheduled</th>
               <th scope="col">Priority</th>
@@ -98,30 +94,53 @@ export function WorkOrderListScreen(props: ScreenProps): JSX.Element {
             </tr>
           </thead>
           <tbody>
-            {(value?.workOrders ?? []).map((order) => (
+            {pagedItems.map((order) => (
               <tr key={order.id} data-status={order.status} data-issue={order.issueFlag}>
                 <td>
                   <a href={`/ops/work-orders/${order.id}`} onClick={link(props, `/ops/work-orders/${order.id}`)}>
-                    {order.taskType}
+                    {label(order.taskType)}
                   </a>
                 </td>
+                <td className="wo-location-cell">
+                  <span>{order.location ?? 'Singapore'}</span>
+                </td>
                 <td>
-                  {order.status}
-                  {/* 8.3.8 — a raised issue is the thing a manager most needs to spot in a list,
-                      so it is words in the status cell rather than a marker beside the row. */}
-                  {order.issueFlag ? ' — issue raised' : ''}
+                  <Pill tone={statusTone(order.status)}>{label(order.status)}</Pill>
+                  {order.issueFlag ? <span style={{ marginLeft: '6px', fontSize: '0.8rem', color: '#A4342B' }}>⚠️ Issue</span> : null}
                 </td>
                 <td>{order.scheduledDate}</td>
-                <td>{order.priority}</td>
                 <td>
-                  {order.assigneeId === null
-                    ? 'unassigned'
-                    : crewById.get(order.assigneeId) ?? order.assigneeId}
+                  <Pill tone={tierTone(order.priority)} tier={order.priority}>
+                    {order.priority}
+                  </Pill>
+                </td>
+                <td>
+                  {order.assigneeId === null ? (
+                    <span style={{ color: 'var(--ink-quiet)' }}>Unassigned</span>
+                  ) : (
+                    <div className="staff-profile-cell">
+                      <img
+                        src={staffPhotoUrl(crewById.get(order.assigneeId) ?? '')}
+                        alt=""
+                        className="staff-avatar-img"
+                        style={{ width: '28px', height: '28px', minWidth: '28px' }}
+                      />
+                      <span>{crewById.get(order.assigneeId) ?? order.assigneeId}</span>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+
+        <Pagination
+          currentPage={currentPage}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          itemName="work orders"
+        />
       </StateView>
     </section>
   );

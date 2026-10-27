@@ -7,20 +7,36 @@
  * table first. Requirement 8.3.2 is then enforced in exactly one place — the Lab 2 adversarial
  * review found a version of this model that claimed one owner of the state machine and drew two.
  */
-import { PestClass, PestType, PriorityTier, Role, TaskType, WorkOrderStatus } from '../entity/enums';
+import { PestType, PriorityTier, ReportStatus, Role, TaskType, WorkOrderStatus } from '../entity/enums';
 import { PestProfile } from '../entity/PestProfile';
+import { Report } from '../entity/Report';
 import { ConfigSet } from '../config/ConfigSet';
-import { IsoDate, Uuid, singaporeDate } from '../entity/valueTypes';
+import { GeoPoint, IsoDate, Uuid, singaporeDate } from '../entity/valueTypes';
 import { CompletionEvidence } from '../entity/CompletionEvidence';
 import { WorkOrder } from '../entity/WorkOrder';
 import { Cluster } from '../entity/Cluster';
-import { AuditStore, ClusterStore, Notifier, PriorityScoreStore, ReportLinkage, ReportStore, WorkOrderStore } from '../ports/Stores';
+import {
+  AccountStore,
+  AuditStore,
+  ClusterStore,
+  Notifier,
+  PriorityScoreStore,
+  ReportLinkage,
+  ReportStore,
+  WorkOrderStore,
+} from '../ports/Stores';
 import { WorkOrderLifecycleController, TransitionRefused } from './WorkOrderLifecycleController';
+import { RoutingDecision, coveringSpecialisations, externalAuthority, ineligibilityReason, permittedTasksFor, pestClassOf, rankStaff } from './StaffRoutingPolicy';
 import { AccessControlService } from './AccessControlService';
 import { Principal } from './Principal';
+import { taskForReport, triageForReport } from './ReportTriagePolicy';
 
 export interface WorkOrderDraft {
-  clusterId: Uuid;
+  /**
+   * 8.1.1 — required when there is no source report. With a source report it may be omitted: the
+   * report's own active cluster is used when it has one, and otherwise the job has no cluster.
+   */
+  clusterId?: Uuid;
   /** 8.1.16 — the pest the case addresses. Mosquito when a pre-v0.9 caller omits it. */
   pestType?: PestType;
   taskType: TaskType;
@@ -33,6 +49,13 @@ export interface WorkOrderDraft {
 /** One row of the proposed daily list (8.1.7). */
 export interface DispatchProposal {
   clusterId: Uuid;
+  sourceReportId?: Uuid;
+  point?: GeoPoint;
+  mapClusterId?: string;
+  referralAuthority?: string;
+  priorityBasis?: 'LocalityScore' | 'ReportTriage';
+  pestType?: PestType;
+  allowedCapabilities?: string[];
   locality: string;
   score: number;
   tier: PriorityTier;
@@ -40,10 +63,12 @@ export interface DispatchProposal {
   scheduledDate: IsoDate;
 }
 
+const UNKNOWN_PEST = 'the pest of this legacy work order is unknown, so no crew can be matched to it';
+
 /** Raised when creation is refused. 8.1.12 obliges us to hand back the order that blocked it. */
 export class DuplicateWorkOrder extends Error {
-  constructor(readonly existing: WorkOrder) {
-    super(`an open ${existing.taskType} work order already exists for this cluster`);
+  constructor(readonly existing: WorkOrder, target: 'cluster' | 'report' = 'cluster') {
+    super(`an open ${existing.taskType} work order already exists for this ${target}`);
     this.name = 'DuplicateWorkOrder';
   }
 }
@@ -98,43 +123,74 @@ export class DispatchController {
     private readonly audit: AuditStore | null = null,
     /** 4.2.3 — the pest catalogue, for 8.1.14 and 8.1.17. Null on a v0.8 deployment. */
     private readonly config: ConfigSet | null = null,
+    /**
+     * The roster `StaffRoutingPolicy` reads. When bound, `assign` refuses anyone whose recorded
+     * capability does not cover the job, including a crew member with none recorded. Unbound only
+     * in lifecycle unit tests that have no accounts at all.
+     */
+    private readonly accounts: AccountStore | null = null,
+    /** 8.1.2, 8.1.13 — the production store that proves report identity and links verified reports. */
+    private readonly reportStore: ReportStore | null = null,
   ) {}
 
   /**
-   * 8.1.7, 8.1.8 — the day's suggested work: the highest-scoring active clusters that have **no
-   * open work order**, capped at the configured limit.
-   *
-   * The exclusion is the point. A ranked list that keeps proposing the same top cluster every
-   * morning, because it is still the highest-scoring one while a crew is already working it, is a
-   * list a manager stops reading by Wednesday.
+   * Merge locality scores and verified report triage into one priority queue before applying
+   * the display limit. An open task suppresses only the same pest/task at that target. Reports
+   * outside dengue clusters and cases for external authorities remain visible.
    */
-  async proposeDailyList(date: IsoDate, by: Principal): Promise<DispatchProposal[]> {
+  async proposeDailyList(date: IsoDate, by: Principal, limit = this.dispatchListLimit): Promise<DispatchProposal[]> {
     await this.ac.authorise(by, 'workOrder:write', { kind: 'workOrder' });
-    const latest = await this.scores.latest();
-    const active = new Map((await this.clusters.findActive()).map((c) => [c.id, c]));
-
-    const proposals: DispatchProposal[] = [];
-    for (const score of [...latest].sort((a, b) => a.rank - b.rank)) {
-      if (proposals.length >= this.dispatchListLimit) {
-        break;
-      }
-      const cluster = active.get(score.clusterId);
-      if (cluster === undefined) {
-        continue;
-      }
-      if ((await this.workOrders.findOpenForCluster(cluster.id)).length > 0) {
-        continue;
-      }
-      proposals.push({
-        clusterId: cluster.id,
-        locality: cluster.locality,
-        score: score.score,
-        tier: score.tier,
-        suggestedTaskType: DispatchController.suggestTask(cluster),
-        scheduledDate: date,
-      });
+    const [latest, activeClusters, openOrders, verified, actioned] = await Promise.all([
+      this.scores.latest(), this.clusters.findActive(), this.workOrders.findAllOpen(),
+      this.reportStore?.findByStatus(ReportStatus.Verified) ?? Promise.resolve([]),
+      this.reportStore?.findByStatus(ReportStatus.Actioned) ?? Promise.resolve([]),
+    ]);
+    const active = new Map(activeClusters.map((c) => [c.id, c]));
+    const occupiedTasks = new Set(openOrders.map((order) => `${order.clusterId}:${order.pestType}:${order.taskType}`));
+    const representedReports = new Set(openOrders.flatMap((order) => order.sourceReportId ? [order.sourceReportId] : []));
+    const candidates: DispatchProposal[] = [];
+    const tierOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+    const reportTargets = new Set<string>();
+    for (const report of [...verified, ...actioned]) {
+      if (!report.isVerified() || representedReports.has(report.id) ||
+          (report.workOrderId && openOrders.some((order) => order.id === report.workOrderId))) continue;
+      if (candidates.some((proposal) => proposal.sourceReportId === report.id)) continue;
+      const taskType = taskForReport(report);
+      const target = `${report.clusterId}:${report.pestType}:${taskType}`;
+      if (report.clusterId && occupiedTasks.has(target)) continue;
+      const profile = this.profileFor(report.pestType);
+      const authority = externalAuthority(profile);
+      const score = latest.find((item) => (item.clusterId === report.clusterId || item.localityId === report.clusterId) &&
+        (item.pestType ?? PestType.Mosquito) === report.pestType);
+      const triage = triageForReport(report);
+      const tier = score && (tierOrder[score.tier] ?? 3) < (tierOrder[triage.priority] ?? 3) ? score.tier : triage.priority as PriorityTier;
+      candidates.push({ clusterId: report.clusterId ?? `pest-${report.id}`, sourceReportId: report.id, mapClusterId: `pest-${report.id}`,
+        point: report.point, pestType: report.pestType,
+        locality: report.localityBinding || 'Unassigned', score: score?.score ?? 0, tier,
+        suggestedTaskType: taskType, scheduledDate: date, priorityBasis: 'ReportTriage',
+        ...(authority ? { referralAuthority: authority } : {}),
+        allowedCapabilities: authority ? [] : coveringSpecialisations(taskType, pestClassOf(report.pestType, profile), report.pestType) });
+      if (report.clusterId) reportTargets.add(target);
     }
-    return proposals;
+    for (const score of latest) {
+      const cluster = active.get(score.localityId || score.clusterId) ?? active.get(score.clusterId);
+      if (!cluster) continue;
+      const pestType = score.pestType ?? PestType.Mosquito;
+      const profile = this.profileFor(pestType);
+      const authority = externalAuthority(profile);
+      const suggestedTaskType = pestType === PestType.Mosquito ? DispatchController.suggestTask(cluster) : TaskType.Inspection;
+      const target = `${cluster.id}:${pestType}:${suggestedTaskType}`;
+      if (occupiedTasks.has(target) || reportTargets.has(target)) continue;
+      if (candidates.some((p) => !p.sourceReportId && p.clusterId === cluster.id && p.pestType === pestType &&
+          p.suggestedTaskType === suggestedTaskType)) continue;
+      candidates.push({ clusterId: cluster.id, pestType, priorityBasis: 'LocalityScore',
+        mapClusterId: pestType === PestType.Mosquito ? cluster.id : `inat-${score.clusterId}-${pestType}`,
+        allowedCapabilities: authority ? [] : coveringSpecialisations(suggestedTaskType, pestClassOf(pestType, profile), pestType),
+        ...(authority ? { referralAuthority: authority } : {}),
+        locality: cluster.locality, score: score.score, tier: score.tier, suggestedTaskType, scheduledDate: date });
+    }
+    return candidates.sort((a, b) => (tierOrder[a.tier] ?? 3) - (tierOrder[b.tier] ?? 3) || b.score - a.score ||
+      a.locality.localeCompare(b.locality)).slice(0, Math.max(0, limit));
   }
 
   /**
@@ -147,9 +203,15 @@ export class DispatchController {
   async createWorkOrder(draft: WorkOrderDraft, by: Principal): Promise<WorkOrder> {
     await this.ac.authorise(by, 'workOrder:write', { kind: 'workOrder' });
 
-    const cluster = await this.clusters.findById(draft.clusterId);
-    if (cluster === null) {
-      throw new WorkOrderNotFound(`no active cluster ${draft.clusterId}`); // 8.1.1
+    // 8.1.1, 8.1.2 — the target is a cluster, a verified report, or both. With no source report the
+    // cluster is required exactly as before; with one, an omitted cluster is resolved below.
+    const clusterRequested = draft.clusterId !== undefined && draft.clusterId !== '';
+    let cluster: Cluster | null = null;
+    if (clusterRequested || draft.sourceReportId === undefined) {
+      cluster = await this.clusters.findById(draft.clusterId ?? '');
+      if (cluster === null || !cluster.isActive) {
+        throw new WorkOrderNotFound(`no active cluster ${draft.clusterId ?? ''}`); // 8.1.1
+      }
     }
     // 8.1.4 — a scheduled date that is not in the past. Compared as calendar dates in Singapore
     // time, because "today" is a date to a planner, not an instant.
@@ -163,33 +225,92 @@ export class DispatchController {
     // authorised to remove a snake or a boar, and a work order that nobody can carry out is worse
     // than an honest refusal: it reads as dispatched, suppresses nothing, and leaves the resident
     // waiting. §8.6 defines what happens instead, and the refusal names it.
-    const pestType = draft.pestType ?? PestType.Mosquito;
+    // The catalogue's AVS and NParks pests (the birds and bees) are refused the same way: see
+    // `StaffRoutingPolicy.externalAuthority`.
+    let linkedReports: Report[] = [];
+    let source: Report | null = null;
+    let pestType = draft.pestType ?? PestType.Mosquito;
+    if (draft.sourceReportId !== undefined) {
+      if (this.reportStore === null) {
+        throw new WorkOrderRejected('source report validation is unavailable; no work order was created (8.1.2)');
+      }
+      source = await this.reportStore.findById(draft.sourceReportId);
+      if (source === null) {
+        throw new WorkOrderRejected(`no report ${draft.sourceReportId} exists (8.1.2)`);
+      }
+      if (source.currentStatus() !== ReportStatus.Verified) {
+        throw new WorkOrderRejected('a work order can only be raised from a Verified report (8.1.2)');
+      }
+      if (cluster !== null && source.clusterId !== cluster.id) {
+        throw new WorkOrderRejected(
+          'the source report is not in the requested cluster; omit the cluster to dispatch to the report itself (8.1.2)',
+        );
+      }
+      // 8.1.11, 8.1.12 — the same job already raised from this report is offered, not repeated.
+      const sourceClash = (await this.workOrders.findOpenForReport(source.id)).find(
+        (w) => w.taskType === draft.taskType,
+      );
+      if (sourceClash !== undefined) {
+        throw new DuplicateWorkOrder(sourceClash, 'report');
+      }
+      if (source.workOrderId !== null) {
+        throw new WorkOrderRejected('the source report is already linked to a work order (8.1.2)');
+      }
+      if (draft.pestType !== undefined && draft.pestType !== source.pestType) {
+        throw new WorkOrderRejected(`pest type must match the source report (${source.pestType}) (8.1.2)`);
+      }
+      pestType = source.pestType;
+      if (cluster === null && source.clusterId !== null) {
+        // The report's own cluster, only while it is genuinely active. Never a nearby one.
+        const own = await this.clusters.findById(source.clusterId);
+        cluster = own !== null && own.isActive ? own : null;
+      }
+      const target = cluster;
+      // 8.1.13 — on a cluster, every unlinked verified report of the same pest there is linked. With
+      // no cluster, only the source: "every report with no cluster" is not a place.
+      linkedReports =
+        target === null
+          ? []
+          : (await this.reportStore.findByStatus(ReportStatus.Verified)).filter(
+              (report) =>
+                report.clusterId === target.id &&
+                report.pestType === pestType &&
+                report.workOrderId === null,
+            );
+      if (!linkedReports.some((report) => report.id === source?.id)) {
+        linkedReports.push(source);
+      }
+    }
     const profile = this.profileFor(pestType);
-    if (profile?.isReferrable() === true) {
+    const authority = externalAuthority(profile);
+    if (authority !== null) {
       throw new WorkOrderRejected(
-        `${pestType} is handled by ${profile.dispatchAuthority}, not by a cleaning crew — ` +
+        `${pestType} is handled by ${authority}, not by a cleaning crew — ` +
           `refer the report instead (8.1.14, 8.1.15)`,
       );
     }
     // 8.1.17 — fogging is not a response to a rat. Which task types suit which pest class is
     // configuration, not a rule in code, so an unconfigured pest class permits everything rather
     // than silently permitting nothing.
-    const permitted = profile === null ? null : this.permittedTasks(profile);
-    if (permitted !== null && !permitted.includes(draft.taskType)) {
+    const permitted = permittedTasksFor(pestType, profile);
+    if (!permitted.includes(draft.taskType)) {
       throw new WorkOrderRejected(
         `${draft.taskType} is not a permitted task for ${pestType} (8.1.17)`,
       );
     }
 
-    const clash = (await this.workOrders.findOpenForCluster(draft.clusterId)).find(
-      (w) => w.taskType === draft.taskType,
-    );
+    const clash =
+      cluster === null
+        ? undefined
+        : (await this.workOrders.findOpenForCluster(cluster.id)).find((w) => w.taskType === draft.taskType && w.pestType === pestType);
     if (clash !== undefined) {
       throw new DuplicateWorkOrder(clash); // 8.1.11, 8.1.12
     }
 
     const workOrder = new WorkOrder();
-    workOrder.clusterId = draft.clusterId;
+    workOrder.clusterId = cluster?.id ?? null;
+    workOrder.location = cluster?.locality ?? source?.localityBinding ?? 'Singapore'; // as the repository reads it
+    workOrder.targetPoint = source?.point ?? null;
     workOrder.pestType = pestType; // 8.1.16
     workOrder.taskType = draft.taskType;
     workOrder.scheduledDate = draft.scheduledDate;
@@ -200,11 +321,21 @@ export class DispatchController {
     workOrder.cancellationReason = null;
     workOrder.issueFlag = false;
     workOrder.issueReason = null;
-    // 8.1.5 — default the priority to the cluster's current tier.
-    workOrder.priority = await this.tierOf(cluster.id);
+    // 8.1.5 — default the priority to the cluster's current tier for this pest. A report-only job
+    // has no score: it takes Medium as an explicit unscored default (`priorityBasis`), or Critical
+    // when the report records a human injury (4.4.8).
+    workOrder.priority =
+      cluster !== null
+        ? await this.tierOf(cluster.id, pestType)
+        : source?.injuryReported === true
+          ? PriorityTier.Critical
+          : PriorityTier.Medium;
     workOrder.createdAt = new Date(); // 7.3.4's left-hand end
     workOrder.applyStatus(WorkOrderStatus.Created); // 8.3.15
     const saved = await this.workOrders.save(workOrder);
+    if (this.reportStore !== null && linkedReports.length > 0) {
+      await this.linkVerifiedReports(saved.id, linkedReports.map((report) => report.id), this.reportStore);
+    }
     // 2.4.1. Creation does not pass through the lifecycle controller — 8.3.15 makes Created the
     // initial state rather than a transition into it — so this row has no counterpart there.
     await this.audit?.appendAction(by.accountId, 'workOrder:create', 'WorkOrder', saved.id);
@@ -221,32 +352,6 @@ export class DispatchController {
   }
 
   /**
-   * 8.1.17 — the task types that suit a pest class.
-   *
-   * Written here rather than in configuration for now, and the choice is worth stating: the mapping
-   * is short, it is about what a crew physically does, and putting it in `pests.default.json` would
-   * invite someone to make fogging available for a bed bug by editing a file. If it needs to vary
-   * per pest rather than per class, it moves to the profile — and the requirement is written so
-   * that it can.
-   */
-  private permittedTasks(profile: PestProfile): TaskType[] {
-    switch (profile.pestClass) {
-      case PestClass.VectorBorne:
-        return Object.values(TaskType);
-      case PestClass.Structural:
-        // No fogging and no larviciding: a termite is not a mosquito, and treating one as a
-        // breeding site would put a crew on the wrong job with the wrong equipment.
-        return [TaskType.Inspection, TaskType.RefuseClearance, TaskType.DrainClearance];
-      case PestClass.Nuisance:
-        return [TaskType.Inspection, TaskType.RefuseClearance, TaskType.DrainClearance];
-      default:
-        // Wildlife never reaches here — 8.1.14 refused it above — and an unknown class is
-        // restricted to looking rather than acting.
-        return [TaskType.Inspection];
-    }
-  }
-
-  /**
    * 8.2.1, 8.2.3, 8.2.4 — assign to exactly one crew member, refuse a deactivated account, notify
    * within a minute. Delegates the status change (Created → Assigned) to the lifecycle controller.
    *
@@ -259,6 +364,39 @@ export class DispatchController {
       throw new WorkOrderRejected('cannot assign to a deactivated account (8.2.3)');
     }
     const workOrder = await this.requireOrder(id);
+    const pestType = workOrder.pestType;
+    if (pestType === null) {
+      // A legacy row whose pest could not be recovered. Fail closed: guessing Mosquito would route
+      // a rat job to a fogging crew.
+      throw new WorkOrderRejected(`${UNKNOWN_PEST} (8.1.16)`);
+    }
+    const profile = this.profileFor(pestType);
+    // Checked here, on the one path assignment and reassignment share, so a request that skips the
+    // screen meets the same rule as the screen.
+    const authority = externalAuthority(profile);
+    if (authority !== null) {
+      throw new WorkOrderRejected(`${pestType} cases go to ${authority}, not to a crew (8.1.14)`);
+    }
+    if (this.accounts !== null) {
+      const reason = ineligibilityReason(
+        await this.accounts.findById(crewId),
+        { taskType: workOrder.taskType, pestType },
+        profile,
+      );
+      if (reason !== null) {
+        throw new WorkOrderRejected(`cannot assign this ${workOrder.taskType} job: ${reason}`);
+      }
+    }
+    const from = workOrder.currentStatus();
+    if (!this.lifecycle.isTransitionPermitted(from, WorkOrderStatus.Assigned, by.role)) {
+      throw new TransitionRefused(
+        from,
+        WorkOrderStatus.Assigned,
+        workOrder.isTerminal()
+          ? `${from} is terminal`
+          : `the state table permits no ${from} to ${WorkOrderStatus.Assigned} move by a ${by.role}`,
+      );
+    }
     const previous = workOrder.assigneeId;
 
     workOrder.assigneeId = crewId;
@@ -300,6 +438,16 @@ export class DispatchController {
       throw new TransitionRefused(WorkOrderStatus.Created, WorkOrderStatus.Cancelled, 'a cancellation requires a reason (8.3.18)');
     }
     const workOrder = await this.requireOrder(id);
+    const from = workOrder.currentStatus();
+    if (!this.lifecycle.isTransitionPermitted(from, WorkOrderStatus.Cancelled, by.role)) {
+      throw new TransitionRefused(
+        from,
+        WorkOrderStatus.Cancelled,
+        workOrder.isTerminal()
+          ? `${from} is terminal`
+          : `the state table permits no ${from} to ${WorkOrderStatus.Cancelled} move by a ${by.role}`,
+      );
+    }
     workOrder.cancellationReason = reason;
     await this.workOrders.save(workOrder);
     await this.audit?.appendAction(by.accountId, 'workOrder:cancellationReason', 'WorkOrder', id); // 2.4.1
@@ -307,6 +455,43 @@ export class DispatchController {
     // 8.3.21 — every linked report returns to the status it held before this work order took it.
     await this.reports?.onWorkOrderCancelled(id);
     return cancelled;
+  }
+
+  /**
+   * 8.2.2 — who may take this order, ranked, and who may not and why. The same policy `assign`
+   * enforces, so the screen cannot recommend someone the server would refuse.
+   */
+  async routingFor(id: Uuid, by: Principal): Promise<RoutingDecision> {
+    await this.ac.authorise(by, 'workOrder:write', { kind: 'workOrder', id });
+    const workOrder = await this.requireOrder(id);
+    const crew = this.accounts === null ? [] : await this.accounts.findByRole(Role.CleaningCrew);
+    const load = await this.crewWorkload(crew.map((c) => c.id));
+    const pestType = workOrder.pestType;
+    if (pestType === null) {
+      return {
+        referral: null,
+        candidates: [],
+        ineligible: crew.map((c, i) => ({
+          crewId: c.id,
+          email: c.email,
+          specialisation: c.specialisation ?? null,
+          openWorkOrders: load[i]?.openWorkOrders ?? 0,
+          reason: UNKNOWN_PEST,
+        })),
+      };
+    }
+    return rankStaff(
+      crew.map((c, i) => ({
+        id: c.id,
+        email: c.email,
+        role: c.role,
+        isActive: c.isActive,
+        specialisation: c.specialisation,
+        openWorkOrders: load[i]?.openWorkOrders ?? 0,
+      })),
+      { taskType: workOrder.taskType, pestType },
+      this.profileFor(pestType),
+    );
   }
 
   /** 8.2.2 — each candidate's open work-order count, shown at the point of assignment. */
@@ -438,9 +623,14 @@ export class DispatchController {
     return TaskType.Fogging;
   }
 
-  private async tierOf(clusterId: Uuid): Promise<PriorityTier> {
+  /** The latest tier for this (locality, pest), or Low when that pair has no score. */
+  private async tierOf(clusterId: Uuid, pestType: PestType): Promise<PriorityTier> {
     const latest = await this.scores.latest();
-    return latest.find((s) => s.clusterId === clusterId)?.tier ?? PriorityTier.Low;
+    return (
+      latest.find(
+        (s) => (s.clusterId === clusterId || s.localityId === clusterId) && (s.pestType ?? PestType.Mosquito) === pestType,
+      )?.tier ?? PriorityTier.Low
+    );
   }
 
   private async requireOrder(id: Uuid): Promise<WorkOrder> {

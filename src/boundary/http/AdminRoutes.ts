@@ -8,6 +8,7 @@
  *   POST /api/ops/staff                    create a manager or crew account (2.2.3)
  *   POST /api/ops/staff/:id/deactivate     (2.2.4, 2.2.5)
  *   POST /api/ops/staff/:id/reactivate     (2.2.4)
+ *   POST /api/ops/staff/:id/specialisation body { specialisation } — crew capability, audited
  *
  * Every path here is manager-only, and none of them checks that: `StaffAccountController` calls
  * `AccessControlService` first. A boundary class that repeated the role test would be a second
@@ -17,12 +18,33 @@ import { RouteHandler, Request, Response } from './RouteHandler';
 import { AccessControlService } from '../../control/AccessControlService';
 import { StaffAccountController } from '../../control/StaffAccountController';
 import { AuthenticationRefused } from '../../control/AuthenticationController';
-import { Role } from '../../entity/enums';
+import { HqLocation, Role, StaffSpecialisation, StaffStatus } from '../../entity/enums';
 
 interface StaffBody {
   email?: string;
   password?: string;
   role?: string;
+  specialisation?: string | null;
+  hqLocation?: string | null;
+  staffStatus?: string | null;
+  onCallLagHours?: number | null;
+}
+
+function parseHqLocation(value: unknown): HqLocation {
+  const found = Object.values(HqLocation).find((location) => location === value);
+  if (found === undefined) throw new AuthenticationRefused(`${String(value)} is not an HQ location — one of: ${Object.values(HqLocation).join(', ')}`);
+  return found;
+}
+
+/** 10.3.6 — a capability from a request body, or the refusal listing the accepted values. */
+function parseSpecialisation(value: unknown): StaffSpecialisation {
+  const found = Object.values(StaffSpecialisation).find((s) => s === value);
+  if (found === undefined) {
+    throw new AuthenticationRefused(
+      `${String(value)} is not a capability — one of: ${Object.values(StaffSpecialisation).join(', ')}`,
+    );
+  }
+  return found;
 }
 
 export class AdminRoutes extends RouteHandler {
@@ -38,7 +60,14 @@ export class AdminRoutes extends RouteHandler {
   }
 
   override writeRoutes(): string[] {
-    return ['/api/ops/staff', '/api/ops/staff/:id/deactivate', '/api/ops/staff/:id/reactivate'];
+    return [
+      '/api/ops/staff',
+      '/api/ops/staff/:id/deactivate',
+      '/api/ops/staff/:id/reactivate',
+      '/api/ops/staff/:id/specialisation',
+      '/api/ops/staff/:id/hq-location',
+      '/api/ops/staff/:id/status',
+    ];
   }
 
   async handle(req: Request, res: Response): Promise<void> {
@@ -56,7 +85,20 @@ export class AdminRoutes extends RouteHandler {
           if (role === undefined) {
             throw new AuthenticationRefused(`${String(body.role)} is not one of the three roles (2.2.1)`);
           }
-          const account = await this.staff.createStaffAccount(body.email ?? '', role, body.password ?? '', principal);
+          // Absent or null records "not set yet"; anything else must be a real capability.
+          const specialisation =
+            body.specialisation === undefined || body.specialisation === null
+              ? null
+              : parseSpecialisation(body.specialisation);
+          const account = await this.staff.createStaffAccount(
+            body.email ?? '',
+            role,
+            body.password ?? '',
+            principal,
+            new Date(),
+            specialisation,
+            body.hqLocation == null ? null : parseHqLocation(body.hqLocation),
+          );
           res.status(201).json(AdminRoutes.project(account));
           return;
         }
@@ -73,6 +115,31 @@ export class AdminRoutes extends RouteHandler {
         case '/api/ops/staff/:id/reactivate':
           res.json(AdminRoutes.project(await this.staff.reactivateAccount(id, principal)));
           return;
+        case '/api/ops/staff/:id/specialisation': {
+          const value = ((req.body ?? {}) as { specialisation?: unknown }).specialisation;
+          res.json(AdminRoutes.project(await this.staff.setSpecialisation(id, parseSpecialisation(value), principal)));
+          return;
+        }
+        case '/api/ops/staff/:id/status': {
+          const b = (req.body ?? {}) as { status?: unknown; lagHours?: number };
+          const status = Object.values(StaffStatus).find((s) => s === b.status);
+          if (status === undefined) {
+            throw new AuthenticationRefused(
+              `${String(b.status)} is not a staff status — one of: ${Object.values(StaffStatus).join(', ')}`,
+            );
+          }
+          res.json(
+            AdminRoutes.project(
+              await this.staff.setStaffStatus(id, status, principal, b.lagHours ?? 2),
+            ),
+          );
+          return;
+        }
+        case '/api/ops/staff/:id/hq-location': {
+          const value = ((req.body ?? {}) as { hqLocation?: unknown }).hqLocation;
+          res.json(AdminRoutes.project(await this.staff.setHqLocation(id, parseHqLocation(value), principal)));
+          return;
+        }
         default:
           res.status(404).json({ error: 'no such route', remedy: 'check the path' });
       }
@@ -86,18 +153,38 @@ export class AdminRoutes extends RouteHandler {
   }
 
   /** Never the `authUserId`: it is the provider's credential handle, and no screen needs it. */
-  private static project(account: { id: string; email: string; role: Role; isActive: boolean; createdAt: Date }): {
+  private static project(account: {
+    id: string;
+    email: string;
+    role: Role;
+    isActive: boolean;
+    specialisation: StaffSpecialisation | null;
+    hqLocation: HqLocation | null;
+    staffStatus?: StaffStatus;
+    onCallLagHours?: number;
+    createdAt: Date;
+  }): {
+    id: string;
     accountId: string;
     email: string;
     role: Role;
     isActive: boolean;
+    specialisation: StaffSpecialisation | null;
+    hqLocation: HqLocation | null;
+    staffStatus: StaffStatus;
+    onCallLagHours: number;
     createdAt: Date;
   } {
     return {
+      id: account.id,
       accountId: account.id,
       email: account.email,
       role: account.role,
       isActive: account.isActive,
+      specialisation: account.specialisation,
+      hqLocation: account.hqLocation,
+      staffStatus: account.staffStatus ?? StaffStatus.Available,
+      onCallLagHours: account.onCallLagHours ?? 0,
       createdAt: account.createdAt,
     };
   }

@@ -1,0 +1,19 @@
+[
+  {
+    "source": "image-generator",
+    "file": "dfence-hero.jpg",
+    "prompt": "Modern civic web application hero illustration for D-Fence (dengue sanitisation and pest monitoring in Singapore). Clean Singapore neighbourhood (modern HDB buildings, lush green foliage, sunny clear sky, park connector pathway) with subtle civic protection / community shield iconography in deep teal (#1B5E56). Clean flat vector or modern isometric editorial style, restrained palette (deep teal #1B5E56, soft sage #4A7C59, warm grey #E3E5E1, off-white #FBFBF9). Absolutely no text, no lettering.",
+    "model": "imagen-3",
+    "licence": "AI-generated; no third-party attribution required",
+    "fetched": "2026-10-17T21:22:06+0800"
+  },
+  {
+    "source": "gemini-web",
+    "file": "dfence-banner.jpg",
+    "prompt": "editorial illustration of a modern Singapore neighbourhood with clean buildings and green trees, flat vector style, deep teal and clean white palette, no text",
+    "model": "gemini.google.com default mode / Create image",
+    "aspect": "16:9",
+    "licence": "AI-generated (Gemini); no third-party attribution required",
+    "fetched": "2026-10-17T21:21:40+0800"
+  }
+]

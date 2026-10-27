@@ -15,12 +15,20 @@ import { useState } from 'react';
 import { useLoad } from '../../lib/useLoad';
 import { Freshness, QUEUE_REFRESH_MS, StateView } from '../../components/States';
 import { link } from '../../components/Link';
+import { Pill, statusTone, tierTone } from '../../components/Presentation';
+import { label } from '../../lib/labels';
+import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
 
 interface JobsPayload {
   filter: string;
   workOrders: Array<{
     id: string;
+    clusterId?: string | null;
+    sourceReportId?: string | null;
+    pestType?: string | null;
+    location?: string;
+    point?: { latitude: number; longitude: number } | null;
     taskType: string;
     status: string;
     scheduledDate: string;
@@ -46,6 +54,11 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
     },
   );
 
+  const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(
+    value?.workOrders ?? [],
+    10,
+  );
+
   return (
     <section data-screen="MyJobs" data-requirement="11.2.19">
       <h1>My jobs</h1>
@@ -59,7 +72,10 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
             key={option}
             type="button"
             aria-pressed={filter === option}
-            onClick={() => setFilter(option)}
+            onClick={() => {
+              setFilter(option);
+              setCurrentPage(1);
+            }}
           >
             {option}
           </button>
@@ -69,20 +85,38 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
       <StateView state={state} onRetry={retry}>
         <ol data-part="jobs">
           {/* Rendered in the order the server returned (8.4.2). */}
-          {(value?.workOrders ?? []).map((job) => (
+          {pagedItems.map((job) => (
             <li key={job.id} data-status={job.status} data-priority={job.priority}>
               <a href={`/crew/jobs/${job.id}`} onClick={link(props, `/crew/jobs/${job.id}`)}>
-                {job.taskType}
+                {label(job.taskType)}
               </a>
-              <p data-part="scheduled">{job.scheduledDate}</p>
-              <p data-part="status">
-                {job.status}
-                {job.issueFlag ? ' — issue raised' : ''}
+              <p className="job-card-location" data-part="location">
+                📍 {job.location ?? (job.point == null ? 'Singapore' : `${job.point.latitude}, ${job.point.longitude}`)}
               </p>
-              <p data-part="priority">{job.priority} priority</p>
+              {job.clusterId === null ? <p data-part="target">Verified report target</p> : null}
+              <p data-part="scheduled">{job.scheduledDate}</p>
+              <div className="job-card-meta">
+                <span data-part="status">
+                  <Pill tone={statusTone(job.status)}>{label(job.status)}</Pill>
+                  {job.issueFlag ? <span style={{ marginLeft: '6px', fontSize: '0.8rem', color: '#A4342B' }}>⚠️ Issue</span> : null}
+                </span>
+                <span data-part="priority">
+                  <Pill tone={tierTone(job.priority)} tier={job.priority}>
+                    {job.priority}{job.clusterId === null && job.priority === 'Medium' ? ' — Unscored report default' : job.clusterId === null && job.priority === 'Critical' ? ' — Critical injury override' : ''}
+                  </Pill>
+                </span>
+              </div>
             </li>
           ))}
         </ol>
+
+        <Pagination
+          currentPage={currentPage}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          itemName="jobs"
+        />
       </StateView>
     </section>
   );

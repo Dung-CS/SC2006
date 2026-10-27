@@ -66,15 +66,15 @@ export class ApiClient {
     this.token = token;
   }
 
-  get<T>(path: string): Promise<T> {
-    return this.request<T>(path, { method: 'GET' });
+  get<T>(path: string, options?: { allowForbidden?: boolean }): Promise<T> {
+    return this.request<T>(path, { method: 'GET' }, options);
   }
 
-  post<T>(path: string, body: unknown): Promise<T> {
-    return this.request<T>(path, { method: 'POST', body: JSON.stringify(body) });
+  post<T>(path: string, body: unknown, options?: { allowForbidden?: boolean }): Promise<T> {
+    return this.request<T>(path, { method: 'POST', body: JSON.stringify(body) }, options);
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, options?: { allowForbidden?: boolean }): Promise<T> {
     let response: Response;
     try {
       response = await this.fetcher(`${this.baseUrl}${path}`, {
@@ -108,7 +108,7 @@ export class ApiClient {
       this.token = null;
       this.onUnauthenticated();
     }
-    if (response.status === 403) {
+    if (response.status === 403 && !options?.allowForbidden) {
       this.onForbidden();
     }
     if (!response.ok) {
@@ -135,9 +135,10 @@ export class ApiClient {
     path: string,
     isEmpty: (value: T) => boolean = () => false,
     emptyMessage = 'There is nothing to show yet.',
+    options?: { allowForbidden?: boolean },
   ): Promise<{ state: LoadState; value: T | null }> {
     try {
-      const value = await this.get<T>(path);
+      const value = await this.get<T>(path, options);
       return isEmpty(value)
         ? { state: { kind: 'empty', message: emptyMessage }, value }
         : { state: { kind: 'ready' }, value };

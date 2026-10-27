@@ -23,12 +23,13 @@ import { Database, Row } from './Database';
 import { Account } from '../entity/Account';
 import { Session } from '../entity/Session';
 import { Uuid } from '../entity/valueTypes';
-import { Role } from '../entity/enums';
+import { HqLocation, Role, StaffSpecialisation, StaffStatus } from '../entity/enums';
 import { AccountStore, SessionStore } from '../ports/Stores';
 
+// `specialisation` needs migration 010 applied before this code is deployed.
 const COLUMNS = `
   id, email, auth_user_id, email_verified, role, is_active, telegram_chat_id,
-  failed_attempts, first_failure_at, locked_until, created_at`;
+  failed_attempts, first_failure_at, locked_until, created_at, specialisation, hq_location, staff_status, on_call_lag_hours`;
 
 export class AccountRepository implements AccountStore {
   constructor(private readonly db: Database) {}
@@ -62,8 +63,8 @@ export class AccountRepository implements AccountStore {
     await this.db.query(
       `INSERT INTO account (
          id, email, auth_user_id, email_verified, role, is_active, telegram_chat_id,
-         failed_attempts, first_failure_at, locked_until, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         failed_attempts, first_failure_at, locked_until, created_at, specialisation, hq_location, staff_status, on_call_lag_hours)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (id) DO UPDATE SET
          email            = EXCLUDED.email,
          auth_user_id     = EXCLUDED.auth_user_id,
@@ -73,7 +74,11 @@ export class AccountRepository implements AccountStore {
          telegram_chat_id = EXCLUDED.telegram_chat_id,
          failed_attempts  = EXCLUDED.failed_attempts,
          first_failure_at = EXCLUDED.first_failure_at,
-         locked_until     = EXCLUDED.locked_until`,
+         locked_until     = EXCLUDED.locked_until,
+         specialisation   = EXCLUDED.specialisation,
+         hq_location      = EXCLUDED.hq_location,
+         staff_status     = EXCLUDED.staff_status,
+         on_call_lag_hours= EXCLUDED.on_call_lag_hours`,
       [
         account.id,
         account.email,
@@ -86,6 +91,10 @@ export class AccountRepository implements AccountStore {
         lock.firstFailureAt,
         lock.lockedUntil,
         account.createdAt,
+        account.specialisation,
+        account.hqLocation,
+        account.staffStatus,
+        account.onCallLagHours,
       ],
     );
     return account;
@@ -107,6 +116,11 @@ export class AccountRepository implements AccountStore {
     account.isActive = row.is_active === true;
     account.telegramChatId = (row.telegram_chat_id as string | null) ?? null;
     account.createdAt = row.created_at as Date;
+    // An unrecognised stored value reads back as "not recorded", never as some capability.
+    account.specialisation = Object.values(StaffSpecialisation).find((s) => s === row.specialisation) ?? null;
+    account.hqLocation = Object.values(HqLocation).find((location) => location === row.hq_location) ?? null;
+    account.staffStatus = Object.values(StaffStatus).find((s) => s === row.staff_status) ?? StaffStatus.Available;
+    account.onCallLagHours = Number(row.on_call_lag_hours ?? 2);
     account.restoreLockState({
       failedAttempts: Number(row.failed_attempts),
       firstFailureAt: (row.first_failure_at as Date | null) ?? null,

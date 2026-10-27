@@ -161,7 +161,10 @@ export class DashboardController {
     // 7.2.2's work-order status column: the open order for that cluster, or null when there is none.
     const openByCluster = new Map<Uuid, WorkOrder>();
     for (const workOrder of this.workOrders === null ? [] : await this.workOrders.findAllOpen()) {
-      openByCluster.set(workOrder.clusterId, workOrder);
+      // A report-only job (8.1.2) has no cluster row to mark; it stays in the work-order lists.
+      if (workOrder.clusterId !== null) {
+        openByCluster.set(workOrder.clusterId, workOrder);
+      }
     }
 
     let rows = latest

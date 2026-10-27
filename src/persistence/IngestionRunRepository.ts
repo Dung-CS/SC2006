@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import { Database, Row } from './Database';
 import { IngestionRun } from '../entity/IngestionRun';
-import { SourceKind } from '../entity/enums';
+import { PestType, SourceKind } from '../entity/enums';
 import { IngestionRunStore } from '../ports/Stores';
 
 export class IngestionRunRepository implements IngestionRunStore {
@@ -28,10 +28,13 @@ export class IngestionRunRepository implements IngestionRunStore {
 
   async recordOutcome(run: IngestionRun, outcome: string, featureCount: number): Promise<IngestionRun> {
     const rows = await this.db.query(
-      `UPDATE ingestion_run SET ended_at = now(), outcome = $2, feature_count = $3
+      `UPDATE ingestion_run
+          SET ended_at = now(), outcome = $2, feature_count = $3,
+              pest_type = $4, accepted_count = $5, rejected_count = $6
         WHERE id = $1
-       RETURNING id, source, started_at, ended_at, feature_count, outcome, trigger`,
-      [run.id, outcome, featureCount],
+       RETURNING id, source, started_at, ended_at, feature_count, outcome, trigger,
+                 pest_type, accepted_count, rejected_count`,
+      [run.id, outcome, featureCount, run.pestType ?? null, run.acceptedCount ?? null, run.rejectedCount ?? null],
     );
     // 10.2.2 — a run that ended in anything but FAILED clears the stale mark. Done in the same
     // statement pair as the outcome so the two cannot disagree after a crash between them.
@@ -48,6 +51,9 @@ export class IngestionRunRepository implements IngestionRunStore {
     run.endedAt = updated.endedAt;
     run.outcome = updated.outcome;
     run.featureCount = updated.featureCount;
+    run.pestType = updated.pestType;
+    run.acceptedCount = updated.acceptedCount;
+    run.rejectedCount = updated.rejectedCount;
     return updated;
   }
 
@@ -76,7 +82,8 @@ export class IngestionRunRepository implements IngestionRunStore {
 
   async recentRuns(source: SourceKind, limit: number): Promise<IngestionRun[]> {
     const rows = await this.db.query(
-      `SELECT id, source, started_at, ended_at, feature_count, outcome, trigger
+      `SELECT id, source, started_at, ended_at, feature_count, outcome, trigger,
+              pest_type, accepted_count, rejected_count
          FROM ingestion_run WHERE source = $1 ORDER BY started_at DESC LIMIT $2`,
       [source, limit],
     );
@@ -92,6 +99,9 @@ export class IngestionRunRepository implements IngestionRunStore {
     run.featureCount = Number(row.feature_count);
     run.outcome = String(row.outcome);
     run.trigger = String(row.trigger);
+    run.pestType = (row.pest_type as PestType | null) ?? null;
+    run.acceptedCount = row.accepted_count != null ? Number(row.accepted_count) : null;
+    run.rejectedCount = row.rejected_count != null ? Number(row.rejected_count) : null;
     return run;
   }
 }

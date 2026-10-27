@@ -12,6 +12,8 @@ import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
 import { Pill, statusTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
+import { reportPhotoUrl } from '../../lib/reportVisuals';
+import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
 
 interface ReportSummary {
@@ -19,14 +21,9 @@ interface ReportSummary {
   type: string;
   status: string;
   submittedAt: string;
-  // `localityBinding`, not `locality`. /api/reports/mine serialises the Report entity as it stands,
-  // and the entity's field is localityBinding — so the name here is not a choice. Reading `locality`
-  // yielded `undefined`, which slipped past a `=== null` guard and rendered the literal string
-  // "undefined" on every row of the resident's main screen. This is the same defect class the client
-  // acceptance harness was written to catch; it survived because that harness covers no resident
-  // screen. Widening its coverage is the actual fix, of which this is only the symptom.
   localityBinding: string | null;
   corroborationCount: number;
+  pestType?: string;
 }
 
 export function MyReportsScreen(props: ScreenProps): JSX.Element {
@@ -34,6 +31,11 @@ export function MyReportsScreen(props: ScreenProps): JSX.Element {
     isEmpty: (v) => v.reports.length === 0,
     emptyMessage: 'You have not submitted any reports. If you see standing water or uncleared refuse, report it here.',
   });
+
+  const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(
+    value?.reports ?? [],
+    10,
+  );
 
   return (
     <section data-screen="MyReports" data-requirement="11.2.9">
@@ -44,38 +46,53 @@ export function MyReportsScreen(props: ScreenProps): JSX.Element {
 
       <StateView state={state} onRetry={retry}>
         <ul data-part="reports" data-cards>
-          {(value?.reports ?? []).map((report) => (
-            <li key={report.id} data-status={report.status}>
-              <div data-part="card-head">
-                <a href={`/reports/${report.id}`} onClick={link(props, `/reports/${report.id}`)}>
-                  {label(report.type)}
-                </a>
-                {/* 11.7.5 — the status is a word in its own right, and now a colour as well. */}
-                <Pill tone={statusTone(report.status)}>
-                  <span data-part="status">{label(report.status)}</span>
-                </Pill>
-              </div>
-              <div data-part="card-meta">
-                {report.localityBinding === null || report.localityBinding === undefined ? null : (
-                  <span>{report.localityBinding}</span>
-                )}
-                {/*
-                  The word "Submitted" appeared twice in every row — once as the status and once
-                  as the label on the date — which read as a stutter and told the resident nothing
-                  the pill above does not.
-                */}
-                <span data-part="submitted">
-                  {new Date(report.submittedAt).toISOString().slice(0, 16).replace('T', ' ')} SGT
-                </span>
-                {report.corroborationCount > 0 ? (
-                  <span data-part="corroborations">
-                    {report.corroborationCount} neighbour{report.corroborationCount === 1 ? '' : 's'} confirmed this
+          {pagedItems.map((report) => (
+            <li key={report.id} data-status={report.status} className="report-card">
+              <div className="report-card-layout">
+                <img
+                  src={reportPhotoUrl(report.type, report.pestType)}
+                  alt={`Evidence for ${label(report.type)}`}
+                  className="report-card-thumb"
+                  loading="lazy"
+                />
+                <div className="report-card-content">
+                <div data-part="card-head">
+                  <a href={`/reports/${report.id}`} onClick={link(props, `/reports/${report.id}`)}>
+                    {report.pestType && report.pestType !== 'Mosquito'
+                      ? `${label(report.pestType)} · ${label(report.type)}`
+                      : label(report.type)}
+                  </a>
+                  {/* 11.7.5 — the status is a word in its own right, and now a colour as well. */}
+                  <Pill tone={statusTone(report.status)}>
+                    <span data-part="status">{label(report.status)}</span>
+                  </Pill>
+                </div>
+                <div data-part="card-meta">
+                  {report.localityBinding === null || report.localityBinding === undefined ? null : (
+                    <span>{report.localityBinding}</span>
+                  )}
+                  <span data-part="submitted">
+                    {new Date(report.submittedAt).toISOString().slice(0, 16).replace('T', ' ')} SGT
                   </span>
-                ) : null}
+                  {report.corroborationCount > 0 ? (
+                    <span data-part="corroborations">
+                      {report.corroborationCount} neighbour{report.corroborationCount === 1 ? '' : 's'} confirmed this
+                    </span>
+                  ) : null}
+                </div>
               </div>
-            </li>
+            </div>
+          </li>
           ))}
         </ul>
+
+        <Pagination
+          currentPage={currentPage}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          itemName="reports"
+        />
       </StateView>
     </section>
   );

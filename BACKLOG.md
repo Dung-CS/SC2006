@@ -1,19 +1,14 @@
 # Dengue Prioritiser — Feature Backlog
 
+## Current routing delta - 2026-10-27
 
-> **Partly superseded, 2026-09-03.** This backlog was written on 2026-09-01, before the requirements
-> decomposition and the Lab 2/3 models. Three things in it are out of date and the later documents win:
-> the application is now named **D-Fence**; the role model is **three roles** (Resident, Operations
-> Manager, Cleaning Crew), not `resident | planner`; and the **authentication provider is an open
-> decision** — this file assumes Supabase Auth, the Lab 3 skeleton currently hand-rolls it, and
-> `lab3/DESIGN-MODEL.md` §3.3 states the choice and its cost. The feature analysis, effort estimates
-> and build order below remain current.
->
-> **Further superseded, 2026-09-16.** The scope is no longer dengue alone: the product now covers 22
-> pest types on one comparable ranking. Nothing in this backlog is wrong as far as it goes — every
-> feature below is a mosquito feature and still needed — but it no longer describes the whole product.
-> `EPICS-STORIES.md` **E11** is the backlog for the widening, and `PEST-PRIORITY-MODEL.md` is the
-> model behind it. **Do not add cross-pest work here; add it to E11.**
+- **Deployed and verified:** active Azure deployment `b981ad07-754f-4203-8a68-071e7c35c9be`. Priority-first planning uses the complete eligible queue, real qualified headcounts, task requirements, sequential reuse and parallel crews. Synthetic crews and emergencies are removed. Unplanned tasks are visible.
+- Bulk open-order lookup removes per-score database queries. Directed OneMap legs use a five-minute, 512-entry LRU and in-flight coalescing. First live calculation: 38.613 seconds; cold latency remains a limitation. Some routes use labelled direct-distance fallback. Greedy routing is not a global optimum guarantee.
+- Verification: 1,016 tests / 52 files, typecheck/build and final extracted-ZIP smoke pass. Live API/UI checks pass. Live plan: 10 crews, 37 tasks (1 Medium, 36 Low), no unplanned eligible tasks. Actual data has no High/Critical scores; urgent behaviour is regression-tested.
+- Master requirements v0.10 has 605 unique IDs. Historical submission copies are unchanged.
+- **Pending:** Yen Kit's crew-size confirmation (Inspection 1, Larviciding 2, Fogging 3, Drain/Refuse clearance 2); downstream epics/use-case/model/test-plan traceability. Image recognition fresh-photo timeout remains open. Planning does not persist supporting-member assignments beyond one lead.
+
+> **Current recognition decision, 2026-10-21:** the fresh Gemini photo timeout remains unresolved. The isolated YOLO-World S/L trial is complete; both sizes are rejected for app deployment. No replacement is selected. Manual observation remains the fallback. The 10-image set includes resized duplicates and excludes the user's photo, so the trial is not general accuracy evidence. See `../STATUS.md` and `scratchpad/smart-nation-yolo-20261021/README.md`.
 
 Written 2026-09-01. Shareable: https://claude.ai/code/artifact/9c6e5fdb-5865-465a-bfbf-d0187e191244
 
@@ -199,3 +194,21 @@ Effort key: S = 1–2 days · M = 3–5 days · L = 1–2 weeks. Impact /5. Rati
   "not a simple presentation of data" veto. The common failure is spending week 3 on the map because it
   is satisfying to see, then arriving at week 6 with a scoring function that is three `if` statements.
   **Build the ugly version of the map and the good version of the score.**
+
+
+
+## Operational continuation — YOLO-World trial rejected; recognition timeout remains open (2026-10-21)
+
+The latest fresh Gemini photo timed out; manual observation is the fallback. The completed isolated YOLO-World trial does not resolve this failure. Both S and L were rejected for deployment after poor results on a fixed 10-image set with resized duplicates.
+
+- S exact matches: 4/10 at 0.25 (two crow positives and two negatives), 2/10 at 0.60 (negatives only). L: 2/10 at either threshold (negatives only); wrong bird labels and extra Mynah boxes at 0.25.
+- Both missed all rat, cockroach, mosquito and hornet positives. The user's photo was not available; no general accuracy claim is supported.
+- No ONNX export or application integration was implemented or validated. No app/provider/config/deployment, billing/key, database, or production-record change occurred. Existing Gemini remains deployed; no replacement is selected.
+- Evidence: `scratchpad/smart-nation-yolo-20261021/README.md`, `ROOT_VERIFICATION.json`, and `hash-manifest.json`; details in `../STATUS.md`.
+## Operational continuation — selected-species and mosquito-model checks rejected (2026-10-21)
+
+The selected-species YOLO-World S test and Culico-Net ONNX mosquito detector both failed as deployment candidates. The selected-species run counted 0/2 rat, 0/2 cockroach, 0/1 mosquito and 0/1 wasp positives at both thresholds; only the two crow positives were counted correctly. Its 40/50 and 44/50 aggregate exact counts reuse five hints on the same ten files and are dominated by negatives, not accuracy. Culico-Net exact counts were 2/10 at 0.25 and 4/10 at 0.60; it found the Aedes image but generated false mosquito boxes on other pests and standing water.
+
+The user's fresh-photo timeout remains unresolved; their photo was unavailable. Manual observation remains the fallback. No app/provider/configuration/deployment change occurred. Root independently reran both tests; non-timing outputs matched exactly. Python network guards observed zero attempts, not proof of OS firewall isolation. The bounded source scan did not establish a suitably covered, verified-free-licensed model; it does not establish that none exists.
+
+Evidence and candidate limits: `scratchpad/smart-nation-pest-models-20261021/RESULT.md`, `ROOT_VERIFICATION.json`, and `CANDIDATES.md`.

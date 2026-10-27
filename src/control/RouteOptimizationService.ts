@@ -1,0 +1,434 @@
+import { GeoPoint } from '../entity/valueTypes';
+import { StaffStatus, PriorityTier, TaskType, PestType } from '../entity/enums';
+import { IRouteStrategy, RoutePlan } from './routing/IRouteStrategy';
+import { DirectDistanceRoutingStrategy } from './routing/DirectDistanceRoutingStrategy';
+import type { Vehicle } from '../entity/Vehicle';
+import { generatePackingList, logisticsLoad, itemFitsCargo, LOGISTICS_LOAD_BASIS, PackingItem } from './LogisticsPolicy';
+export { generatePackingList } from './LogisticsPolicy';
+export type { PackingItem } from './LogisticsPolicy';
+
+export interface RouteTeam {
+  teamId: string;
+  hq: GeoPoint;
+  capabilities: string[];
+  status?: StaffStatus | string;
+  onCallLagHours?: number;
+  maxStops?: number;
+  /** Number of distinct staff in this depot/capability/status pool. Unknown means one. */
+  staffCount?: number;
+}
+
+export interface RouteJob {
+  workOrderId: string;
+  clusterId?: string | null;
+  sourceReportId?: string;
+  mapClusterId?: string;
+  point: GeoPoint;
+  requiredCapability: string;
+  allowedCapabilities?: string[];
+  requiredStaff?: number;
+  taskType?: TaskType | string;
+  pestType?: PestType | string;
+  priority?: PriorityTier | string; // 'Critical' | 'High' | 'Medium' | 'Low'
+  score?: number;
+  locality?: string;
+  status?: string; // 'Created' | 'Assigned' | 'InProgress' | 'Completed' | 'Verified' | 'Closed'
+  estimatedEffortMinutes?: number;
+  requiresBaseReturn?: boolean;
+}
+
+export interface PlannedWaypoint {
+  label: string;
+  point: GeoPoint;
+  workOrderId?: string;
+  clusterId?: string | null;
+  sourceReportId?: string;
+  mapClusterId?: string;
+  taskType?: string;
+  pestType?: string;
+  priority?: string;
+  requiredStaff?: number;
+  status: 'Completed' | 'InProgress' | 'Pending';
+  isCompleted: boolean;
+  estimatedEffortMinutes: number;
+  requiresBaseReturn: boolean;
+  isBaseReturn: boolean;
+  isHq: boolean;
+  cumulativeDurationSeconds: number;
+}
+
+export interface PlannedTeamRoute {
+  teamId: string;
+  staffCount: number;
+  depotLocation: string;
+  status: string;
+  onCallLagHours: number;
+  workOrderIds: string[];
+  waypointOrder: PlannedWaypoint[];
+  route: RoutePlan;
+  totalDurationSeconds: number;
+  totalTravelSeconds: number;
+  totalEffortSeconds: number;
+  capacityUsedPercentage: number;
+  isWithinFourHourCap: boolean;
+  completedCount: number;
+  totalStopsCount: number;
+  progressPercentage: number;
+  packingList: PackingItem[];
+  color: string;
+  vehicleId?: string;
+  vehicleRegistration?: string;
+  vehicleName?: string;
+  isDemoVehicle?: boolean;
+  maxPayloadKg?: number;
+  maxCargoVolumeM3?: number;
+  loadWeightKg: number;
+  loadVolumeM3: number;
+  loadWeightPercentage?: number;
+  loadVolumePercentage?: number;
+  loadBasis: string;
+}
+
+// Maximum shift duration: strictly capped at 4 hours (14,400 seconds)
+const MAX_DISPATCH_SECONDS = 4 * 3600;
+
+/** Provisional planning defaults, not an operational staffing standard. */
+export function estimateRequiredStaff(taskType?: string, pestType?: string): number {
+  if (pestType === PestType.WildBoar || pestType === PestType.Crocodile) return 4;
+  if (pestType === PestType.Snake || pestType === PestType.MonitorLizard) return 2;
+  if (taskType === TaskType.Fogging) return 3;
+  if (taskType === TaskType.Larviciding || taskType === TaskType.DrainClearance || taskType === TaskType.RefuseClearance) return 2;
+  return 1;
+}
+
+// High contrast team route colors
+const TEAM_COLORS = [
+  '#2563EB', // Blue (Central)
+  '#16A34A', // Green (NorthEast)
+  '#9333EA', // Purple (NorthWest)
+  '#D97706', // Amber (SouthEast)
+  '#DC2626', // Red (SouthWest)
+  '#0D9488', // Teal
+  '#4F46E5', // Indigo
+  '#C026D3', // Magenta
+];
+
+/** Standard effort durations (in minutes) by task type or pest target. */
+export function estimateEffortMinutes(taskType?: string, pestType?: string): number {
+  if (pestType === PestType.WildBoar || pestType === 'WildBoar') return 75;
+  if (pestType === PestType.Snake || pestType === 'Snake') return 60;
+  if (pestType === PestType.Crocodile || pestType === 'Crocodile') return 60;
+  if (pestType === PestType.MonitorLizard || pestType === 'MonitorLizard') return 55;
+  if (taskType === TaskType.Fogging || taskType === 'Fogging') return 45;
+  if (taskType === TaskType.Larviciding || taskType === 'Larviciding') return 40;
+  if (taskType === TaskType.DrainClearance || taskType === 'DrainClearance') return 50;
+  if (taskType === TaskType.RefuseClearance || taskType === 'RefuseClearance') return 40;
+  if (taskType === TaskType.Inspection || taskType === 'Inspection') return 30;
+  return 35;
+}
+
+/** Automatic task-based returns are replaced by vehicle load limits. Explicit instructions remain supported. */
+export function checkRequiresBaseReturn(_taskType?: string, _pestType?: string): boolean {
+  return false;
+}
+
+/** Priority weight: Critical = 4, High = 3, Medium = 2, Low = 1. */
+function getPriorityWeight(priority?: string): number {
+  switch (priority) {
+    case PriorityTier.Critical:
+    case 'Critical':
+      return 4;
+    case PriorityTier.High:
+    case 'High':
+      return 3;
+    case PriorityTier.Medium:
+    case 'Medium':
+      return 2;
+    case PriorityTier.Low:
+    case 'Low':
+    default:
+      return 1;
+  }
+}
+
+/** Estimate travel time in seconds between two points at ~35 km/h urban speed. */
+function estimateTransitSeconds(from: GeoPoint, to: GeoPoint): number {
+  const dist = from.distanceTo(to);
+  if (dist < 10) return 0;
+  // 35 km/h ≈ 9.72 m/s; minimum 180s (3 minutes) for any separate road leg
+  return Math.max(180, Math.round(dist / 9.72));
+}
+
+/** Greedy priority-first dispatch under crew, vehicle, load and elapsed-time limits. */
+interface CrewAssignment {
+  pool: RouteTeam;
+  teamId: string;
+  staffCount: number;
+  jobs: RouteJob[];
+  plan: RoutePlan;
+  vehicle?: Vehicle;
+}
+
+export class RouteOptimizationService {
+  constructor(private readonly strategy: IRouteStrategy, private readonly roadWaitBudgetMs = 30_000) {}
+
+  async plan(teams: RouteTeam[], jobs: RouteJob[], vehicles?: Vehicle[]): Promise<PlannedTeamRoute[]> {
+    const roadDeadline = Date.now() + this.roadWaitBudgetMs;
+    const fallback = new DirectDistanceRoutingStrategy();
+    const poolIds = new Set<string>();
+    const pools = teams.filter((team) => {
+      if (poolIds.has(team.teamId)) return false;
+      poolIds.add(team.teamId);
+      return (
+      (team.status === undefined || team.status === StaffStatus.Available || team.status === StaffStatus.OnCall) &&
+      Number.isInteger(team.staffCount ?? 1) && (team.staffCount ?? 1) > 0 &&
+      (team.maxStops === undefined || Number.isInteger(team.maxStops) && team.maxStops > 0) &&
+      (team.onCallLagHours === undefined || Number.isFinite(team.onCallLagHours) && team.onCallLagHours >= 0)
+      );
+    });
+    const fleetIds = new Set<string>();
+    const fleet = (vehicles ?? []).filter((vehicle) => {
+      if (fleetIds.has(vehicle.id)) return false;
+      fleetIds.add(vehicle.id);
+      return vehicle.isAvailable && [vehicle.maxPayloadKg, vehicle.maxCargoVolumeM3, vehicle.cargoLengthCm,
+        vehicle.cargoWidthCm, vehicle.cargoHeightCm].every((value) => Number.isFinite(value) && value > 0) &&
+        Number.isInteger(vehicle.seatCapacity) && vehicle.seatCapacity > 0;
+    });
+    const assignments: CrewAssignment[] = [];
+    const reserved = new Map<RouteTeam, number>();
+    const cache = new Map<string, RoutePlan>();
+    const jobIds = new Set<string>();
+    const pending = jobs.filter((job) => {
+      if (jobIds.has(job.workOrderId)) return false;
+      jobIds.add(job.workOrderId);
+      return true;
+    }).map((job) => ({
+      ...job,
+      requiredStaff: job.requiredStaff ?? estimateRequiredStaff(job.taskType, job.pestType),
+      estimatedEffortMinutes: job.estimatedEffortMinutes ?? estimateEffortMinutes(job.taskType, job.pestType),
+      requiresBaseReturn: job.requiresBaseReturn ?? checkRequiresBaseReturn(job.taskType, job.pestType),
+      priority: job.priority ?? ((job.requiresBaseReturn ?? checkRequiresBaseReturn(job.taskType, job.pestType)) ? PriorityTier.Critical : PriorityTier.Medium),
+    })).filter((job) => Number.isInteger(job.requiredStaff) && job.requiredStaff > 0 &&
+      Number.isFinite(job.estimatedEffortMinutes) && job.estimatedEffortMinutes >= 0);
+    const capable = (team: RouteTeam, job: RouteJob): boolean =>
+      (job.allowedCapabilities ?? [job.requiredCapability]).some((cap) => team.capabilities.includes(cap));
+    // Within a tier, preserve scarce capabilities and use shorter jobs to clear more work.
+    pending.sort((a, b) => getPriorityWeight(b.priority) - getPriorityWeight(a.priority) ||
+      pools.filter((t) => capable(t, a)).length - pools.filter((t) => capable(t, b)).length ||
+      a.estimatedEffortMinutes * a.requiredStaff - b.estimatedEffortMinutes * b.requiredStaff ||
+      (b.score ?? 0) - (a.score ?? 0));
+
+    // ponytail: greedy insertion is not a global VRP optimum; use a solver if exact throughput is required.
+    while (pending.length > 0) {
+      let allocated = false;
+      // Restart at the highest pending tier after every allocation: a shorter route can unlock work.
+      for (let index = 0; index < pending.length; index++) {
+        const job = pending[index]!;
+        const candidates: Array<{ pool: RouteTeam; existing?: CrewAssignment; jobs: RouteJob[]; size: number; addedHeads: number; cost: number; vehicle?: Vehicle }> = [];
+        for (const pool of pools) {
+          if (!capable(pool, job)) continue;
+          const free = (pool.staffCount ?? 1) - (reserved.get(pool) ?? 0);
+          const options = [...assignments.filter((a) => a.pool === pool), undefined];
+          for (const existing of options) {
+            const size = Math.max(existing?.staffCount ?? 0, job.requiredStaff);
+            const addedHeads = size - (existing?.staffCount ?? 0);
+            if (addedHeads > free) continue;
+            const current = existing?.jobs ?? [];
+            if (current.length >= (pool.maxStops ?? Infinity)) continue;
+            const weight = getPriorityWeight(job.priority);
+            for (let pos = 0; pos <= current.length; pos++) {
+              // Priority is a hard constraint, never a weighted travel penalty.
+              if (pos > 0 && getPriorityWeight(current[pos - 1]!.priority) < weight) continue;
+              if (pos < current.length && getPriorityWeight(current[pos]!.priority) > weight) continue;
+              const routeJobs = [...current.slice(0, pos), job, ...current.slice(pos)];
+              if (this.effort(routeJobs) + this.lag(pool) > MAX_DISPATCH_SECONDS) continue;
+              const packing = generatePackingList(routeJobs, size);
+              const load = logisticsLoad(packing);
+              const reservedVehicleIds = new Set(assignments.filter((assignment) => assignment !== existing).map((assignment) => assignment.vehicle?.id));
+              const matchingVehicles = fleet.filter((vehicle) => !reservedVehicleIds.has(vehicle.id) &&
+                vehicle.hqLocation === pool.teamId.split('-')[0] && vehicle.seatCapacity >= size &&
+                load.weightKg <= vehicle.maxPayloadKg && load.volumeM3 <= vehicle.maxCargoVolumeM3 &&
+                packing.every((item) => itemFitsCargo(item, vehicle)));
+              matchingVehicles.sort((a, b) => Number(b.id === existing?.vehicle?.id) - Number(a.id === existing?.vehicle?.id) ||
+                a.maxPayloadKg - b.maxPayloadKg || a.maxCargoVolumeM3 - b.maxCargoVolumeM3);
+              const vehicle = matchingVehicles[0];
+              // Only an omitted argument permits legacy non-vehicle unit-test planning.
+              if (vehicles !== undefined && !vehicle) continue;
+              const stops = this.stops(pool.hq, routeJobs);
+              const travel = stops.slice(1).reduce((sum, point, i) => sum + estimateTransitSeconds(stops[i]!, point), 0);
+              const duration = travel + this.effort(routeJobs) + this.lag(pool);
+              // This is a geometric estimate for ranking only. Road feasibility is checked below.
+              candidates.push({ pool, existing, jobs: routeJobs, size, addedHeads, vehicle,
+                cost: addedHeads * 14400 + pool.capabilities.length * 60 + duration - (existing ? this.effort(existing.jobs) + existing.plan.durationSeconds : 0) });
+            }
+          }
+        }
+        candidates.sort((a, b) => a.cost - b.cost);
+        for (const candidate of candidates) {
+          const calculate = async (routeJobs: RouteJob[]): Promise<RoutePlan> => {
+            const stops = this.stops(candidate.pool.hq, routeJobs);
+            const key = stops.map((point) => `${point.latitude},${point.longitude}`).join(';');
+            let route = cache.get(key);
+            if (!route) {
+              const remaining = roadDeadline - Date.now();
+              if (remaining <= 0) route = await fallback.calculateRoute(stops);
+              else {
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                try {
+                  route = await Promise.race([
+                    this.strategy.calculateRoute(stops),
+                    new Promise<RoutePlan>((resolve, reject) => {
+                      timer = setTimeout(() => { void fallback.calculateRoute(stops).then(resolve, reject); }, remaining);
+                    }),
+                  ]);
+                } finally { if (timer) clearTimeout(timer); }
+              }
+              cache.set(key, route);
+            }
+            return route;
+          };
+          let plan = await calculate(candidate.jobs);
+          const shortened = this.shorten(candidate.pool.hq, candidate.jobs);
+          if (shortened.some((item, i) => item !== candidate.jobs[i])) {
+            const shorterPlan = await calculate(shortened);
+            if (Number.isFinite(shorterPlan.durationSeconds) && shorterPlan.durationSeconds >= 0 &&
+                (!Number.isFinite(plan.durationSeconds) || shorterPlan.durationSeconds < plan.durationSeconds)) {
+              candidate.jobs = shortened;
+              plan = shorterPlan;
+            }
+          }
+          const duration = plan.durationSeconds + this.effort(candidate.jobs) + this.lag(candidate.pool);
+          if (!Number.isFinite(plan.durationSeconds) || plan.durationSeconds < 0 || duration > MAX_DISPATCH_SECONDS) continue;
+          reserved.set(candidate.pool, (reserved.get(candidate.pool) ?? 0) + candidate.addedHeads);
+          if (candidate.existing) {
+            Object.assign(candidate.existing, { jobs: candidate.jobs, staffCount: candidate.size, plan, vehicle: candidate.vehicle });
+          } else {
+            const count = assignments.filter((a) => a.pool === candidate.pool).length;
+            assignments.push({ pool: candidate.pool, teamId: count === 0 ? candidate.pool.teamId : `${candidate.pool.teamId}-crew${count + 1}`,
+              jobs: candidate.jobs, staffCount: candidate.size, plan, vehicle: candidate.vehicle });
+          }
+          pending.splice(index, 1);
+          allocated = true;
+          break;
+        }
+        if (allocated) break;
+      }
+      if (!allocated) break;
+    }
+    return assignments.map((assignment, i) => this.buildRoute(assignment, i));
+  }
+
+  private lag(team: RouteTeam): number {
+    return team.status === StaffStatus.OnCall ? Math.max(0, team.onCallLagHours ?? 2) * 3600 : 0;
+  }
+
+  /** Untangle only within one tier; full circuit cost includes mandatory depot returns. */
+  private shorten(hq: GeoPoint, jobs: RouteJob[]): RouteJob[] {
+    let current = jobs;
+    const cost = (sequence: RouteJob[]): number => {
+      const stops = this.stops(hq, sequence);
+      return stops.slice(1).reduce((sum, point, i) => sum + estimateTransitSeconds(stops[i]!, point), 0);
+    };
+    let improved = true;
+    while (improved) {
+      improved = false;
+      const baseline = cost(current);
+      for (let start = 0; start < current.length - 1 && !improved; start++) {
+        for (let end = start + 1; end < current.length; end++) {
+          if (getPriorityWeight(current[start]!.priority) !== getPriorityWeight(current[end]!.priority)) break;
+          const candidate = [...current.slice(0, start), ...current.slice(start, end + 1).reverse(), ...current.slice(end + 1)];
+          if (cost(candidate) + 1e-6 < baseline) {
+            current = candidate;
+            improved = true;
+            break;
+          }
+        }
+      }
+    }
+    return current;
+  }
+
+  private effort(jobs: RouteJob[]): number {
+    return jobs.reduce((total, job) => total + (job.estimatedEffortMinutes ?? 35) * 60 + (job.requiresBaseReturn ? 1200 : 0), 0);
+  }
+
+  private stops(hq: GeoPoint, jobs: RouteJob[]): GeoPoint[] {
+    const stops = [hq];
+    for (const job of jobs) {
+      stops.push(job.point);
+      if (job.requiresBaseReturn) stops.push(hq);
+    }
+    if (stops[stops.length - 1] !== hq) stops.push(hq);
+    return stops;
+  }
+
+  private buildRoute(assignment: CrewAssignment, colorIndex: number): PlannedTeamRoute {
+    const { pool, jobs, plan, teamId, staffCount } = assignment;
+    let elapsed = this.lag(pool);
+    let previous = pool.hq;
+    const stops = this.stops(pool.hq, jobs);
+    const estimatedTravel = stops.slice(1).reduce((sum, point, i) => sum + estimateTransitSeconds(stops[i]!, point), 0);
+    // The strategy returns a whole circuit, so apportion its duration across waypoint legs.
+    const legSeconds = (from: GeoPoint, to: GeoPoint): number => estimatedTravel > 0
+      ? estimateTransitSeconds(from, to) / estimatedTravel * plan.durationSeconds : 0;
+    const waypointOrder: PlannedWaypoint[] = [{
+      label: `Depot Departure (${teamId})`, point: pool.hq, status: 'Completed', isCompleted: true,
+      estimatedEffortMinutes: 0, requiresBaseReturn: false, isBaseReturn: false, isHq: true,
+      cumulativeDurationSeconds: elapsed,
+    }];
+    let completedCount = 0;
+    for (const [index, job] of jobs.entries()) {
+      elapsed += legSeconds(previous, job.point) + (job.estimatedEffortMinutes ?? 35) * 60;
+      const isDone = ['Completed', 'Verified', 'Closed'].includes(job.status ?? '');
+      if (isDone) completedCount++;
+      waypointOrder.push({
+        label: `Stop ${index + 1}: ${job.locality ?? job.workOrderId} (${job.taskType ?? 'Task'})`,
+        point: job.point, workOrderId: job.workOrderId, clusterId: job.clusterId, sourceReportId: job.sourceReportId, mapClusterId: job.mapClusterId, taskType: job.taskType, pestType: job.pestType,
+        priority: job.priority, requiredStaff: job.requiredStaff, status: isDone ? 'Completed' : job.status === 'InProgress' ? 'InProgress' : 'Pending',
+        isCompleted: isDone, estimatedEffortMinutes: job.estimatedEffortMinutes ?? 35,
+        requiresBaseReturn: job.requiresBaseReturn ?? false, isBaseReturn: false, isHq: false,
+        cumulativeDurationSeconds: elapsed,
+      });
+      previous = job.point;
+      if (job.requiresBaseReturn) {
+        elapsed += legSeconds(previous, pool.hq) + 1200;
+        waypointOrder.push({
+          label: `Return to HQ: Specimen Quarantine & Handover (${job.pestType ?? 'Wildlife'})`,
+          point: pool.hq, status: isDone ? 'Completed' : 'Pending', isCompleted: isDone,
+          estimatedEffortMinutes: 20, requiresBaseReturn: true, isBaseReturn: true, isHq: true,
+          cumulativeDurationSeconds: elapsed,
+        });
+        previous = pool.hq;
+      }
+    }
+    if (previous !== pool.hq) {
+      elapsed += legSeconds(previous, pool.hq);
+      waypointOrder.push({
+        label: `Return to HQ: Shift Conclusion (${teamId})`, point: pool.hq,
+        status: completedCount === jobs.length ? 'Completed' : 'Pending', isCompleted: completedCount === jobs.length,
+        estimatedEffortMinutes: 0, requiresBaseReturn: false, isBaseReturn: false, isHq: true,
+        cumulativeDurationSeconds: elapsed,
+      });
+    }
+    const totalDurationSeconds = plan.durationSeconds + this.effort(jobs) + this.lag(pool);
+    waypointOrder[waypointOrder.length - 1]!.cumulativeDurationSeconds = totalDurationSeconds;
+    const packingList = generatePackingList(jobs, staffCount);
+    const load = logisticsLoad(packingList);
+    const vehicle = assignment.vehicle;
+    return {
+      teamId, staffCount, depotLocation: pool.teamId.split('-')[0] ?? 'Central', status: String(pool.status ?? StaffStatus.Available),
+      onCallLagHours: this.lag(pool) / 3600, workOrderIds: jobs.map((job) => job.workOrderId), waypointOrder, route: plan,
+      totalDurationSeconds, totalTravelSeconds: plan.durationSeconds, totalEffortSeconds: this.effort(jobs),
+      capacityUsedPercentage: Math.round(totalDurationSeconds / MAX_DISPATCH_SECONDS * 100),
+      isWithinFourHourCap: totalDurationSeconds <= MAX_DISPATCH_SECONDS, completedCount, totalStopsCount: jobs.length,
+      progressPercentage: Math.round(completedCount / jobs.length * 100), packingList,
+      color: TEAM_COLORS[colorIndex % TEAM_COLORS.length]!,
+      vehicleId: vehicle?.id, vehicleRegistration: vehicle?.registration, vehicleName: vehicle?.name,
+      isDemoVehicle: vehicle?.isDemo, maxPayloadKg: vehicle?.maxPayloadKg, maxCargoVolumeM3: vehicle?.maxCargoVolumeM3,
+      loadWeightKg: load.weightKg, loadVolumeM3: load.volumeM3,
+      loadWeightPercentage: vehicle ? load.weightKg / vehicle.maxPayloadKg * 100 : undefined,
+      loadVolumePercentage: vehicle ? load.volumeM3 / vehicle.maxCargoVolumeM3 * 100 : undefined,
+      loadBasis: LOGISTICS_LOAD_BASIS,
+    };
+  }
+}

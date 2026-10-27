@@ -41,6 +41,7 @@ import { WorkOrderCreateScreen } from '../screens/operations/WorkOrderCreateScre
 import { WorkOrderListScreen } from '../screens/operations/WorkOrderListScreen';
 import { WorkOrderDetailScreen } from '../screens/operations/WorkOrderDetailScreen';
 import { StaffAccountsScreen } from '../screens/operations/StaffAccountsScreen';
+import { VehicleRegistryScreen } from '../screens/operations/VehicleRegistryScreen';
 import { DataSourcesScreen } from '../screens/operations/DataSourcesScreen';
 import { AnalyticsScreen } from '../screens/operations/AnalyticsScreen';
 import { ReferralScreen } from '../screens/operations/ReferralScreen';
@@ -79,6 +80,7 @@ export const SCREENS: Record<string, Screen> = {
   WOList: WorkOrderListScreen,
   WODetail: WorkOrderDetailScreen,
   StaffAccounts: StaffAccountsScreen,
+  VehicleRegistry: VehicleRegistryScreen,
   DataSources: DataSourcesScreen,
   Analytics: AnalyticsScreen,
   Referral: ReferralScreen, // 11.2.28

@@ -36,6 +36,7 @@ import { GeoPoint, Polygon, PremisesMix } from '../src/entity/valueTypes';
 import {
   ExposureStatus,
   LocationLabel,
+  PestType,
   PriorityTier,
   ReportStatus,
   ReportType,
@@ -254,6 +255,22 @@ describe('Map layers — §9.1.1 to §9.1.6', () => {
   let f: Fixture;
   beforeEach(async () => {
     f = await fixture();
+  });
+
+  it('uses the shared report triage for both hotspot polygons and their details', async () => {
+    const termite = await report(f, ReportStatus.Verified);
+    termite.pestType = PestType.Termite;
+    termite.estimatedCount = null;
+    await f.reports.save(termite);
+    const injured = await report(f, ReportStatus.Verified);
+    injured.pestType = PestType.Rat;
+    injured.injuryReported = true;
+    await f.reports.save(injured);
+    const layers = await f.map.layers(MANAGER);
+    expect(layers.clusters.find((c) => c.clusterId === `pest-${termite.id}`)?.tier).toBe(PriorityTier.High);
+    expect(layers.clusters.find((c) => c.clusterId === `pest-${injured.id}`)?.tier).toBe(PriorityTier.Critical);
+    expect((await f.map.clusterDetail(`pest-${termite.id}`, MANAGER)).tier).toBe(PriorityTier.High);
+    expect((await f.map.clusterDetail(`pest-${injured.id}`, MANAGER)).tier).toBe(PriorityTier.Critical);
   });
 
   it('M1 — cluster boundaries carry a tier AND a tier label in words (9.1.2, 9.1.11)', async () => {

@@ -1,46 +1,83 @@
 /**
- * D-Fence — the startup class (Fox pp. 341-345, heuristic 3).
- * Traces: 10.2.3, 10.3.4, 10.6.2.
- *
- * Configures the application, builds every object graph, and restores persistent state. It is
- * the only place that knows how the pieces fit together, which is what keeps the rest of the
- * system dependent on interfaces rather than on constructors.
+ * Application composition lifecycle used by DengueSystemFacade.
+ * Feature modules register their factories before boot; boot then loads configuration and binds
+ * infrastructure services in one place.
  */
-import { ServiceContainer } from './ServiceContainer';
+import { ServiceContainer, Factory } from './ServiceContainer';
 import { ConfigSet } from './ConfigSet';
+import { ConfigLoader } from './ConfigLoader';
+import { Database } from '../persistence/Database';
+
+export type ServiceRegistration = (container: ServiceContainer, config: ConfigSet) => void;
 
 export class AppConfigurator {
-  private readonly container = new ServiceContainer();
+  readonly container = new ServiceContainer();
+  private config: ConfigSet | null = null;
+  private database: Database | null = null;
+  private readonly registrations: ServiceRegistration[] = [];
+  private bootPromise: Promise<void> | null = null;
+  private stopped = false;
 
-  /** Order matters: configuration, then persistence, then gateways, then controllers. */
-  async bootstrap(): Promise<void> {
-    throw new Error('not implemented');
+  /** Add a feature's factories before boot. Registrations run once, in insertion order. */
+  addModule(registration: ServiceRegistration): this {
+    if (this.config !== null || this.bootPromise !== null) {
+      throw new Error('modules must be registered before boot');
+    }
+    this.registrations.push(registration);
+    return this;
   }
 
-  registerRepositories(): void {
-    throw new Error('not implemented');
+  /** Register one lazy service factory before boot. */
+  register<T>(name: string, factory: Factory<T>): this {
+    return this.addModule((container) => container.register(name, factory));
   }
 
-  registerGateways(): void {
-    throw new Error('not implemented');
+  /** Load configuration and expose shared infrastructure to registered feature modules. */
+  bootstrap(): Promise<void> {
+    if (this.stopped) return Promise.reject(new Error('application has been shut down'));
+    if (this.bootPromise !== null) return this.bootPromise;
+    this.bootPromise = Promise.resolve().then(() => {
+      const config = ConfigLoader.load();
+      const connectionString = config.get('DATABASE_URL');
+      const database = connectionString === '' ? null : new Database(connectionString);
+      this.config = config;
+      this.database = database;
+      this.container.register('config', () => config);
+      this.container.register('database', () => database);
+      for (const registration of this.registrations) registration(this.container, config);
+    }).catch((error: unknown) => {
+      this.bootPromise = null;
+      throw error;
+    });
+    return this.bootPromise;
   }
 
-  /** Also wires the Observer subscriptions: scoring and alerts subscribe to ingestion events. */
-  registerControllers(): void {
-    throw new Error('not implemented');
+  getConfiguration(): ConfigSet {
+    if (this.config === null) throw new Error('application has not booted');
+    return this.config;
   }
 
-  /** From environment and the configuration table. Secrets never come from the repository (10.3.4). */
-  loadConfiguration(): Promise<ConfigSet> {
-    throw new Error('not implemented');
+  resolveController<T>(name: string): T {
+    if (this.config === null) throw new Error('application has not booted');
+    return this.container.resolve<T>(name);
   }
 
-  /** 10.2.3: reschedules ingestion so a restart does not stall the live-data claim. */
-  restorePersistentState(): Promise<void> {
-    throw new Error('not implemented');
+  async getHealth(): Promise<{ status: 'ready' | 'degraded' | 'stopped'; database: 'connected' | 'not-configured' | 'unavailable' }> {
+    if (this.stopped) return { status: 'stopped', database: 'not-configured' };
+    if (this.config === null) return { status: 'degraded', database: 'not-configured' };
+    if (this.database === null) return { status: 'ready', database: 'not-configured' };
+    try {
+      await this.database.query('SELECT 1');
+      return { status: 'ready', database: 'connected' };
+    } catch {
+      return { status: 'degraded', database: 'unavailable' };
+    }
   }
 
-  shutdown(): Promise<void> {
-    throw new Error('not implemented');
+  async shutdown(): Promise<void> {
+    if (this.stopped) return;
+    if (this.bootPromise !== null) await this.bootPromise;
+    this.stopped = true;
+    await this.database?.close();
   }
 }

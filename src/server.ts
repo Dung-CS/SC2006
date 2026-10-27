@@ -73,7 +73,7 @@ import {
   SessionStore,
 } from './ports/Stores';
 import { Account } from './entity/Account';
-import { Uuid } from './entity/valueTypes';
+import { GeoPoint, Uuid, singaporeDate } from './entity/valueTypes';
 import { AccountRepository, SessionRepository } from './persistence/AccountRepository';
 import { ReportRepository } from './persistence/ReportRepository';
 import { TreatmentRecordRepository, WorkOrderRepository } from './persistence/WorkOrderRepository';
@@ -120,6 +120,7 @@ import { ClusterIngestionJob } from './control/ingestion/ClusterIngestionJob';
 import { RainfallIngestionJob } from './control/ingestion/RainfallIngestionJob';
 import { ForecastIngestionJob } from './control/ingestion/ForecastIngestionJob';
 import { ObservationIngestionJob } from './control/ingestion/ObservationIngestionJob';
+import { CompositeObservationJob } from './control/ingestion/CompositeObservationJob';
 import { OperatorRegistryLoader } from './control/OperatorRegistryLoader';
 import { GravitrapGateway } from './boundary/gateways/GravitrapGateway';
 import { GravitrapIngestionJob } from './control/ingestion/GravitrapIngestionJob';
@@ -138,7 +139,14 @@ import { EvidenceTier } from './entity/enums';
 import { RainfallAccumulator } from './control/RainfallAccumulator';
 import { NormalisationFactory } from './control/normalisation/NormalisationFactory';
 import { PriorityScoringEngine, DriverInputs } from './control/PriorityScoringEngine';
-import { ChangeClass, Driver, Role, SourceKind } from './entity/enums';
+import { ChangeClass, Driver, HqLocation, PestType, PriorityTier, ReportStatus, Role, SourceKind, StaffSpecialisation, StaffStatus, TaskType } from './entity/enums';
+import { RouteJob, RouteOptimizationService, RouteTeam } from './control/RouteOptimizationService';
+import { buildDispatchRouteInputs } from './control/DispatchRouteInputs';
+import { DispatchPlanInputs, DispatchPlanService } from './control/DispatchPlanService';
+import { createVehicleStore, seedDemoVehicles } from './persistence/VehicleRepository';
+import { VehicleController } from './control/VehicleController';
+import { VehicleRoutes } from './boundary/http/VehicleRoutes';
+import { RouteStrategyFactory } from './control/routing/RouteStrategyFactory';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -174,6 +182,7 @@ function firstConfigured(...values: Array<string | undefined>): string {
 async function main(): Promise<void> {
   const config = ConfigLoader.load();
   const http = new HttpClient();
+  let invalidateDispatchPlans = (): void => {};
 
   // Bound first, because the audit store now depends on the persistence choice — 2.4.1's trail
   // was being written to an array in production, and a container restart is not a retention policy.
@@ -512,6 +521,7 @@ async function main(): Promise<void> {
       locality: active.find((c) => c.id === score.localityId)?.locality ?? '',
     }));
     await engine.computeScores(active, inputs, now, pestScores);
+    invalidateDispatchPlans();
     // 4.4.9 — immediately after the scores are saved, not on a queue. The requirement is a
     // one-minute deadline, and the only way to be sure of it is to leave nothing between the
     // escalation and the message but delivery itself. Awaited so a failure is logged here rather
@@ -760,6 +770,7 @@ async function main(): Promise<void> {
       [SourceKind.Clusters, clusterJob],
       [SourceKind.Rainfall, rainJob],
       [SourceKind.Forecast, forecastJob],
+      ...(observationJobs.length > 0 ? [[SourceKind.Observations, new CompositeObservationJob(observationJobs, runs)] as [SourceKind, AbstractIngestionJob]] : []),
     ]),
     sourceHealth,
     { rescore: (rainfallFailed: boolean) => scoreAndAlert(rainfallFailed) },
@@ -810,6 +821,10 @@ async function main(): Promise<void> {
     // 8.1.14, 8.1.17 — the catalogue is what lets creation refuse a wildlife case and restrict the
     // task types offered for the rest.
     config,
+    // StaffRoutingPolicy — assignment refuses anyone whose recorded capability does not cover the job.
+    accounts,
+    // 8.1.2, 8.1.13 — source-report identity is resolved from persistence, never from the request.
+    reports,
   );
   void dispatch;
 
@@ -858,7 +873,42 @@ async function main(): Promise<void> {
   app.mount(new ImageRoutes(ac, objectStorage, residentReports, moderation));
   // §8's two halves, finally reachable over HTTP. Both were declared skeletons that threw, so the
   // dispatch, work-order and crew screens had controllers behind them and no door to reach them by.
-  app.mount(new WorkOrderRoutes(ac, dispatch, lifecycle, staff));
+  const routePlanner = new RouteOptimizationService(RouteStrategyFactory.create(oneMap));
+  const vehicleStore = createVehicleStore(database);
+  await seedDemoVehicles(vehicleStore);
+  const routeInputs = async (date: string): Promise<DispatchPlanInputs> => {
+    const [crew, orders, activeClusters, proposals, verified, actioned, latestScores, vehicles] = await Promise.all([
+      accounts.findByRole(Role.CleaningCrew),
+      workOrders.findAllOpen(),
+      clusters.findActive(),
+      dispatch.proposeDailyList(date, principalFor(Role.OperationsManager, 'system'), Infinity),
+      reports.findByStatus(ReportStatus.Verified),
+      reports.findByStatus(ReportStatus.Actioned),
+      scores.latest(),
+      vehicleStore.list(),
+    ]);
+    const knownClusters = new Map(activeClusters.map((cluster) => [cluster.id, cluster]));
+    for (const order of orders.filter((order) => order.scheduledDate <= date)) {
+      if (order.clusterId && !knownClusters.has(order.clusterId)) {
+        const cluster = await clusters.findById(order.clusterId);
+        if (cluster) knownClusters.set(cluster.id, cluster);
+      }
+      if (!order.targetPoint && order.sourceReportId) {
+        const report = await reports.findById(order.sourceReportId);
+        if (report) order.targetPoint = report.point;
+      }
+    }
+    return { ...buildDispatchRouteInputs({ date, crew, orders, clusters: [...knownClusters.values()], proposals,
+      profiles: config.pestProfiles, reports: [...verified, ...actioned], scores: latestScores }), vehicles };
+  };
+  const dispatchPlans = new DispatchPlanService(routeInputs, routePlanner);
+  invalidateDispatchPlans = () => dispatchPlans.invalidateAll();
+  app.onSuccessfulMutation(invalidateDispatchPlans);
+  app.mount(new VehicleRoutes(ac, new VehicleController(ac, vehicleStore, invalidateDispatchPlans)));
+  app.mount(new WorkOrderRoutes(ac, dispatch, lifecycle, staff, routePlanner, routeInputs, null, dispatchPlans));
+  dispatchPlans.invalidate(singaporeDate(new Date()));
+  // Check for external record changes and Singapore date rollover; fingerprints avoid needless routing.
+  setInterval(invalidateDispatchPlans, 30_000);
   app.mount(new CrewRoutes(ac, dispatch, lifecycle));
   // 10.4.3, 10.4.4 — deletion, and the attribution every government source obliges us to show.
   app.mount(

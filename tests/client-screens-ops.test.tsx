@@ -207,6 +207,22 @@ describe('Moderation and review — §11.2.14, §11.2.15, §5.2.4, §5.3.1', () 
 });
 
 describe('Dispatch, clusters and work orders — §11.2.16, §11.2.13, §11.2.17, §8.1.8, §8.1.12', () => {
+  it('shows urgent unplanned work even when no crew route is feasible', async () => {
+    const { fetcher } = router({
+      '/api/ops/dispatch': { body: { date: '2099-01-01', proposals: [] } },
+      '/api/map/layers': { body: { clusters: [] } },
+      '/api/ops/dispatch/routes': { body: { date: '2099-01-01', routes: [], unplanned: [
+        { workOrderId: 'urgent', locality: 'Urgent site', priority: 'High', requiredStaff: 3,
+          reason: 'No qualified crew with sufficient staff and remaining four-hour capacity in this plan.' },
+      ] } },
+    });
+    render(<DispatchProposalScreen {...props({}, fetcher)} />);
+    fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
+    expect(await screen.findByRole('heading', { name: 'Tasks without a route (1)' })).toBeTruthy();
+    expect(screen.getByText('High: Urgent site')).toBeTruthy();
+    expect(screen.getByText(/3 staff required/)).toBeTruthy();
+  });
+
   it('W1 — the dispatch list proposes and creates nothing (8.1.8)', async () => {
     const { fetcher, calls } = router({
       '/api/ops/dispatch': {
@@ -381,11 +397,13 @@ describe('Staff and sources — §11.2.22, §11.2.23, §2.2.5, §1.4.3, §1.4.4'
     // crew member who does the work was `curl`. The same defect that produced 11.2.26.
     const { fetcher, calls } = router({
       '/api/ops/staff': { body: { staff: [] } },
+      '/api/ops/work-orders/crew-workload': { body: { crew: [] } },
     });
     render(<StaffAccountsScreen {...props({}, fetcher)} />);
 
     fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'crew-1@d-fence.local' } });
     fireEvent.change(screen.getByLabelText('Temporary password'), { target: { value: 'FieldWork2026' } });
+    fireEvent.change(screen.getByLabelText('HQ Location'), { target: { value: 'Central' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
 
     await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true));
@@ -394,6 +412,21 @@ describe('Staff and sources — §11.2.22, §11.2.23, §2.2.5, §1.4.3, §1.4.4'
     // Cleaning Crew is the default, because it is the account a manager actually creates.
     expect(posted.role).toBe(Role.CleaningCrew);
     expect(posted.password).toBe('FieldWork2026');
+    expect(posted.hqLocation).toBe('Central');
+  });
+
+  it('shows availability by capability and depot, and filters the staff list from a cell', async () => {
+    const { fetcher } = router({
+      '/api/ops/staff': { body: { staff: [
+        { id: 'a1', email: 'crew@example.com', role: 'CleaningCrew', isActive: true, specialisation: 'VectorControl', hqLocation: 'Central' },
+      ] } },
+      '/api/ops/work-orders/crew-workload': { body: { crew: [{ crewId: 'a1', openWorkOrders: 0 }] } },
+    });
+    render(<StaffAccountsScreen {...props({}, fetcher)} />);
+    expect(await screen.findByRole('button', { name: 'Vector control, Central: 1 available / 1' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Vector control, Central: 1 available / 1' }));
+    expect(await screen.findByText('crew@example.com')).toBeTruthy();
+    expect(screen.getByLabelText('HQ location for crew@example.com')).toBeTruthy();
   });
 
   it('S0b — Resident is not offered, because 2.2.2 says a resident registers themselves', async () => {

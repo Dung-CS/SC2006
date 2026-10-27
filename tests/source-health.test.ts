@@ -60,7 +60,13 @@ describe('1.4.1 — every external data source is reported', () => {
     // The forecast and the geocoder were absent from the old panel. A source missing from a health
     // panel does not look unhealthy — it looks fine, which is the worse of the two errors.
     expect(sources.sort()).toEqual(
-      [SourceKind.Clusters, SourceKind.Forecast, SourceKind.Geocoding, SourceKind.Rainfall].sort(),
+      [
+        SourceKind.Clusters,
+        SourceKind.Forecast,
+        SourceKind.Geocoding,
+        SourceKind.Observations,
+        SourceKind.Rainfall,
+      ].sort(),
     );
   });
 
@@ -265,7 +271,7 @@ describe('The entity view — 1.4.2', () => {
     const runs = new InMemoryIngestionRunStore();
     await record(runs, SourceKind.Clusters, 'SUCCESS');
     const entities = await new SourceHealthController(runs, INTERVALS).asEntities();
-    expect(entities).toHaveLength(4);
+    expect(entities).toHaveLength(5);
     expect(entities.every((e) => typeof e.isWarning === 'boolean')).toBe(true);
     expect(entities.find((e) => e.source === SourceKind.Clusters)?.lastSuccessAt).not.toBeNull();
   });

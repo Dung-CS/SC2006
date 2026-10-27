@@ -123,7 +123,7 @@ async function fixture(): Promise<Fixture> {
     null,
     lifecycle, // 5.2.7, 8.5.1, 8.5.2
   );
-  const dispatch = new DispatchController(ac, workOrders, workOrderStore, clusters, scores, notifier, lifecycle);
+  const dispatch = new DispatchController(ac, workOrders, workOrderStore, clusters, scores, notifier, lifecycle, 10, null, null, null, reports);
   const dashboard = new DashboardController(ac, clusters, scores, new InMemoryIngestionRunStore(), workOrderStore, reports);
 
   return {

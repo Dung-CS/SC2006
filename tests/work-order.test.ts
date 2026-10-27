@@ -6,7 +6,7 @@
  * restriction that a role check alone cannot express, and US-8.8 — the end-to-end loop where a
  * verified job lowers the cluster's score, which is the ninety seconds the demo is built around.
  */
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { AccessControlService } from '../src/control/AccessControlService';
 import { AccessPolicy } from '../src/control/AccessPolicy';
 import { WorkOrderTransitionTable } from '../src/control/WorkOrderTransitionTable';
@@ -27,6 +27,7 @@ import {
   RecordingNotifier,
 } from '../src/persistence/memory/InMemoryWorkOrderStores';
 import { Cluster } from '../src/entity/Cluster';
+import { PriorityScore } from '../src/entity/PriorityScore';
 import { CompletionEvidence } from '../src/entity/CompletionEvidence';
 import { PremisesMix } from '../src/entity/valueTypes';
 import { Role, TaskType, WorkOrderStatus, PriorityTier, Driver } from '../src/entity/enums';
@@ -56,6 +57,8 @@ function evidence(photos = ['photo-1.jpg'], notes = 'Fogged the void deck and cl
 }
 
 interface Fixture {
+  clusters: InMemoryClusterStore;
+  scores: InMemoryPriorityScoreStore;
   dispatch: DispatchController;
   lifecycle: WorkOrderLifecycleController;
   workOrders: InMemoryWorkOrderStore;
@@ -90,7 +93,7 @@ async function fixture(): Promise<Fixture> {
     null,
   );
   const dispatch = new DispatchController(ac, lifecycle, workOrders, clusters, scores, notifier);
-  return { dispatch, lifecycle, workOrders, treatments, notifier, clusterId: stored.id };
+  return { dispatch, lifecycle, workOrders, treatments, notifier, clusterId: stored.id, clusters, scores };
 }
 
 /** Drives a work order to In Progress, the state most cases start from. */
@@ -381,6 +384,29 @@ describe('US-8.8 — the loop closes: a verified job lowers the score (8.3.12, 8
 });
 
 describe('The daily dispatch list — §8.1.7, 8.1.8', () => {
+  it('P3 — the display limit cannot remove route candidates and priority tiers outrank stale ranks', async () => {
+    const f = await fixture();
+    const perClusterReads = vi.spyOn(f.workOrders, 'findOpenForCluster');
+    const queueReads = vi.spyOn(f.workOrders, 'findAllOpen');
+    const records = Array.from({ length: 12 }, (_, i) => Object.assign(new Cluster(), {
+      objectId: `site-${i}`, locality: `site-${i}`, isActive: true, caseSize: 1, caseDelta: 0,
+      premisesMix: new PremisesMix([], [], []),
+    }));
+    await f.clusters.upsertFromFeed({ retrievedAt: new Date(), records });
+    const active = (await f.clusters.findActive()).filter((c) => c.objectId.startsWith('site-'));
+    await f.scores.saveAll(active.map((c, i) => Object.assign(new PriorityScore(), {
+      clusterId: c.id, localityId: c.id, rank: i + 1, score: i, tier: i === 11 ? 'High' : 'Low',
+    })));
+    const displayed = await f.dispatch.proposeDailyList(tomorrow(), MANAGER);
+    const routing = await f.dispatch.proposeDailyList(tomorrow(), MANAGER, Infinity);
+    expect(displayed).toHaveLength(10);
+    expect(routing).toHaveLength(12);
+    expect(displayed[0]?.tier).toBe('High');
+    expect(routing[0]?.tier).toBe('High');
+    expect(perClusterReads).not.toHaveBeenCalled();
+    expect(queueReads).toHaveBeenCalledTimes(2);
+  });
+
   it('P1 — a cluster with an open work order is not proposed again', async () => {
     const f = await fixture();
     const empty = await f.dispatch.proposeDailyList(tomorrow(), MANAGER);

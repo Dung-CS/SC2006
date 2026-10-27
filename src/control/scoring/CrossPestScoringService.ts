@@ -84,8 +84,6 @@ export class CrossPestScoringService {
         locality.boundary.centroid(),
         operators,
       );
-      const daysSinceTreatment = await this.treatments.daysSinceLastTreatment(locality.id, now);
-
       for (const profile of profiles.values()) {
         if (profile.pestType === PestType.Mosquito) {
           continue; // scored by the tier A cycle; see the note at the top of this file.
@@ -96,6 +94,8 @@ export class CrossPestScoringService {
         if (!CrossPestScoringService.hasEvidence(counts, observed)) {
           continue;
         }
+        // Per (locality, pest): a mosquito fogging does not treat a rat problem.
+        const daysSinceTreatment = await this.treatments.daysSinceLastTreatment(locality.id, now, profile.pestType);
         const score = this.calculator.score(
           { localityId: locality.id, locality: locality.locality, pestType: profile.pestType },
           profile,
@@ -179,9 +179,8 @@ export class CrossPestScoringService {
       verifiedOpenReports: counts?.verifiedOpen ?? 0,
       reportVelocity: counts?.recent ?? 0,
       corroborationDensity: counts?.corroborations ?? 0,
-      // Per locality, not per pest. A cleaning crew treating a site treats the site, and the
-      // treatment record does not name a pest — so this is the honest reading of what is stored.
-      // Were treatments ever recorded per pest, this line is the one that would change.
+      // Per (locality, pest) since migration 011 records the treated pest. A legacy treatment of
+      // unknown pest still counts for every pest, as it did before.
       daysSinceLastTreatment: daysSinceTreatment,
     };
     if (observed !== null) {

@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { Notifier, TreatmentRecordStore, WorkOrderStore } from '../../ports/Stores';
 import { Uuid } from '../../entity/valueTypes';
-import { WorkOrderStatus } from '../../entity/enums';
+import { PestType, WorkOrderStatus } from '../../entity/enums';
 import { WorkOrder } from '../../entity/WorkOrder';
 import { CompletionEvidence } from '../../entity/CompletionEvidence';
 import { TreatmentRecord } from '../../entity/TreatmentRecord';
@@ -48,6 +48,10 @@ export class InMemoryWorkOrderStore implements WorkOrderStore {
 
   async findOpenForCluster(clusterId: Uuid): Promise<WorkOrder[]> {
     return [...this.orders.values()].filter((w) => w.clusterId === clusterId && !w.isTerminal());
+  }
+
+  async findOpenForReport(sourceReportId: Uuid): Promise<WorkOrder[]> {
+    return [...this.orders.values()].filter((w) => w.sourceReportId === sourceReportId && !w.isTerminal());
   }
 
   async findForAssignee(assigneeId: Uuid): Promise<WorkOrder[]> {
@@ -119,8 +123,11 @@ export class InMemoryTreatmentRecordStore implements TreatmentRecordStore {
    * there has never been one. This is the join between §8 and the scoring engine: until a work
    * order is verified, every cluster enters the treatment driver saturated.
    */
-  async daysSinceLastTreatment(clusterId: Uuid, now: Date): Promise<number> {
-    const latest = await this.latestForCluster(clusterId);
+  async daysSinceLastTreatment(clusterId: Uuid, now: Date, pestType = PestType.Mosquito): Promise<number> {
+    const matching = (await this.allForCluster(clusterId)).filter(
+      (r) => (r.pestType ?? null) === null || r.pestType === pestType,
+    );
+    const latest = matching[matching.length - 1] ?? null;
     if (latest === null) {
       return 90;
     }

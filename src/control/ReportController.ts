@@ -49,6 +49,7 @@ export interface ReportDraft {
   locationContext?: LocationContext;
   /** 5.1.17 — optional on any report; 4.4.8 turns on it. */
   injuryReported?: boolean;
+  estimatedCount?: number | null;
   description: string;
   photos?: PhotoUpload[];
 }
@@ -111,6 +112,11 @@ export class ReportController {
    */
   async submitReport(draft: ReportDraft, by: Principal, now = new Date()): Promise<Report> {
     await this.ac.authorise(by, 'report:create', { kind: 'report' });
+
+    if (draft.estimatedCount !== undefined && draft.estimatedCount !== null &&
+      (!Number.isInteger(draft.estimatedCount) || draft.estimatedCount < 1 || draft.estimatedCount > 500)) {
+      throw new ReportRejected('Observed count must be a whole number from 1 to 500, or left unknown');
+    }
 
     // 5.1.3 — a type from the five. An unknown string reaching the store would make 5.1.11's
     // same-type comparison meaningless, so it is refused here rather than coerced to Other.
@@ -178,6 +184,7 @@ export class ReportController {
     report.pestType = draft.pestType; // 5.1.15
     report.locationContext = draft.locationContext ?? null; // 5.1.16
     report.injuryReported = draft.injuryReported ?? false; // 5.1.17
+    report.estimatedCount = draft.estimatedCount ?? null;
     report.description = description;
     report.corroborationCount = 0;
     report.submittedAt = now; // 5.1.10

@@ -60,6 +60,9 @@ export interface MapCluster {
   caseSize: number;
   /** GeoJSON order — [longitude, latitude] — which is the reverse of how the map wants it. */
   ring: Array<[number, number]>;
+  pestType?: string;
+  icon?: string;
+  countLabel?: string;
 }
 
 export interface MapMarker {
@@ -71,11 +74,31 @@ export interface MapMarker {
   /** One line under the heading. Never a colour name. */
   detail: string;
   kind: 'report' | 'workOrder' | 'savedLocation';
+  pestType?: string;
+}
+
+export interface MapRouteWaypoint {
+  label: string;
+  point: { latitude: number; longitude: number };
+  isCompleted?: boolean;
+  isBaseReturn?: boolean;
+  isHq?: boolean;
+  priority?: string;
+  taskType?: string;
+}
+
+export interface MapRoute {
+  teamId: string;
+  color: string;
+  label: string;
+  coordinates: Array<{ latitude: number; longitude: number }>;
+  waypoints?: MapRouteWaypoint[];
 }
 
 export interface SingaporeMapProps {
   clusters: MapCluster[];
   markers?: MapMarker[];
+  routes?: MapRoute[];
   basemap?: Basemap;
   /** Called when a cluster shape or its list entry is chosen. Absent means the shapes are inert. */
   onSelectCluster?: (clusterId: string) => void;
@@ -96,6 +119,8 @@ export interface SingaporeMapProps {
   focus?: Array<[number, number]>;
   /** For `data-part` hooks in the acceptance harness. */
   label: string;
+  /** Called when a marker or its popup action link is selected. */
+  onSelectMarker?: (marker: MapMarker) => void;
 }
 
 /**
@@ -104,16 +129,19 @@ export interface SingaporeMapProps {
  * they are the same three the stylesheet uses for `--tier-high`, `--tier-medium` and `--tier-low`,
  * and the swatches in the legend take theirs from the stylesheet rather than from here.
  */
-const TIER_COLOURS: Record<string, string> = {
-  High: '#a4342b',
-  Medium: '#b8763a',
-  Low: '#4a7c59',
+const DEFAULT_TIER = { stroke: '#047857', fill: '#10B981' };
+
+const TIER_COLOURS: Record<string, { stroke: string; fill: string }> = {
+  Critical: { stroke: '#7F1D1D', fill: '#DC2626' },
+  High: { stroke: '#B91C1C', fill: '#EF4444' },
+  Medium: { stroke: '#C2410C', fill: '#F97316' },
+  Low: DEFAULT_TIER,
 };
 
 const MARKER_COLOURS: Record<MapMarker['kind'], string> = {
-  report: '#1b5e56',
-  workOrder: '#2f5d8a',
-  savedLocation: '#6b3fa0',
+  report: '#0D9488',
+  workOrder: '#2563EB',
+  savedLocation: '#7C3AED',
 };
 
 const MARKER_NAMES: Record<MapMarker['kind'], string> = {
@@ -122,16 +150,58 @@ const MARKER_NAMES: Record<MapMarker['kind'], string> = {
   savedLocation: 'My locations',
 };
 
+const PEST_ICONS: Record<string, { emoji: string; color: string; label: string }> = {
+  Mosquito: { emoji: '🦟', color: '#DC2626', label: 'Mosquito' },
+  Rat: { emoji: '🐀', color: '#D97706', label: 'Rat' },
+  Cockroach: { emoji: '🪳', color: '#92400E', label: 'Cockroach' },
+  Snake: { emoji: '🐍', color: '#059669', label: 'Snake' },
+  BeeWasp: { emoji: '🐝', color: '#CA8A04', label: 'Bee / Wasp' },
+  HouseCrow: { emoji: '🦅', color: '#4B5563', label: 'House Crow' },
+  Pigeon: { emoji: '🐦', color: '#64748B', label: 'Pigeon' },
+  Fly: { emoji: '🪰', color: '#475569', label: 'Fly' },
+  Ant: { emoji: '🐜', color: '#DC2626', label: 'Ant' },
+  Termite: { emoji: '🪵', color: '#854D0E', label: 'Termite' },
+  WildBoar: { emoji: '🐗', color: '#78350F', label: 'Wild Boar' },
+  Macaque: { emoji: '🐒', color: '#B45309', label: 'Macaque' },
+};
+
+const REPORT_TYPE_ICONS: Record<string, { emoji: string; color: string; label: string }> = {
+  StandingWater: { emoji: '💧', color: '#0284C7', label: 'Standing Water' },
+  BlockedDrain: { emoji: '🚰', color: '#0369A1', label: 'Blocked Drain' },
+  UnclearedRefuse: { emoji: '🗑️', color: '#D97706', label: 'Refuse' },
+  OvergrownVegetation: { emoji: '🌿', color: '#16A34A', label: 'Vegetation' },
+  Other: { emoji: '⚠️', color: '#DC2626', label: 'Report' },
+};
+
+function getMarkerVisual(marker: MapMarker): { emoji: string; color: string; label: string } {
+  if (marker.kind === 'workOrder') {
+    return { emoji: '🛠️', color: '#2563EB', label: 'Work order' };
+  }
+  if (marker.kind === 'savedLocation') {
+    return { emoji: '📍', color: '#7C3AED', label: 'My location' };
+  }
+  if (marker.pestType !== undefined) {
+    const pestMatch = PEST_ICONS[marker.pestType];
+    if (pestMatch !== undefined) {
+      return pestMatch;
+    }
+  }
+  const reportTypeMatch = REPORT_TYPE_ICONS[marker.title];
+  if (reportTypeMatch !== undefined) {
+    return reportTypeMatch;
+  }
+  return { emoji: '⚠️', color: '#0D9488', label: 'Report' };
+}
+
 function tierStyle(tier: string, selected: boolean): PathOptions {
-  const colour = TIER_COLOURS[tier] ?? TIER_COLOURS.Low;
+  const palette = TIER_COLOURS[tier] ?? DEFAULT_TIER;
   return {
-    color: colour,
-    weight: selected ? 4 : 2,
+    color: selected ? '#0F172A' : palette.stroke,
+    weight: selected ? 6 : 4,
     opacity: 1,
-    fillColor: colour,
-    // Low enough that the street names underneath stay legible, which is the whole reason for
-    // putting the shape on a map rather than in a table.
-    fillOpacity: selected ? 0.42 : 0.26,
+    fillColor: palette.fill,
+    fillOpacity: selected ? 0.72 : 0.52,
+    className: `cluster-polygon tier-${tier} ${selected ? 'is-selected' : ''}`,
   };
 }
 
@@ -152,6 +222,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<LeafletMap | null>(null);
   const clusterLayer = useRef<LayerGroup | null>(null);
+  const routeLayer = useRef<LayerGroup | null>(null);
   const markerLayers = useRef<Partial<Record<MapMarker['kind'], LayerGroup>>>({});
   const [drawn, setDrawn] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -169,25 +240,25 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
   /** Construct the map once, and never let a failure to construct it take the screen down. */
   useEffect(() => {
     let cancelled = false;
+    let observer: ResizeObserver | null = null;
     const element = container.current;
-    if (element === null || map.current !== null) {
+    if (element === null) {
       return;
     }
-    /*
-     * Leaflet requires a laid-out container: it reads the element's size to decide how many tiles
-     * to request and where to put them, and given a zero-width element it constructs an object
-     * that throws from inside its own callbacks later, where no `try` of ours can reach it.
-     *
-     * This is not a test accommodation. A map in a zero-size container is broken in a browser too
-     * — inside a `display: none` tab, for instance — and the right response there is the same as
-     * here: do not build it, and leave the list standing. jsdom simply makes the case reliable to
-     * reproduce.
-     */
-    if (element.clientWidth === 0 || element.clientHeight === 0) {
-      return;
-    }
-    try {
-      {
+
+    function initMap(): void {
+      if (cancelled || map.current !== null || element === null) {
+        return;
+      }
+      /*
+       * Leaflet requires a laid-out container: it reads the element's size to decide how many tiles
+       * to request and where to put them, and given a zero-width element it constructs an object
+       * that throws from inside its own callbacks later, where no `try` of ours can reach it.
+       */
+      if (element.clientWidth === 0 || element.clientHeight === 0) {
+        return;
+      }
+      try {
         const instance = L.map(element, {
           center: SINGAPORE_CENTRE,
           zoom: 11,
@@ -207,7 +278,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           scrollWheelZoom: true,
           tap: true,
         });
-        L.tileLayer(`https://www.onemap.gov.sg/maps/tiles/${props.basemap ?? 'Default_HD'}/{z}/{x}/{y}.png`, {
+        L.tileLayer(`https://www.onemap.gov.sg/maps/tiles/${props.basemap ?? 'Grey_HD'}/{z}/{x}/{y}.png`, {
           attribution: ONEMAP_ATTRIBUTION,
           maxZoom: 18,
           // OneMap serves Singapore alone; beyond it the tiles are blank, and blank tiles look
@@ -216,6 +287,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         }).addTo(instance);
         instance.attributionControl.setPrefix('');
         clusterLayer.current = L.layerGroup().addTo(instance);
+        routeLayer.current = L.layerGroup().addTo(instance);
         for (const kind of ['report', 'workOrder', 'savedLocation'] as const) {
           markerLayers.current[kind] = L.layerGroup().addTo(instance);
         }
@@ -223,19 +295,53 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         if (!cancelled) {
           setDrawn(true);
         }
-      }
-    } catch {
-      // jsdom, or a browser that could not lay the element out. The list below is the fallback
-      // and it is always rendered, so there is nothing to replace.
-      if (!cancelled) {
-        setFailed(true);
+        requestAnimationFrame(() => {
+          if (!cancelled && map.current !== null) {
+            map.current.invalidateSize();
+          }
+        });
+        setTimeout(() => {
+          if (!cancelled && map.current !== null) {
+            map.current.invalidateSize();
+          }
+        }, 200);
+      } catch {
+        // jsdom, or a browser that could not lay the element out. The list below is the fallback
+        // and it is always rendered, so there is nothing to replace.
+        if (!cancelled) {
+          setFailed(true);
+        }
       }
     }
+
+    if (element.clientWidth > 0 && element.clientHeight > 0) {
+      initMap();
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        if (map.current !== null) {
+          map.current.invalidateSize();
+        } else if (element.clientWidth > 0 && element.clientHeight > 0) {
+          initMap();
+        }
+      });
+      observer.observe(element);
+    }
+
+    const handleWindowResize = () => {
+      map.current?.invalidateSize();
+    };
+    window.addEventListener('resize', handleWindowResize);
+
     return () => {
       cancelled = true;
+      observer?.disconnect();
+      window.removeEventListener('resize', handleWindowResize);
       map.current?.remove();
       map.current = null;
       clusterLayer.current = null;
+      routeLayer.current = null;
       markerLayers.current = {};
     };
     // Constructed once. The basemap is a per-screen constant, not a control.
@@ -270,7 +376,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           sticky: true,
         });
         shape.bindPopup(
-          `<strong>${escapeHtml(cluster.locality)}</strong><br>${escapeHtml(cluster.tierLabel)}<br>${cluster.caseSize} case(s)`,
+          `<strong>${escapeHtml(cluster.locality)}</strong><br>${escapeHtml(cluster.tierLabel)}<br>${cluster.caseSize} ${escapeHtml(cluster.countLabel ?? 'case(s)')}`,
         );
         if (props.onSelectCluster !== undefined) {
           shape.on('click', () => props.onSelectCluster?.(cluster.clusterId));
@@ -282,8 +388,48 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           });
         }
         shape.addTo(layer);
+
+        // Prominent centroid badge pill with case count and tier color for high map visibility
+        const center = shape.getBounds().getCenter();
+        const badgeIcon = L.divIcon({
+          className: 'cluster-badge-container',
+          html: `<div class="cluster-map-pill tier-${cluster.tier} ${selected ? 'is-selected' : ''}" role="button" tabindex="0" aria-label="${escapeHtml(cluster.locality)}: ${cluster.caseSize} ${escapeHtml(cluster.countLabel ?? 'case(s)')}">
+            <span class="cluster-pill-icon" aria-hidden="true">${cluster.icon ?? '🦟'}</span>
+            <span class="cluster-pill-cases">${cluster.caseSize} ${escapeHtml(cluster.countLabel ?? 'cases')}</span>
+          </div>`,
+          iconSize: [92, 28],
+          iconAnchor: [46, 14],
+        });
+        const badgeMarker = L.marker(center, { icon: badgeIcon, interactive: true });
+        badgeMarker.bindTooltip(`${escapeHtml(cluster.locality)} — ${escapeHtml(cluster.tierLabel)}`, {
+          sticky: true,
+        });
+        badgeMarker.bindPopup(
+          `<strong>${escapeHtml(cluster.locality)}</strong><br>${escapeHtml(cluster.tierLabel)}<br>${cluster.caseSize} ${escapeHtml(cluster.countLabel ?? 'case(s)')}`,
+        );
+        if (props.onSelectCluster !== undefined) {
+          badgeMarker.on('click', () => props.onSelectCluster?.(cluster.clusterId));
+          badgeMarker.on('keypress', (event) => {
+            const key = (event as unknown as { originalEvent?: KeyboardEvent }).originalEvent?.key;
+            if (key === 'Enter' || key === ' ') {
+              props.onSelectCluster?.(cluster.clusterId);
+            }
+          });
+        }
+        badgeMarker.addTo(layer);
+
         bounds.extend(shape.getBounds());
         shapeBounds.push(shape.getBounds());
+      }
+      if (props.selectedClusterId) {
+        const selected = props.clusters.find((c) => c.clusterId === props.selectedClusterId);
+        if (selected && selected.ring.length >= 3) {
+          const selLatLngs = selected.ring.map(([lng, lat]) => [lat, lng] as [number, number]);
+          const selBounds = L.latLngBounds(selLatLngs);
+          instance.fitBounds(selBounds, { padding: [32, 32], maxZoom: 15 });
+          instance.invalidateSize();
+          return;
+        }
       }
       const focus = props.focus ?? [];
       if (focus.length > 0) {
@@ -317,16 +463,99 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           frame.extend(closest);
         }
         instance.fitBounds(frame, { padding: [16, 16], maxZoom: 15 });
+        instance.invalidateSize();
       } else if (bounds.isValid()) {
         // Open on the data rather than on the middle of the island: sixteen clusters in the north
         // and an empty south would otherwise put every shape in the top third of the frame.
         instance.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
+        instance.invalidateSize();
       }
     } catch {
       // A redraw that fails must not take the screen with it; the list below is unaffected.
       setFailed(true);
     }
   }, [drawn, props.clusters, props.focus, props.selectedClusterId, props.onSelectCluster]);
+
+  /** Redraw the multi-team route polylines and stop waypoints. */
+  useEffect(() => {
+    if (!drawn || map.current === null || routeLayer.current === null) {
+      return;
+    }
+    try {
+      const layer = routeLayer.current;
+      const instance = map.current;
+      layer.clearLayers();
+      const routes = props.routes ?? [];
+      if (routes.length === 0) {
+        return;
+      }
+
+      const bounds = L.latLngBounds([]);
+
+      routes.forEach((r, teamIdx) => {
+        if (r.coordinates.length >= 2) {
+          const latlngs = r.coordinates.map((c) => [c.latitude, c.longitude] as [number, number]);
+          latlngs.forEach((pt) => bounds.extend(pt));
+
+          const polyline = L.polyline(latlngs, {
+            color: r.color,
+            weight: 5,
+            opacity: 0.85,
+            lineJoin: 'round',
+          });
+          polyline.bindTooltip(`Team ${r.teamId}: ${r.label}`, { sticky: true });
+          polyline.addTo(layer);
+        }
+
+        if (r.waypoints) {
+          r.waypoints.forEach((wp, idx) => {
+            bounds.extend([wp.point.latitude, wp.point.longitude]);
+            const isHq = wp.isHq;
+            const isDone = wp.isCompleted;
+            const isBaseReturn = wp.isBaseReturn;
+            const teamClass = `team-${teamIdx % 8}`;
+
+            const icon = L.divIcon({
+              className: 'custom-route-marker',
+              html: `<div class="route-stop-pin ${isHq ? 'is-hq' : teamClass} ${isDone ? 'is-completed' : ''} ${isBaseReturn ? 'is-base-return' : ''}">${isHq ? '🏢' : idx}</div>`,
+              iconSize: [28, 28],
+              iconAnchor: [14, 14],
+            });
+
+            const marker = L.marker([wp.point.latitude, wp.point.longitude], { icon });
+            marker.bindPopup(`
+              <div class="route-popup-card">
+                <strong>Team ${escapeHtml(r.teamId)}</strong>
+                <div>${escapeHtml(wp.label)}</div>
+                ${wp.priority ? `<div class="route-popup-priority ${wp.priority === 'Critical' ? 'critical' : wp.priority === 'High' ? 'high' : 'medium'}">${escapeHtml(wp.priority)} priority</div>` : ''}
+                ${isDone ? '<div class="route-popup-completed">✓ Completed</div>' : ''}
+              </div>
+            `);
+            marker.addTo(layer);
+          });
+        }
+      });
+
+      if (bounds.isValid() && props.selectedClusterId == null) {
+        if (props.clusters.length === 0) {
+          instance.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+        } else {
+          const combined = L.latLngBounds([]);
+          props.clusters.forEach((c) => {
+            if (c.ring.length >= 3) {
+              c.ring.forEach(([lng, lat]) => combined.extend([lat, lng]));
+            }
+          });
+          combined.extend(bounds);
+          if (combined.isValid()) {
+            instance.fitBounds(combined, { padding: [24, 24], maxZoom: 14 });
+          }
+        }
+      }
+    } catch {
+      // Degrades gracefully
+    }
+  }, [drawn, props.routes, props.clusters.length, props.selectedClusterId]);
 
   /** Redraw the markers. Separate from the shapes so toggling a layer does not refit the view. */
   useEffect(() => {
@@ -344,21 +573,76 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           continue;
         }
         for (const marker of markers.filter((m) => m.kind === kind)) {
-          L.circleMarker([marker.latitude, marker.longitude], {
-            radius: 6,
-            color: '#ffffff',
-            weight: 2,
-            fillColor: MARKER_COLOURS[kind],
-            fillOpacity: 1,
-          })
-            .bindPopup(`<strong>${escapeHtml(marker.title)}</strong><br>${escapeHtml(marker.detail)}`)
+          const visual = getMarkerVisual(marker);
+          const icon = L.divIcon({
+            className: 'custom-map-pin',
+            html: `<div class="map-pest-pin kind-${marker.kind} pest-${marker.pestType ?? marker.title}">
+              <span class="map-pest-symbol" aria-hidden="true">${visual.emoji}</span>
+            </div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16],
+            popupAnchor: [0, -18],
+          });
+
+          const popupHtml = `<div class="map-popup-card">
+                 <div class="map-popup-header">
+                   <span class="map-popup-badge ${marker.kind}">${escapeHtml(visual.label)}</span>
+                   <span class="map-popup-emoji">${visual.emoji}</span>
+                 </div>
+                 <strong class="map-popup-title">${escapeHtml(marker.title)}</strong>
+                 <div class="map-popup-detail">${escapeHtml(marker.detail)}</div>
+                 ${
+                   marker.kind === 'report'
+                     ? `<div class="map-popup-actions"><a href="/reports/${escapeHtml(marker.id)}" class="map-popup-action-btn" data-marker-kind="report" data-marker-id="${escapeHtml(marker.id)}">View full report details →</a></div>`
+                     : marker.kind === 'workOrder'
+                     ? `<div class="map-popup-actions"><a href="/ops/work-orders/${escapeHtml(marker.id)}" class="map-popup-action-btn" data-marker-kind="workOrder" data-marker-id="${escapeHtml(marker.id)}">View work order →</a></div>`
+                     : ''
+                 }
+               </div>`;
+
+          const mapMarker = L.marker([marker.latitude, marker.longitude], { icon })
+            .bindPopup(popupHtml)
             .addTo(layer);
+
+          if (props.onSelectMarker !== undefined) {
+            mapMarker.on('dblclick', () => props.onSelectMarker?.(marker));
+          }
         }
       }
     } catch {
       setFailed(true);
     }
-  }, [drawn, markers, hidden]);
+  }, [drawn, markers, hidden, props.onSelectMarker]);
+
+  /** Intercept clicks on .map-popup-action-btn to trigger client routing or onSelectMarker. */
+  useEffect(() => {
+    const el = container.current;
+    if (!el) {
+      return;
+    }
+    const handleActionClick = (e: MouseEvent) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('.map-popup-action-btn');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const markerId = btn.getAttribute('data-marker-id');
+        const href = btn.getAttribute('href');
+        if (markerId && props.onSelectMarker) {
+          const found = markers.find((m) => m.id === markerId);
+          if (found) {
+            props.onSelectMarker(found);
+            return;
+          }
+        }
+        if (href) {
+          window.history.pushState({}, '', href);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }
+      }
+    };
+    el.addEventListener('click', handleActionClick);
+    return () => el.removeEventListener('click', handleActionClick);
+  }, [markers, props.onSelectMarker]);
 
   /** 9.1.7 — recentre on everything, for a user who has panned away and wants back. */
   function resetView(): void {
@@ -379,7 +663,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
     }
   }
 
-  const tiersPresent = Array.from(new Set(props.clusters.map((c) => c.tier)));
+  const tiersPresent = props.clusters.length === 0 ? [] : ['Critical', 'High', 'Medium', 'Low'];
 
   return (
     <div className="map" data-part={props.label}>

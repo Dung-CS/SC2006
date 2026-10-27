@@ -29,14 +29,20 @@ import { evaluate, formIsValid, required } from '../../components/FieldValidatio
 import { link } from '../../components/Link';
 import { Facts, PhotoGrid, Pill, statusTone, tierTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
+import { RoutingDecision, specialisationLabel } from '../../lib/dispatchRouting';
+import { staffDisplayName, staffPhotoUrl } from '../../lib/staffVisuals';
 import { ScreenProps } from '../ScreenProps';
 
 interface DetailPayload {
   workOrder: {
     id: string;
-    clusterId: string;
+    clusterId: string | null;
+    location?: string;
+    point?: { latitude: number; longitude: number } | null;
     assigneeId: string | null;
     taskType: string;
+    pestType?: string | null;
+    sourceReportId?: string | null;
     status: string;
     scheduledDate: string;
     priority: string;
@@ -46,6 +52,8 @@ interface DetailPayload {
     cancellationReason: string | null;
     verifiedAt: string | null;
   };
+  /** StaffRoutingPolicy's answer. Absent from an older server, in which case nothing is recommended. */
+  routing?: RoutingDecision;
 }
 
 interface HistoryPayload {
@@ -75,7 +83,7 @@ interface EvidencePayload {
 }
 
 interface CrewPayload {
-  crew: Array<{ crewId: string; email: string; isActive: boolean; openWorkOrders: number }>;
+  crew: Array<{ crewId: string; email: string; isActive: boolean; openWorkOrders: number; specialisation?: string | null }>;
 }
 
 export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
@@ -119,6 +127,9 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
   }
 
   const order = detail.value?.workOrder;
+  const routing = detail.value?.routing;
+  const ineligible = new Map((routing?.ineligible ?? []).map((m) => [m.crewId, m.reason]));
+  const top = routing?.candidates[0];
 
   return (
     <section data-screen="WODetail" data-requirement="11.2.18">
@@ -143,6 +154,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
             <Facts
               items={[
                 { label: 'Scheduled', value: order.scheduledDate, part: 'scheduled' },
+                { label: 'Pest', value: order.pestType == null ? 'Unknown pest' : label(order.pestType), part: 'pest' },
                 {
                   label: 'Priority',
                   value: (
@@ -152,14 +164,28 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                   ),
                   part: 'priority',
                 },
-                {
-                  label: 'Cluster',
-                  value: (
-                    <a href={`/ops/clusters/${order.clusterId}`} onClick={link(props, `/ops/clusters/${order.clusterId}`)}>
-                      View the cluster
-                    </a>
-                  ),
-                },
+                { label: 'Location', value: order.location ?? (order.point == null ? 'Singapore' : `${order.point.latitude}, ${order.point.longitude}`), part: 'location' },
+                ...(order.point == null ? [] : [{ label: 'Coordinates', value: `${order.point.latitude}, ${order.point.longitude}`, part: 'coordinates' }]),
+                ...(order.clusterId === null
+                  ? [{
+                      label: 'Target',
+                      part: 'target',
+                      value: order.sourceReportId == null ? 'Verified report' : (
+                        <a href={`/ops/moderation/${encodeURIComponent(order.sourceReportId)}`} onClick={link(props, `/ops/moderation/${encodeURIComponent(order.sourceReportId)}`)}>
+                          View source report
+                        </a>
+                      ),
+                    }]
+                  : [{
+                      label: 'Cluster',
+                      value: <a href={`/ops/clusters/${order.clusterId}`} onClick={link(props, `/ops/clusters/${order.clusterId}`)}>View the cluster</a>,
+                    }]),
+                ...(order.clusterId === null && order.priority === 'Medium'
+                  ? [{ label: 'Priority basis', value: 'Unscored report default', part: 'priority-basis' }]
+                  : []),
+                ...(order.clusterId === null && order.priority === 'Critical'
+                  ? [{ label: 'Priority basis', value: 'Critical injury override', part: 'priority-basis' }]
+                  : []),
                 { label: 'Instructions', value: order.instructions, part: 'instructions', wide: true },
               ]}
             />
@@ -197,18 +223,118 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                       `a deactivated account (${order.assigneeId.slice(0, 8)})`
                     }.`}
               </p>
+
+              {/*
+                StaffRoutingPolicy's answer, computed on the server — the same rule `assign`
+                enforces, so nothing recommended here can be refused there. Ranked by first-choice
+                capability, then fewest open orders; no invented match percentage.
+              */}
+              {routing === undefined ? null : routing.referral !== null ? (
+                <div className="dispatch-wildlife-banner" role="alert" data-part="wildlife-referral">
+                  <div className="dispatch-wildlife-title">Not crew work: refer this case (8.1.14, 8.6)</div>
+                  <p className="dispatch-wildlife-body">
+                    {label(order.pestType ?? 'Unknown pest')} cases go to {routing.referral.authority}. No crew member can be
+                    assigned.{' '}
+                    {order.sourceReportId == null ? (
+                      'Refer the source report from the moderation queue instead.'
+                    ) : (
+                      <a
+                        href={`/ops/referrals/${order.sourceReportId}`}
+                        onClick={link(props, `/ops/referrals/${order.sourceReportId}`)}
+                      >
+                        Refer the source report
+                      </a>
+                    )}
+                  </p>
+                  <div className="dispatch-wildlife-cta">
+                    <strong>{routing.referral.authority}</strong>{' '}
+                    <a
+                      href={`tel:${routing.referral.contactNumber.replace(/\s/g, '')}`}
+                      className="dispatch-wildlife-phone"
+                    >
+                      {routing.referral.contactNumber}
+                    </a>
+                  </div>
+                </div>
+              ) : top === undefined ? (
+                <div role="status" data-part="no-eligible-crew">
+                  <p>
+                  No active crew member has a recorded capability that covers {label(order.taskType)} for{' '}
+                    {label(order.pestType ?? 'Unknown pest')}.
+                  </p>
+                  <p>
+                    Record a capability on the{' '}
+                    <a href="/ops/staff" onClick={link(props, '/ops/staff')}>
+                      Staff screen
+                    </a>
+                    , or cancel this order and raise one with a task the crew can do.
+                  </p>
+                </div>
+              ) : (
+                <div className="dispatch-assistant-card" data-part="dispatch-assistant">
+                  <div className="dispatch-assistant-head">
+                    <span className="dispatch-assistant-badge">Suggested crew member</span>
+                    <span className="dispatch-assistant-match">
+                      {top.primary ? 'First-choice capability' : 'Permitted capability'}
+                    </span>
+                  </div>
+                  <div className="dispatch-assistant-body">
+                    <img src={staffPhotoUrl(top.email)} alt="" className="dispatch-assistant-avatar" />
+                    <div className="dispatch-assistant-info">
+                      <div className="dispatch-assistant-name">{staffDisplayName(top.email)}</div>
+                      <div className="dispatch-assistant-meta">
+                        <span className="dispatch-spec-pill">{specialisationLabel(top.specialisation)}</span>
+                        <span className="dispatch-load-pill">{top.openWorkOrders} open jobs</span>
+                      </div>
+                      <p className="dispatch-assistant-reasons">
+                        {routing.candidates.length} eligible crew member(s), ordered by capability then
+                        current load.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="dispatch-assistant-quick-btn"
+                      disabled={busy || top.crewId === order.assigneeId}
+                      onClick={() => {
+                        setChosenCrew(top.crewId);
+                        void act('assign', { crewId: top.crewId });
+                      }}
+                    >
+                      {order.assigneeId === null ? 'Assign suggested' : 'Reassign to suggested'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <StateView state={crew.state} onRetry={crew.retry}>
-                <label htmlFor="crew">Assign to</label>
+                <label htmlFor="crew">Assign to crew member</label>
                 <select id="crew" value={chosenCrew} onChange={(event) => setChosenCrew(event.target.value)}>
                   <option value="">Choose a crew member</option>
                   {(crew.value?.crew ?? []).map((member) => (
-                    // 8.2.5 — the load is on the option itself, where the choice is made.
-                    <option key={member.crewId} value={member.crewId}>
-                      {member.email} — {member.openWorkOrders} open
-                      {member.isActive ? '' : ' (deactivated)'}
+                    // Ineligible people stay visible, so the manager sees who exists, but cannot be
+                    // picked; the reason is the option's tooltip and the server refuses them anyway.
+                    <option
+                      key={member.crewId}
+                      value={member.crewId}
+                      disabled={ineligible.has(member.crewId)}
+                      title={ineligible.get(member.crewId) ?? specialisationLabel(member.specialisation)}
+                    >
+                      {`${member.email} — ${member.openWorkOrders} open${member.isActive ? '' : ' (deactivated)'}`}
                     </option>
                   ))}
                 </select>
+                {routing === undefined || routing.ineligible.length === 0 ? null : (
+                  <details data-part="ineligible-crew">
+                    <summary>{routing.ineligible.length} crew member(s) cannot take this job</summary>
+                    <ul>
+                      {routing.ineligible.map((m) => (
+                        <li key={m.crewId}>
+                          {m.email} ({specialisationLabel(m.specialisation)}): {m.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 <button
                   type="button"
                   disabled={busy || chosenCrew === ''}
@@ -341,7 +467,9 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
           }
           body={
             confirming === 'verify'
-              ? 'This records a treatment against the cluster, which lowers its priority in the next scoring cycle.'
+              ? order?.clusterId === null
+                ? 'This records completion against the verified report. Its priority is an unscored scheduling default unless an injury override applies.'
+                : 'This records a treatment against the cluster, which lowers its priority in the next scoring cycle.'
               : confirming === 'reject'
                 ? 'The crew member will be shown your reason and the work returns to them.'
                 : 'The work order will be closed without being done. Your reason is recorded.'

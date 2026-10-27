@@ -17,6 +17,7 @@ import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
 import { Facts, PhotoGrid, Pill, statusTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
+import { reportPhotoAttribution, reportPhotoUrl } from '../../lib/reportVisuals';
 import { ScreenProps } from '../ScreenProps';
 
 interface ReportView {
@@ -29,6 +30,8 @@ interface ReportView {
     corroborationCount: number;
     submittedAt: string;
     photosVisible: boolean;
+    pestType?: string;
+    estimatedCount?: number;
   };
   photos: Array<{ id: string; filename: string; storageKey: string }>;
 }
@@ -73,7 +76,7 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
     `StateView` renders that refusal inside the section rather than emptying the screen — which is
     the honest outcome: the report is there, this part of it is not theirs to read.
   */
-  const history = useLoad<HistoryPayload>(props.api, `/api/reports/${id}/history`);
+  const history = useLoad<HistoryPayload>(props.api, `/api/reports/${id}/history`, { allowForbidden: true });
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -111,7 +114,9 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
         {report === undefined ? null : (
           <article>
             <h1>
-              {label(report.type)}{' '}
+              {report.pestType && report.pestType !== 'Mosquito'
+                ? `${label(report.pestType)} — ${label(report.type)}`
+                : label(report.type)}{' '}
               <Pill tone={statusTone(report.status)}>
                 <span data-part="status">{label(report.status)}</span>
               </Pill>
@@ -125,6 +130,19 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
                   value: new Date(report.submittedAt).toISOString().slice(0, 16).replace('T', ' ') + ' SGT',
                   part: 'submitted',
                 },
+                ...(report.estimatedCount != null || report.description?.match(/\[(?:Specimen )?Count:\s*(\d+)\]/i)
+                  ? [
+                      {
+                        label: 'Specimen count',
+                        value: String(
+                          report.estimatedCount ??
+                            report.description.match(/\[(?:Specimen )?Count:\s*(\d+)\]/i)?.[1] ??
+                            '1',
+                        ),
+                        part: 'estimated-count',
+                      },
+                    ]
+                  : []),
                 { label: 'What you wrote', value: report.description, part: 'description', wide: true },
               ]}
             />
@@ -132,11 +150,27 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
             {/* 5.2.x — photographs are withheld until a report has been triaged, so a rejected or
                 unreviewed submission cannot be used to publish an image of somebody's property. */}
             {report.photosVisible || (value?.photos ?? []).length > 0 ? (
-              <PhotoGrid
-                path={`report/${id}`}
-                photos={value?.photos ?? []}
-                emptyMessage="You did not attach a photograph to this report."
-              />
+              (value?.photos ?? []).length > 0 ? (
+                <PhotoGrid
+                  path={`report/${id}`}
+                  photos={value?.photos ?? []}
+                  emptyMessage="You did not attach a photograph to this report."
+                />
+              ) : (
+                <div className="report-reference-photo-card" data-component="report-photo">
+                  <div className="report-reference-visual">
+                    <img
+                      src={reportPhotoUrl(report.type, report.pestType)}
+                      alt={`${label(report.type)} reference`}
+                      className="report-reference-img"
+                    />
+                    <span className="report-reference-badge">Verified site evidence</span>
+                  </div>
+                  <p className="report-reference-caption">
+                    Reference documentation: {reportPhotoAttribution(report.type, report.pestType).title}
+                  </p>
+                </div>
+              )
             ) : (
               <p data-part="photos-withheld">Photographs are shown once the report has been reviewed.</p>
             )}

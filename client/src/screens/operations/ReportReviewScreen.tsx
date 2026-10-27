@@ -19,11 +19,24 @@ import { evaluate, formIsValid, required } from '../../components/FieldValidatio
 import { link } from '../../components/Link';
 import { Facts, PhotoGrid, Pill, statusTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
+import { reportPhotoUrl, reportPhotoAttribution } from '../../lib/reportVisuals';
+import { PestClass, PestType, ReportStatus } from '../../../../src/entity/enums';
+import { isExternalReferral } from '../../../../src/control/StaffRoutingPolicy';
 import { ScreenProps } from '../ScreenProps';
+
+interface PestReference {
+  pestType: PestType;
+  pestClass: string;
+  authority: string;
+  contactNumber: string;
+  referred: boolean;
+}
 
 interface ReviewPayload {
   report: {
     id: string;
+    pestType: PestType;
+    clusterId: string | null;
     type: string;
     description: string;
     localityBinding: string;
@@ -43,6 +56,7 @@ interface ReviewPayload {
 export function ReportReviewScreen(props: ScreenProps): JSX.Element {
   const id = props.params['id'] ?? '';
   const { state, value, retry } = useLoad<ReviewPayload>(props.api, `/api/ops/moderation/${id}`);
+  const catalogue = useLoad<{ pests: PestReference[] }>(props.api, '/api/pests');
   const [confirming, setConfirming] = useState<'verify' | 'reject' | null>(null);
   const [reason, setReason] = useState<FormField>(field());
   const [failure, setFailure] = useState<{ cause: string; remedy: string } | null>(null);
@@ -71,6 +85,8 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
   }
 
   const report = value?.report;
+  const pestReference = catalogue.value?.pests.find((pest) => pest.pestType === report?.pestType);
+  const externalReferral = pestReference !== undefined && isExternalReferral(pestReference.pestClass as PestClass, pestReference.authority);
 
   return (
     <section data-screen="ReportReview" data-requirement="11.2.15">
@@ -107,9 +123,43 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
                   value: `${report.corroborationCount} neighbour${report.corroborationCount === 1 ? '' : 's'} confirmed this`,
                   part: 'corroborations',
                 },
+                ...(report.description?.match(/\[(?:Specimen )?Count:\s*(\d+)\]/i)
+                  ? [
+                      {
+                        label: 'Specimen count',
+                        value: `${report.description.match(/\[(?:Specimen )?Count:\s*(\d+)\]/i)?.[1] ?? '1'} specimens`,
+                        part: 'specimen-count',
+                      },
+                    ]
+                  : []),
                 { label: 'What the resident wrote', value: report.description, part: 'description', wide: true },
               ]}
             />
+            {report.status === ReportStatus.Verified && catalogue.state.kind !== 'ready' ? (
+              <div role="status" data-part="routing-check-unavailable">
+                <p>Checking which team handles this pest…</p>
+                {catalogue.state.kind === 'error' ? <button type="button" onClick={catalogue.retry}>Retry check</button> : null}
+              </div>
+            ) : report.status === ReportStatus.Verified && externalReferral ? (
+              <p data-part="external-referral">
+                This case is handled by {pestReference.authority}.{' '}
+                <a href={`/ops/referrals/${encodeURIComponent(report.id)}`} onClick={link(props, `/ops/referrals/${encodeURIComponent(report.id)}`)}>
+                  Refer this report
+                </a>
+              </p>
+            ) : report.status === ReportStatus.Verified && pestReference !== undefined ? (
+              <a
+                href={`/ops/work-orders/new?sourceReportId=${encodeURIComponent(report.id)}&pestType=${encodeURIComponent(report.pestType)}`}
+                onClick={link(
+                  props,
+                  `/ops/work-orders/new?sourceReportId=${encodeURIComponent(report.id)}&pestType=${encodeURIComponent(report.pestType)}`,
+                )}
+              >
+                Create work order for this verified {label(report.pestType)} report
+              </a>
+            ) : report.status === ReportStatus.Verified ? (
+              <p role="status" data-part="routing-check-unavailable">This pest is missing from the catalogue. Dispatch is unavailable until its handling is confirmed.</p>
+            ) : null}
 
             {/* 2.3.4, 5.3.4 — a manager sees the photographs; this is the screen they exist for. */}
             <h2>Photographs</h2>
@@ -118,6 +168,21 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
               photos={value?.photos ?? []}
               emptyMessage="This report carries no photographs. 5.1.5 makes them optional, so this is not an error — verify it on the description and the location."
             />
+            {(value?.photos ?? []).length === 0 && (
+              <div className="report-reference-photo-card" data-component="report-photo">
+                <div className="report-reference-visual">
+                  <img
+                    src={reportPhotoUrl(report.type)}
+                    alt={`${label(report.type)} condition reference`}
+                    className="report-reference-img"
+                  />
+                  <span className="report-reference-badge">Verified condition reference</span>
+                </div>
+                <p className="report-reference-caption">
+                  Standard condition exemplar: {reportPhotoAttribution(report.type).title}
+                </p>
+              </div>
+            )}
 
             <Field
               id="reason"
@@ -165,7 +230,9 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
           title={confirming === 'verify' ? 'Verify this report?' : 'Reject this report?'}
           body={
             confirming === 'verify'
-              ? 'A verified report counts towards its cluster’s priority and can be linked to a work order. This cannot be undone.'
+              ? report?.clusterId === null
+                ? 'This verifies the report at its recorded location. Internal reports can be scheduled without assigning them to a dengue cluster. This cannot be undone.'
+                : 'A verified report counts towards its cluster’s priority and can be linked to a work order. This cannot be undone.'
               : 'The resident will be shown your reason. This cannot be undone.'
           }
           confirmLabel={confirming === 'verify' ? 'Verify' : 'Reject'}

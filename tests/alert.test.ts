@@ -43,14 +43,64 @@ import {
   DeliveryOutcome,
   ExposureStatus,
   LocationLabel,
+  PriorityTier,
   Role,
+  ReportType,
 } from '../src/entity/enums';
 import { Principal } from '../src/control/Principal';
+import { ReportSubject, ReportEvent } from '../src/control/observer/ReportObserver';
+import { ClusterSubject, ClusterEvent } from '../src/control/observer/ClusterObserver';
+import {
+  InAppAlertChannelStrategy,
+  NotificationChannelFactory,
+  RecordingChannelStrategy,
+} from '../src/control/notification/NotificationChannelFactory';
+import { AlertPayload } from '../src/control/notification/INotificationChannelStrategy';
 
 const RESIDENT = new Principal('resident-1', Role.Resident, 'session-r1');
 const OTHER = new Principal('resident-2', Role.Resident, 'session-r2');
 const CENTRE = new GeoPoint(1.4300, 103.7900);
 const CHAT_ID = '987654321';
+
+describe('Observer and notification strategies', () => {
+  it('subjects notify attached observers and stop after detach', async () => {
+    const reports = new ReportSubject();
+    const seen: ReportEvent[] = [];
+    const observer = { update: async (event: ReportEvent) => { seen.push(event); } };
+    reports.attach(observer);
+    const reportEvent: ReportEvent = {
+      type: 'submitted', reportId: 'report-1', reportType: ReportType.StandingWater, occurredAt: new Date(),
+    };
+    await reports.notify(reportEvent);
+    reports.detach(observer);
+    await reports.notify(reportEvent);
+    expect(seen).toEqual([reportEvent]);
+
+    const clusters = new ClusterSubject();
+    const clusterEvents: ClusterEvent[] = [];
+    clusters.attach({ update: async (event) => { clusterEvents.push(event); } });
+    const clusterEvent: ClusterEvent = {
+      clusterId: 'cluster-1', locality: 'Marsiling Rise', score: 72, tier: PriorityTier.High,
+      previousTier: PriorityTier.Medium, kind: 'priority-transition', occurredAt: new Date(),
+    };
+    await clusters.notify(clusterEvent);
+    expect(clusterEvents).toEqual([clusterEvent]);
+  });
+
+  it('factory selects recording and in-app channel strategies', async () => {
+    const alert: AlertPayload = { message: 'Cluster priority changed', recipientId: 'resident-1' };
+    const recording = NotificationChannelFactory.create('recording') as RecordingChannelStrategy;
+    expect(await recording.sendNotification(alert)).toBe(true);
+    expect(recording.sent).toEqual([alert]);
+
+    const published: AlertPayload[] = [];
+    const inApp = NotificationChannelFactory.create('in-app', {
+      publishInApp: (payload) => { published.push(payload); },
+    }) as InAppAlertChannelStrategy;
+    expect(await inApp.sendNotification(alert)).toBe(true);
+    expect(published).toEqual([alert]);
+  });
+});
 
 /** A scheduler that records what was asked for instead of waiting. */
 class ManualScheduler implements RetryScheduler {

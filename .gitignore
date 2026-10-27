@@ -8,6 +8,11 @@ deploy.zip
 # Kudu log-stream capture, used by the remote UAT run (DEPLOY.md section 6).
 stream.log
 demo-shots/
+scratchpad/
+*.log
+*.db
+*.sqlite
+*.sqlite3
 
 # The PlantUML renderer, fetched by tools/render.*; 22 MB of binary that every machine can
 # re-download. See lab2/README.md for the version pin.

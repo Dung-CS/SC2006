@@ -6,7 +6,7 @@
  * be recorded, and an audit record pointing at a deleted account is an audit record that cannot be
  * read. The account row survives; `isActive` is what changes.
  */
-import { Role } from '../entity/enums';
+import { HqLocation, Role, StaffSpecialisation, StaffStatus } from '../entity/enums';
 import { Uuid } from '../entity/valueTypes';
 import { Account } from '../entity/Account';
 import { AuthProvider } from '../ports/AuthProvider';
@@ -33,13 +33,27 @@ export class StaffAccountController {
    *
    * @throws AuthenticationRefused when the role is not one a manager may provision
    */
-  async createStaffAccount(email: string, role: Role, password: string, by: Principal, now = new Date()): Promise<Account> {
+  async createStaffAccount(
+    email: string,
+    role: Role,
+    password: string,
+    by: Principal,
+    now = new Date(),
+    /** Crew only. Null records "not set yet", which `StaffRoutingPolicy` dispatches nothing to. */
+    specialisation: StaffSpecialisation | null = null,
+    hqLocation: HqLocation | null = null,
+  ): Promise<Account> {
     await this.ac.authorise(by, 'staff:manage', { kind: 'account' });
     if (role === Role.Resident) {
       // 2.2.3 names the Operations Manager and Cleaning Crew roles. A Resident account is what
       // self-registration is for (2.2.2), and routing it through here would skip 2.1.5 entirely.
       throw new AuthenticationRefused('a Resident account is created by self-registration (2.2.2)');
     }
+    if (specialisation !== null && role !== Role.CleaningCrew) {
+      throw new AuthenticationRefused('only a Cleaning Crew account carries a capability');
+    }
+    const effectiveSpecialisation = role === Role.CleaningCrew ? specialisation : null;
+    const effectiveHqLocation = hqLocation;
     const address = AuthenticationController.normaliseEmail(email);
     if ((await this.accounts.findByEmail(address)) !== null) {
       throw new AuthenticationRefused('that email address is already registered');
@@ -55,10 +69,68 @@ export class StaffAccountController {
     account.emailVerified = true;
     account.role = role;
     account.isActive = true;
+    account.specialisation = effectiveSpecialisation;
+    account.hqLocation = effectiveHqLocation;
     account.telegramChatId = null;
     account.createdAt = now;
     const saved = await this.accounts.save(account);
     await this.audit?.appendAction(by.accountId, `account:create:${role}`, 'Account', saved.id); // 2.4.1
+    if (effectiveSpecialisation !== null) {
+      await this.audit?.appendAction(by.accountId, `account:specialisation:Unknown -> ${effectiveSpecialisation}`, 'Account', saved.id);
+    }
+    return saved;
+  }
+
+  /** Record or change a staff member's operational status and on-call lag time. */
+  async setStaffStatus(id: Uuid, status: StaffStatus, by: Principal, lagHours = 2): Promise<Account> {
+    await this.ac.authorise(by, 'staff:manage', { kind: 'account', id });
+    const account = await this.accounts.findById(id);
+    if (account === null) {
+      throw new AuthenticationRefused('unknown account');
+    }
+    const previous = account.staffStatus;
+    account.staffStatus = status;
+    account.onCallLagHours = status === StaffStatus.OnCall ? lagHours : 0;
+    const saved = await this.accounts.save(account);
+    await this.audit?.appendAction(by.accountId, `account:status:${previous} -> ${status}`, 'Account', saved.id);
+    return saved;
+  }
+
+  /** Record or change a staff member's operational HQ. Manager only and audited. */
+  async setHqLocation(id: Uuid, hqLocation: HqLocation, by: Principal): Promise<Account> {
+    await this.ac.authorise(by, 'staff:manage', { kind: 'account', id });
+    const account = await this.accounts.findById(id);
+    if (account === null) throw new AuthenticationRefused('no such account');
+    if (account.role === Role.Resident) throw new AuthenticationRefused('only staff accounts have an HQ location');
+    const previous = account.hqLocation;
+    account.hqLocation = hqLocation;
+    const saved = await this.accounts.save(account);
+    await this.audit?.appendAction(by.accountId, `account:hq:${previous ?? 'Unassigned'} -> ${hqLocation}`, 'Account', saved.id);
+    return saved;
+  }
+
+  /**
+   * Record or change a crew member's capability. Manager only, audited (2.4.1) with the old and
+   * new value so the trail answers "who made this person a fogging specialist".
+   */
+  async setSpecialisation(id: Uuid, specialisation: StaffSpecialisation, by: Principal): Promise<Account> {
+    await this.ac.authorise(by, 'staff:manage', { kind: 'account', id });
+    const account = await this.accounts.findById(id);
+    if (account === null) {
+      throw new AuthenticationRefused('no such account');
+    }
+    if (account.role !== Role.CleaningCrew) {
+      throw new AuthenticationRefused('only a Cleaning Crew account carries a capability');
+    }
+    const previous = account.specialisation;
+    account.specialisation = specialisation;
+    const saved = await this.accounts.save(account);
+    await this.audit?.appendAction(
+      by.accountId,
+      `account:specialisation:${previous ?? 'Unknown'} -> ${specialisation}`,
+      'Account',
+      saved.id,
+    );
     return saved;
   }
 

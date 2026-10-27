@@ -22,7 +22,7 @@ import {
 import { InMemoryAuditStore } from '../src/persistence/memory/InMemoryStores';
 import { Account, LOCKOUT_MS, MAX_FAILED_ATTEMPTS } from '../src/entity/Account';
 import { Session, INACTIVITY_TIMEOUT_MS } from '../src/entity/Session';
-import { Role } from '../src/entity/enums';
+import { HqLocation, Role } from '../src/entity/enums';
 
 const GOOD_PASSWORD = 'dengue2026';
 
@@ -102,6 +102,20 @@ describe('Registration — §2.1.1 to §2.1.5, §2.2.2', () => {
   it('R7 — the password is never stored on the account row (10.3.1)', async () => {
     const account = await f.auth.register('hash@example.com', GOOD_PASSWORD);
     expect(JSON.stringify(account)).not.toContain(GOOD_PASSWORD);
+  });
+});
+
+describe('Staff HQ assignment', () => {
+  it('creates staff with an HQ and allows a manager to update it', async () => {
+    const f = await fixture();
+    const manager = principalFor(Role.OperationsManager, f.managerId);
+    const member = await f.staff.createStaffAccount(
+      'crew@example.com', Role.CleaningCrew, GOOD_PASSWORD, manager, new Date(), null, HqLocation.Central,
+    );
+    expect((await f.accounts.findById(member.id))?.hqLocation).toBe(HqLocation.Central);
+    const updated = await f.staff.setHqLocation(member.id, HqLocation.SouthWest, manager);
+    expect((await f.accounts.findById(member.id))?.hqLocation).toBe(HqLocation.SouthWest);
+    expect(updated.hqLocation).toBe(HqLocation.SouthWest);
   });
 });
 

@@ -16,6 +16,7 @@ import { IngestionRun } from '../../entity/IngestionRun';
 import { IngestionRunStore } from '../../ports/Stores';
 import { ExternalGateway } from '../../ports/ExternalGateway';
 import { ParsedBatch, RawPayload } from '../../ports/types';
+import { IIngestionStrategy, IngestionOutcome } from './IIngestionStrategy';
 
 export const RunOutcome = {
   Success: 'SUCCESS',
@@ -23,7 +24,7 @@ export const RunOutcome = {
   Failed: 'FAILED',
 } as const;
 
-export abstract class AbstractIngestionJob {
+export abstract class AbstractIngestionJob implements IIngestionStrategy {
   constructor(
     protected readonly gateway: ExternalGateway,
     protected readonly runs: IngestionRunStore,
@@ -44,9 +45,10 @@ export abstract class AbstractIngestionJob {
         return await this.runs.recordOutcome(run, RunOutcome.Unchanged, 0);
       }
       const raw = await this.fetch();
-      const batch = await this.parse(raw);
+      await this.validate(raw);
+      const batch = await this.transform(raw);
       const written = await this.persist(batch);
-      await this.afterPersist(raw, batch);
+      await this.afterPersist(raw, batch, run);
       return await this.runs.recordOutcome(run, RunOutcome.Success, written);
     } catch (error) {
       // Order matters: mark stale first, so a crash between the two lines leaves the source
@@ -58,9 +60,22 @@ export abstract class AbstractIngestionJob {
     }
   }
 
+  /** Strategy entry point. The returned run is the ingestion outcome. */
+  execute(): Promise<IngestionOutcome> {
+    return this.run();
+  }
+
   protected abstract sourceKind(): SourceKind;
   protected abstract fetch(): Promise<RawPayload>;
   protected abstract parse(raw: RawPayload): Promise<ParsedBatch>;
+  /** Validation hook kept separate from transformation in the template algorithm. */
+  protected validate(_raw: RawPayload): Promise<void> {
+    return Promise.resolve();
+  }
+  /** Existing source jobs implement parsing; the template treats that as transformation. */
+  protected transform(raw: RawPayload): Promise<ParsedBatch> {
+    return this.parse(raw);
+  }
   /** @returns the number of records written, for the IngestionRun feature count (1.1.14). */
   protected abstract persist(batch: ParsedBatch): Promise<number>;
 
@@ -70,7 +85,7 @@ export abstract class AbstractIngestionJob {
   }
 
   /** Hook for what must happen only after a successful write, e.g. recording a publisher stamp. */
-  protected afterPersist(_raw: RawPayload, _batch: ParsedBatch): Promise<void> {
+  protected afterPersist(_raw: RawPayload, _batch: ParsedBatch, _run?: IngestionRun): Promise<void> {
     return Promise.resolve();
   }
 

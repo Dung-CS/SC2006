@@ -32,14 +32,18 @@ import {
 } from '../../control/DispatchController';
 import { TransitionRefused, WorkOrderLifecycleController } from '../../control/WorkOrderLifecycleController';
 import { StaffAccountController } from '../../control/StaffAccountController';
-import { TaskType, WorkOrderStatus } from '../../entity/enums';
+import { PestType, TaskType, WorkOrderStatus } from '../../entity/enums';
 import { singaporeDate } from '../../entity/valueTypes';
 import { WorkOrder } from '../../entity/WorkOrder';
 import { Account } from '../../entity/Account';
+import { RouteJob, RouteOptimizationService, RouteTeam } from '../../control/RouteOptimizationService';
+import { WorkOrderSubject } from '../../control/observer/WorkOrderObserver';
+import { DispatchPlanService } from '../../control/DispatchPlanService';
 
 interface CreateBody {
   clusterId?: string;
   taskType?: string;
+  pestType?: string;
   scheduledDate?: string;
   instructions?: string;
   sourceReportId?: string;
@@ -51,6 +55,10 @@ export class WorkOrderRoutes extends RouteHandler {
     private readonly dispatch: DispatchController,
     private readonly lifecycle: WorkOrderLifecycleController,
     private readonly staff: StaffAccountController,
+    private readonly routePlanner: RouteOptimizationService | null = null,
+    private readonly routeInputs: ((date: string) => Promise<{ teams: RouteTeam[]; jobs: RouteJob[] }>) | null = null,
+    private readonly workOrderEvents: WorkOrderSubject | null = null,
+    private readonly precomputedPlans: DispatchPlanService | null = null,
   ) {
     super(ac);
   }
@@ -58,6 +66,7 @@ export class WorkOrderRoutes extends RouteHandler {
   routes(): string[] {
     return [
       '/api/ops/dispatch',
+      '/api/ops/dispatch/routes',
       '/api/ops/work-orders',
       '/api/ops/work-orders/crew-workload',
       '/api/ops/work-orders/:id',
@@ -87,6 +96,34 @@ export class WorkOrderRoutes extends RouteHandler {
           return;
         }
 
+        case '/api/ops/dispatch/routes': {
+          await this.ac.authorise(principal, 'workOrder:write', { kind: 'workOrder' });
+          const date = req.params.date ?? singaporeDate(new Date());
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) {
+            res.status(400).json({ error: 'Choose a valid calendar date.', remedy: 'Use YYYY-MM-DD.' });
+            return;
+          }
+          if (this.precomputedPlans !== null) {
+            res.json(this.precomputedPlans.snapshot(date));
+            return;
+          }
+          if (this.routePlanner === null || this.routeInputs === null) {
+            res.status(503).json({ error: 'route planning is unavailable until crew depots are configured' });
+            return;
+          }
+          const input = await this.routeInputs(date);
+          const routes = await this.routePlanner.plan(input.teams, input.jobs);
+          const plannedIds = new Set(routes.flatMap((route) => route.workOrderIds));
+          const tierOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+          const unplanned = input.jobs.filter((job) => !plannedIds.has(job.workOrderId))
+            .sort((a, b) => (tierOrder[a.priority ?? 'Medium'] ?? 2) - (tierOrder[b.priority ?? 'Medium'] ?? 2))
+            .map((job) => ({ workOrderId: job.workOrderId, locality: job.locality, priority: job.priority,
+              taskType: job.taskType, requiredStaff: job.requiredStaff,
+              reason: 'No qualified crew with sufficient staff and remaining four-hour capacity in this plan.' }));
+          res.json({ date, routes, unplanned });
+          return;
+        }
+
         case '/api/ops/work-orders': {
           // The handler sees one path for both verbs, so a create is distinguished by carrying a
           // body — the same convention `LocationRoutes` uses for `/api/locations`.
@@ -103,16 +140,26 @@ export class WorkOrderRoutes extends RouteHandler {
                 `${String(body.taskType)} is not a task type (8.1.3) — one of: ${Object.values(TaskType).join(', ')}`,
               );
             }
+            const pestType =
+              body.pestType === undefined ? undefined : Object.values(PestType).find((p) => p === body.pestType);
+            if (body.pestType !== undefined && pestType === undefined) {
+              throw new WorkOrderRejected(
+                `${String(body.pestType)} is not a pest type — one of: ${Object.values(PestType).join(', ')}`,
+              );
+            }
             const order = await this.dispatch.createWorkOrder(
               {
-                clusterId: body.clusterId ?? '',
+                // 8.1.2 — optional when a source report is supplied; the controller resolves it.
+                ...(body.clusterId === undefined || body.clusterId === '' ? {} : { clusterId: body.clusterId }),
                 taskType,
+                ...(pestType === undefined ? {} : { pestType }),
                 scheduledDate: body.scheduledDate ?? singaporeDate(new Date()),
                 ...(body.instructions === undefined ? {} : { instructions: body.instructions }),
                 ...(body.sourceReportId === undefined ? {} : { sourceReportId: body.sourceReportId }),
               },
               principal,
             );
+            await this.workOrderEvents?.notify({ type: 'created', workOrderId: order.id, occurredAt: new Date() });
             res.status(201).json(WorkOrderRoutes.card(order));
             return;
           }
@@ -139,6 +186,7 @@ export class WorkOrderRoutes extends RouteHandler {
               crewId: member.id,
               email: member.email,
               isActive: member.isActive,
+              specialisation: member.specialisation, // null = not recorded, so not dispatchable
               openWorkOrders: workload.find((w) => w.crewId === member.id)?.openWorkOrders ?? 0,
             })),
           });
@@ -162,6 +210,9 @@ export class WorkOrderRoutes extends RouteHandler {
           const evidence = await this.dispatch.completionEvidence(id, principal);
           res.json({
             workOrder: WorkOrderRoutes.card(order),
+            // Who may take it, ranked by StaffRoutingPolicy, and who may not with the reason. The
+            // screen renders this and decides nothing itself.
+            routing: await this.dispatch.routingFor(id, principal),
             evidence:
               evidence === null
                 ? null
@@ -191,7 +242,8 @@ export class WorkOrderRoutes extends RouteHandler {
           //
           // Checked against `assignableCrew` rather than by re-deriving the rule here: that is the
           // same list the UI's dropdown is built from, so the API and the form cannot disagree
-          // about who is assignable — and it already means "CleaningCrew AND active".
+          // about who is assignable — and it already means "CleaningCrew AND active". Capability
+          // is then checked inside `DispatchController.assign` (StaffRoutingPolicy).
           //
           // Refused here with its own message rather than by handing `false` down as
           // `isActiveAccount`: that would report a Resident as "a deactivated account", which is
@@ -203,6 +255,7 @@ export class WorkOrderRoutes extends RouteHandler {
             );
           }
           const order = await this.dispatch.assign(id, crewId, principal, true);
+          await this.workOrderEvents?.notify({ type: 'dispatched', workOrderId: order.id, occurredAt: new Date() });
           res.json(WorkOrderRoutes.card(order));
           return;
         }
@@ -264,12 +317,17 @@ export class WorkOrderRoutes extends RouteHandler {
   private static card(order: WorkOrder): Record<string, unknown> {
     return {
       id: order.id,
-      clusterId: order.clusterId,
+      clusterId: order.clusterId, // null for a report-only job (8.1.2)
+      location: order.location ?? 'Singapore',
+      // The source report's own point; null for a cluster-only job.
+      point: WorkOrderRoutes.point(order),
       assigneeId: order.assigneeId,
       taskType: order.taskType,
+      pestType: order.pestType, // null = unknown legacy pest; not assignable
       status: order.currentStatus(),
       scheduledDate: order.scheduledDate,
       priority: order.priority,
+      priorityBasis: order.priorityBasis(),
       instructions: order.instructions,
       sourceReportId: order.sourceReportId,
       issueFlag: order.issueFlag,
@@ -278,5 +336,12 @@ export class WorkOrderRoutes extends RouteHandler {
       createdAt: order.createdAt,
       verifiedAt: order.verifiedAt,
     };
+  }
+
+  /** Shared with `CrewRoutes`, so both cards carry the same point shape. */
+  static point(order: WorkOrder): { latitude: number; longitude: number } | null {
+    return order.targetPoint === null
+      ? null
+      : { latitude: order.targetPoint.latitude, longitude: order.targetPoint.longitude };
   }
 }

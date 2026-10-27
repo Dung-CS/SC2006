@@ -1,0 +1,62 @@
+[
+  {
+    "source": "google-images",
+    "file": "rattus-norvegicus-brown-rat.jpg",
+    "query": "Rattus norvegicus brown rat",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/4/44/Brown_Rat_%28Rattus_norvegicus%29.jpg?utm_source=en.wikipedia.org&utm_campaign=index&utm_content=original",
+    "source_page": "https://en.wikipedia.org/wiki/Brown_rat",
+    "title": "Brown rat - Wikipedia",
+    "width": 2916,
+    "height": 1988,
+    "licence": "Unknown - third-party image; check rights on source page before external use",
+    "fetched": "2026-10-17T21:24:20+0800"
+  },
+  {
+    "source": "google-images",
+    "file": "reticulated-python-snake.jpg",
+    "query": "reticulated python snake",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/b/b4/Python_reticulatus_%D1%81%D0%B5%D1%82%D1%87%D0%B0%D1%82%D1%8B%D0%B9_%D0%BF%D0%B8%D1%82%D0%BE%D0%BD-2.jpg?utm_source=en.wikipedia.org&utm_campaign=index&utm_content=original",
+    "source_page": "https://en.wikipedia.org/wiki/Reticulated_python",
+    "title": "Reticulated python - Wikipedia",
+    "width": 2077,
+    "height": 1416,
+    "licence": "Unknown - third-party image; check rights on source page before external use",
+    "fetched": "2026-10-17T21:24:36+0800"
+  },
+  {
+    "source": "google-images",
+    "file": "asian-hornet-wasp.webp",
+    "query": "Asian hornet wasp",
+    "url": "https://platform.vox.com/wp-content/uploads/sites/2/chorus/uploads/chorus_asset/file/19940195/GettyImages_156720700.jpg?quality=90&strip=all&crop=0.32467532467532%2C0%2C99.350649350649%2C100&w=2400",
+    "source_page": "https://www.vox.com/2020/5/3/21245612/murder-hornets-asian-giant-hornet-bees",
+    "title": "Murder hornets: The Asian giant hornet has arrived. Bees beware. | Vox",
+    "width": 2400,
+    "height": 1605,
+    "licence": "Unknown - third-party image; check rights on source page before external use",
+    "fetched": "2026-10-17T21:24:49+0800"
+  },
+  {
+    "source": "google-images",
+    "file": "blattella-germanica-german-cockroach.jpg",
+    "query": "Blattella germanica German cockroach",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/a/a0/Blatella_germanica_2.jpg?utm_source=en.wikipedia.org&utm_campaign=index&utm_content=original",
+    "source_page": "https://en.wikipedia.org/wiki/German_cockroach",
+    "title": "German cockroach - Wikipedia",
+    "width": 3825,
+    "height": 2550,
+    "licence": "Unknown - third-party image; check rights on source page before external use",
+    "fetched": "2026-10-17T21:24:59+0800"
+  },
+  {
+    "source": "google-images",
+    "file": "corvus-splendens-house-crow-singapore.webp",
+    "query": "Corvus splendens House crow Singapore",
+    "url": "https://birdsofsingapore.blob.core.windows.net/species-photos/species/269/image249f359b-70b9-40cc-9c9a-5acf69ed9d2e-2a52278c-2c75-409e-b6fa-abae458072b7/medium.webp",
+    "source_page": "https://singaporebirds.com/species/house-crow",
+    "title": "House Crow · Birds of Singapore",
+    "width": 800,
+    "height": 533,
+    "licence": "Unknown - third-party image; check rights on source page before external use",
+    "fetched": "2026-10-17T21:25:08+0800"
+  }
+]

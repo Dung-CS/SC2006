@@ -8,7 +8,7 @@
  */
 
 import { Uuid } from './valueTypes';
-import { Role } from './enums';
+import { HqLocation, Role, StaffSpecialisation, StaffStatus } from './enums';
 
 /** 2.1.10, stated once. */
 export const MAX_FAILED_ATTEMPTS = 5;
@@ -28,6 +28,15 @@ export class Account {
   /** one role per account (2.2.1) */
   role!: Role;
   isActive!: boolean;
+  /**
+   * The crew member's recorded operational capability, set by an Operations Manager. Not an auth
+   * role (2.2.1 is unchanged). Null means "not recorded" and `StaffRoutingPolicy` treats it as
+   * qualified for nothing; a legacy account is never assumed to cover every task.
+   */
+  specialisation: StaffSpecialisation | null = null;
+  hqLocation: HqLocation | null = null;
+  staffStatus: StaffStatus = StaffStatus.Available;
+  onCallLagHours: number = 2;
   telegramChatId!: string | null;
   createdAt!: Date;
 

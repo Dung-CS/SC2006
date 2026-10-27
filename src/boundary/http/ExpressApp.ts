@@ -12,6 +12,9 @@ import { RouteHandler, Request, Response, PrincipalResolver } from './RouteHandl
 export class ExpressApp {
   private readonly app: Express = express();
   private readonly handlers: RouteHandler[] = [];
+  private mutationListener: (() => void) | null = null;
+
+  onSuccessfulMutation(listener: () => void): void { this.mutationListener = listener; }
 
   /**
    * @param resolver turns a bearer token into a principal (2.1.8, 2.3.6). Injected here, and
@@ -160,6 +163,9 @@ export class ExpressApp {
     }
     for (const route of handler.writeRoutes()) {
       this.app.post(route, (req: ExRequest, res: ExResponse) => {
+        res.once('finish', () => {
+          if (res.statusCode < 400 && !req.path.startsWith('/api/auth/')) this.mutationListener?.();
+        });
         void handler.handle(ExpressApp.toRequest(req, route), ExpressApp.toResponse(res));
       });
     }

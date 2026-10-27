@@ -43,7 +43,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   { screenId: 'AddLocation', path: '/locations/new', requirement: '11.2.7', roles: [Role.Resident], title: 'Add a location' },
   { screenId: 'ReportSite', path: '/report', requirement: '11.2.8', roles: [Role.Resident], title: 'Report a site' },
   { screenId: 'MyReports', path: '/reports', requirement: '11.2.9', roles: [Role.Resident], title: 'My reports' },
-  { screenId: 'ReportDetail', path: '/reports/:id', requirement: '11.2.10', roles: [Role.Resident], title: 'Report' },
+  { screenId: 'ReportDetail', path: '/reports/:id', requirement: '11.2.10', roles: [Role.Resident, Role.OperationsManager], title: 'Report' },
   { screenId: 'AlertSettings', path: '/alerts', requirement: '11.2.11', roles: [Role.Resident], title: 'Alerts' },
   // 11.2.27 — a resident who has just seen a snake needs the AVS number faster than a report form.
   { screenId: 'PestReference', path: '/pests', requirement: '11.2.27', roles: [Role.Resident], title: 'Pests and who handles them' },
@@ -58,6 +58,7 @@ export const ROUTES: readonly RouteDefinition[] = [
   { screenId: 'WOList', path: '/ops/work-orders', requirement: '11.2.25', roles: [Role.OperationsManager], title: 'Work orders' },
   { screenId: 'WODetail', path: '/ops/work-orders/:id', requirement: '11.2.18', roles: [Role.OperationsManager], title: 'Work order' },
   { screenId: 'StaffAccounts', path: '/ops/staff', requirement: '11.2.22', roles: [Role.OperationsManager], title: 'Staff' },
+  { screenId: 'VehicleRegistry', path: '/ops/vehicles', requirement: '11.2.29', roles: [Role.OperationsManager], title: 'Vehicles' },
   { screenId: 'DataSources', path: '/ops/sources', requirement: '11.2.23', roles: [Role.OperationsManager], title: 'Data sources' },
   { screenId: 'Analytics', path: '/ops/analytics', requirement: '11.2.26', roles: [Role.OperationsManager], title: 'Analytics' },
   // 11.2.28, 11.3.21 — reached from Report Review when the pest class is Wildlife (8.1.14).

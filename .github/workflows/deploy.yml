@@ -1,175 +1,158 @@
-# D-Fence — build, test and deploy to Azure App Service.
-#
-# **Why this exists.** Deploying from the development laptop needs the Azure CLI, and the Azure CLI
-# does not work on that machine while Avast's Web Shield is on. Avast intercepts HTTPS and presents
-# its own certificate; its root is installed into the Windows certificate store, so `curl.exe` and
-# every browser accept it, but the Azure CLI is Python and validates against its own bundled CA
-# file, which has never heard of Avast. The documented remedy — append the root to the CLI's
-# bundle — does not work here either: OpenSSL 3 rejects Avast's root outright with "Basic
-# Constraints of CA cert not marked critical", because the certificate is malformed by OpenSSL's
-# rules even though Windows' more forgiving validator accepts it.
-#
-# The workaround was to disable HTTPS scanning for a few minutes per deployment. That is a security
-# control being switched off on a schedule, which is the wrong shape of solution: it degrades
-# protection on the whole machine to fix one tool, and it has to be remembered every single time.
-#
-# A GitHub runner has no Avast, so the problem does not exist there. Nothing about the deployment
-# touches the laptop's TLS stack any more.
-#
-# **The second thing this fixes is the packaging.** The manual path assembled `deploy.zip` by hand
-# and had already produced three separate failures that were invisible until they were not:
-#   - `config/` omitted from the archive, so the container exited 1 on a missing scoring file —
-#     never reproducible locally, because the file sits in the working tree;
-#   - `tar -a -c -f deploy.zip` run under Git Bash, where `tar` is GNU tar rather than bsdtar and
-#     silently writes a plain tar with a `.zip` name that Azure unpacks anyway;
-#   - `npm prune --omit=dev` failing on a locked `esbuild.exe` and shipping a 28 MB archive with
-#     the dev dependencies still in it.
-# All three are assembly mistakes, and all three go away when the assembly is a script that runs
-# the same way every time.
-#
-# **Tests run before the deploy, and a failure stops it.** This is the real upgrade over deploying
-# by hand: it is no longer possible to ship a build that does not compile or does not pass.
-#
-# ## One-time setup
-#
-# 1. Get the publish profile:
-#      az webapp deployment list-publishing-profiles --name dfence-sc2006 \
-#        --resource-group dfence --xml
-#    or, in the Azure Portal, the App Service's **Get publish profile** button.
-# 2. GitHub → the repository → Settings → Secrets and variables → Actions → New repository secret.
-#    Name it `AZURE_WEBAPP_PUBLISH_PROFILE` and paste the whole XML document, including the
-#    `<publishData>` wrapper.
-# 3. That secret carries deployment credentials for the App Service. It is a password. Rotate it
-#    with the portal's **Reset publish profile** if it is ever pasted somewhere it should not be.
-#
-# ## What triggers a deployment
-#
-# `main` only, plus a manual run from the Actions tab. Deliberately **not** `dev`: that branch
-# takes work-in-progress commits several times an hour, and a deployment pipeline that fires on
-# every one of them is a way to have the demonstration instance restart underneath a rehearsal.
-name: Deploy to Azure
+name: Test and deploy D-Fence
 
 on:
   push:
-    branches: [main]
+  pull_request:
   workflow_dispatch:
 
-# Two runs at once would race each other onto the same App Service and the later-finishing one
-# would win regardless of which commit it carried. Queue them instead.
-concurrency:
-  group: deploy-dfence
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 env:
-  AZURE_WEBAPP_NAME: dfence-sc2006
-  # Matches the App Service's NODE:24-lts runtime. If these two drift apart, the native modules
-  # compiled here are not the ones the container can load.
   NODE_VERSION: '24.x'
+  AZURE_WEBAPP_NAME: dfence-sc2006
+  AZURE_RESOURCE_GROUP: dfence
 
 jobs:
-  deploy:
+  test-and-package:
+    name: Test and package
     runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://dfence-sc2006.azurewebsites.net
-
+    timeout-minutes: 15
+    env:
+      CI: 'true'
+      DFENCE_TEST_LIVE_DB: 'false'
+      DATABASE_URL: ''
+      TELEGRAM_BOT_TOKEN: ''
+      SUPABASE_URL: ''
+      SUPABASE_SERVICE_KEY: ''
+      ONE_MAP_EMAIL: ''
+      ONE_MAP_PASSWORD: ''
+      ONE_MAP_TOKEN: ''
+      DFENCE_VISION_API_KEY: ''
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      archive_sha256: ${{ steps.package.outputs.archive_sha256 }}
+      server_sha256: ${{ steps.package.outputs.server_sha256 }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-
-      # `ci` rather than `install`: it installs exactly what the lockfile says and fails if the
-      # lockfile and package.json disagree, which is the point of having one.
-      - name: Install
+      - name: Reject tracked environment files
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          const paths = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0');
+          const bad = paths.filter((path) => /^\.env(?:\.|$)/.test(path.split('/').at(-1) ?? '') && !path.endsWith('.example'));
+          if (bad.length) throw new Error('Environment files must never be committed: ' + bad.join(', '));
+          JS
+      - name: Install locked dependencies
         run: npm ci
-
       - name: Typecheck
         run: npm run typecheck
-
-      # Build BEFORE test, and the order is load-bearing rather than a preference.
-      #
-      # `performance-client.test.tsx` P10 measures the bundle a real client actually transfers,
-      # against 10.1.1's three-second budget, by reading `client/dist/`. It deliberately throws
-      # rather than skipping when that directory is absent — a performance case that silently
-      # passes on nothing is worse than no case at all. `client/dist/` is build output and is
-      # gitignored, so on a fresh checkout it exists only after this step.
-      #
-      # With Test first, that assertion failed on every run this workflow has ever had: both
-      # 2026-09-05 and 2026-09-19 died here, which is why nothing had ever reached the Deploy
-      # step and why the App Service was still serving a hand-built package. It passed on the
-      # development laptop for the least useful of reasons — a stale `client/dist/` left behind
-      # by an earlier `npm run serve`.
+      # Client performance tests inspect the real build output.
       - name: Build
         run: npm run build
+      - name: Test without production services
+        run: npm test
+      - name: Package runtime dependencies and verify ZIP
+        id: package
+        run: node tools/package-release.mjs
+      - name: Smoke-test a clean release extraction
+        run: node tools/smoke-release.mjs
+      - name: Retain the checked release
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dfence-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            scratchpad/ci-release/deploy.zip
+            scratchpad/ci-release/release-manifest.json
+            scratchpad/ci-release/archive.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
-      # Still before the deploy, so a failing test still stops the release. That was always the
-      # point of running them here; only their position relative to the build has moved.
-      - name: Test
-        run: npm run test
-
-      # SCM_DO_BUILD_DURING_DEPLOYMENT=false on the App Service means Azure installs nothing, so
-      # what is shipped is exactly what runs — node_modules included.
-      - name: Prune to runtime dependencies
-        run: npm prune --omit=dev
-
-      # `config/` is in this list and was missing from the first two hand-built packages. The
-      # server reads config/scoring.default.json at startup and exits 1 without it.
-      - name: Package
-        run: zip -qr deploy.zip dist node_modules package.json config
-
-      # Assembly mistakes are silent — Azure unpacks a wrong archive without complaint and the
-      # symptom arrives later as something unrelated. So the archive is inspected before it is
-      # sent, and the job fails here rather than on the running site.
-      - name: Verify the package
+  deploy:
+    name: Deploy production
+    needs: test-and-package
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: dfence-production
+      cancel-in-progress: false
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      EXPECTED_ARCHIVE_SHA256: ${{ needs.test-and-package.outputs.archive_sha256 }}
+      EXPECTED_SERVER_SHA256: ${{ needs.test-and-package.outputs.server_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - name: Check Azure identity configuration
         run: |
-          python3 - <<'PY'
-          import os, sys, zipfile
-          z = zipfile.ZipFile('deploy.zip')      # not a zip at all -> raises here
-          names = z.namelist()
-          size_mb = os.path.getsize('deploy.zip') / 1048576
-          print(f'{len(names)} entries, {size_mb:.1f} MB')
-
-          problems = []
-          if 'dist/src/server.mjs' not in names:
-              problems.append('no dist/src/server.mjs — the server bundle is missing')
-          if not any(n.startswith('config/') for n in names):
-              problems.append('no config/ — the container will exit 1 on the scoring file')
-          if not any(n.startswith('dist/client/') for n in names):
-              problems.append('no dist/client/ — the browser bundle is missing')
-          # A pruned tree is ~1800 entries and ~5 MB. Twenty is the threshold at which the prune
-          # plainly did not happen, rather than the tree having merely grown.
-          if size_mb > 20:
-              problems.append(f'{size_mb:.1f} MB — the dev dependencies are still in here')
-
-          if problems:
-              sys.exit('package rejected:\n  ' + '\n  '.join(problems))
-          print('package looks right')
-          PY
-
-      - name: Deploy
-        uses: azure/webapps-deploy@v3
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository Actions secret: $name"
+              exit 1
+            fi
+          done
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.test-and-package.outputs.artifact_id }}
+          path: scratchpad/ci-release
+          merge-multiple: true
+      - name: Verify the exact tested archive
+        run: node tools/package-release.mjs --verify scratchpad/ci-release/deploy.zip "$EXPECTED_ARCHIVE_SHA256"
+      - name: Azure login with short-lived GitHub identity
+        uses: azure/login@053f7285eb20bf5469ef084617b0b24d3cec53fc # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy the checked ZIP
+        uses: azure/webapps-deploy@b686016b4de8820a23519503685d8d03fbfa03a6 # v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: deploy.zip
-
-      # The deploy step reports success once Azure has accepted and unpacked the archive, which is
-      # not the same claim as the site answering. A container that exits 1 on a missing file is
-      # a successful deployment by that definition — which is exactly how the config/ omission got
-      # through the first time.
-      - name: Prove the site answers
+          package: scratchpad/ci-release/deploy.zip
+      - name: Restart to load the new server
+        run: az webapp restart --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_WEBAPP_NAME" --only-show-errors
+      - name: Check live health
         run: |
-          for attempt in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' https://dfence-sc2006.azurewebsites.net/api/health || true)
-            if [ "$code" = "200" ]; then
-              echo "healthy after ${attempt} attempt(s)"
+          deadline=$((SECONDS + 300))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "https://${AZURE_WEBAPP_NAME}.azurewebsites.net/api/health" > /dev/null; then
+              echo 'Live health check passed.'
               exit 0
             fi
-            echo "attempt ${attempt}: HTTP ${code:-no response}"
-            sleep 15
+            sleep 5
           done
-          echo 'the site did not answer 200 within five minutes'
+          echo '::error::The app did not become healthy within five minutes.'
           exit 1
+      - name: Match the deployed server to the checked build
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          const code = 'const fs=require("fs"),crypto=require("crypto");console.log(crypto.createHash("sha256").update(fs.readFileSync("dist/src/server.mjs")).digest("hex"))';
+          const command = 'node -e "eval(Buffer.from(\'' + Buffer.from(code).toString('base64') + '\',\'base64\').toString())"';
+          writeFileSync('scratchpad/ci-release/hash-command.json', JSON.stringify({ command, dir: '/home/site/wwwroot' }));
+          JS
+          remote_hash=$(az rest --method post --url "https://${AZURE_WEBAPP_NAME}.scm.azurewebsites.net/api/command" --resource https://management.azure.com/ --headers Content-Type=application/json --body @scratchpad/ci-release/hash-command.json --query Output --output tsv | tr -d '\r\n ')
+          if [ "$remote_hash" != "$EXPECTED_SERVER_SHA256" ]; then
+            echo '::error::Deployed server hash does not match the tested artifact.'
+            exit 1
+          fi
+          echo "Verified server SHA256: $remote_hash"

@@ -11,7 +11,7 @@
  * 9.1.6 — showing and hiding a layer is the client's business. What belongs here is that the layers
  * arrive *separately*, so hiding one is possible at all.
  */
-import { ExposureStatus, PriorityTier, ReportStatus, Role, WorkOrderStatus } from '../entity/enums';
+import { Driver, ExposureStatus, PestType, PriorityTier, ReportStatus, Role, WorkOrderStatus } from '../entity/enums';
 import { Report } from '../entity/Report';
 import { Uuid } from '../entity/valueTypes';
 import { Trajectory } from '../entity/enums';
@@ -25,6 +25,7 @@ import {
 import { AccessControlService } from './AccessControlService';
 import { SeriesPoint, TrendAnalyser } from './TrendAnalyser';
 import { Principal } from './Principal';
+import { triageForReport } from './ReportTriagePolicy';
 
 /** 9.1.1, 9.1.2, 9.1.11 — one cluster as the map draws it. */
 export interface ClusterShape {
@@ -36,6 +37,9 @@ export interface ClusterShape {
   /** 9.1.11 — the tier as text, so the map does not rely on colour alone (11.7.5). */
   tierLabel: string;
   caseSize: number;
+  pestType?: string;
+  icon?: string;
+  countLabel?: string;
 }
 
 /** 9.1.3 — a report marker, anonymised for anyone but a manager (5.2.9). */
@@ -45,12 +49,15 @@ export interface ReportMarker {
   longitude: number;
   status: string;
   type: string;
+  pestType: string;
 }
 
 /** 9.1.4 */
 export interface WorkOrderMarker {
   workOrderId: Uuid;
-  clusterId: Uuid;
+  /** Null for a report-only job (8.1.2). */
+  clusterId: Uuid | null;
+  sourceReportId: Uuid | null;
   latitude: number;
   longitude: number;
   status: WorkOrderStatus;
@@ -91,6 +98,46 @@ export interface ClusterDetail {
   trajectory: Trajectory;
 }
 
+function circleRing(centerLat: number, centerLng: number, radiusMetres = 200, points = 12): Array<[number, number]> {
+  const ring: Array<[number, number]> = [];
+  const latDelta = radiusMetres / 111000;
+  const lngDelta = radiusMetres / 110970;
+  for (let i = 0; i <= points; i++) {
+    const angle = (2 * Math.PI * i) / points;
+    const lat = centerLat + latDelta * Math.cos(angle);
+    const lng = centerLng + lngDelta * Math.sin(angle);
+    ring.push([Number(lng.toFixed(6)), Number(lat.toFixed(6))]);
+  }
+  return ring;
+}
+
+function getPestVisual(pestType: string): { emoji: string; label: string; countLabel: string } {
+  switch (pestType) {
+    case 'Rat':
+      return { emoji: '🐀', label: 'Rat', countLabel: 'rats' };
+    case 'Cockroach':
+      return { emoji: '🪳', label: 'Cockroach', countLabel: 'cockroaches' };
+    case 'Snake':
+      return { emoji: '🐍', label: 'Snake', countLabel: 'sightings' };
+    case 'WildBoar':
+      return { emoji: '🐗', label: 'Wild Boar', countLabel: 'sightings' };
+    case 'BeeWasp':
+      return { emoji: '🐝', label: 'Bee / Wasp', countLabel: 'nests' };
+    case 'Pigeon':
+      return { emoji: '🐦', label: 'Pigeon', countLabel: 'pigeons' };
+    case 'JavanMyna':
+      return { emoji: '🐦', label: 'Javan Myna', countLabel: 'mynas' };
+    case 'HouseCrow':
+      return { emoji: '🦅', label: 'House Crow', countLabel: 'crows' };
+    case 'Macaque':
+      return { emoji: '🐒', label: 'Macaque', countLabel: 'macaques' };
+    case 'Fly':
+      return { emoji: '🪰', label: 'Fly', countLabel: 'flies' };
+    default:
+      return { emoji: '⚠️', label: pestType, countLabel: 'sightings' };
+  }
+}
+
 export class MapViewController {
   constructor(
     private readonly ac: AccessControlService,
@@ -121,9 +168,14 @@ export class MapViewController {
 
   /** 9.1.1, 9.1.2, 9.1.11 — active boundaries, tier-coloured and tier-labelled. */
   private async clusterShapes(): Promise<ClusterShape[]> {
-    const latest = new Map((await this.scores.latest()).map((s) => [s.clusterId, s]));
+    const latestScores = await this.scores.latest();
+    const latest = new Map(latestScores.filter((s) => (s.pestType ?? PestType.Mosquito) === PestType.Mosquito)
+      .map((s) => [s.localityId || s.clusterId, s]));
     const shapes: ClusterShape[] = [];
-    for (const cluster of await this.clusters.findActive()) {
+    const activeClusters = await this.clusters.findActive();
+    const clusterById = new Map(activeClusters.map((c) => [c.id, c]));
+
+    for (const cluster of activeClusters) {
       const ring = cluster.boundary?.rings[0] ?? [];
       if (ring.length === 0) {
         continue; // a cluster with no geometry cannot be drawn; it still appears in the table
@@ -134,12 +186,68 @@ export class MapViewController {
         locality: cluster.locality,
         ring: ring.map((p) => [p.longitude, p.latitude] as [number, number]),
         tier,
-        // 9.1.11, 11.7.5 — the tier as words. Colour alone fails for a colour-blind reader and on
-        // a printout, and this is the requirement that was tightened in v0.3 for exactly that.
         tierLabel: `${tier} priority`,
         caseSize: cluster.caseSize,
+        pestType: 'Mosquito',
+        icon: '🦟',
+        countLabel: 'cases',
       });
     }
+
+    const nonMosquitoScores = latestScores.filter(
+      (s) => s.pestType && s.pestType !== PestType.Mosquito,
+    );
+    for (const s of nonMosquitoScores) {
+      const cluster = clusterById.get(s.localityId || s.clusterId) ?? (await this.clusters.findById(s.localityId || s.clusterId));
+      if (!cluster?.boundary?.rings[0]?.length) {
+        continue;
+      }
+      const visual = getPestVisual(s.pestType);
+      const centroid = cluster.boundary.centroid();
+      const ring = circleRing(centroid.latitude, centroid.longitude, 280);
+
+      const obsContrib = s.contributions?.find(
+        (c) =>
+          c.driver === Driver.ExternalObservationDensity ||
+          c.driver === Driver.ReportVelocity ||
+          c.driver === Driver.VerifiedOpenReportCount,
+      );
+      const count = obsContrib?.rawValue ? Math.round(obsContrib.rawValue) : Math.max(1, Math.round(s.score / 10));
+
+      shapes.push({
+        clusterId: `inat-${s.clusterId}-${s.pestType}`,
+        locality: `${cluster.locality} (${visual.label} Surveillance)`,
+        ring,
+        tier: s.tier,
+        tierLabel: `${s.tier} priority`,
+        caseSize: count,
+        pestType: s.pestType,
+        icon: visual.emoji,
+        countLabel: visual.countLabel,
+      });
+    }
+
+    if (this.reports !== null) {
+      const verified = await this.verifiedReports();
+      for (const r of verified) {
+        const count = r.estimatedCount ?? (r.corroborationCount > 0 ? r.corroborationCount + 1 : 1);
+        const visual = getPestVisual(r.pestType);
+        const tier = triageForReport(r).priority as PriorityTier;
+
+        shapes.push({
+          clusterId: `pest-${r.id}`,
+          locality: `${r.localityBinding || 'Singapore'} (${visual.label} Hotspot)`,
+          ring: circleRing(r.point.latitude, r.point.longitude, 200),
+          tier,
+          tierLabel: `${tier} priority`,
+          caseSize: count,
+          pestType: r.pestType,
+          icon: visual.emoji,
+          countLabel: r.estimatedCount === null ? 'reports' : visual.countLabel,
+        });
+      }
+    }
+
     return shapes;
   }
 
@@ -164,6 +272,7 @@ export class MapViewController {
       longitude: r.point.longitude,
       status: r.currentStatus(),
       type: r.type,
+      pestType: r.pestType,
       // No reporter id, on any path: 5.2.9 is not conditional on the viewer's role for residents,
       // and a marker is exactly the shape of data that gets copied into a client without thinking.
     }));
@@ -192,18 +301,25 @@ export class MapViewController {
 
     const markers: WorkOrderMarker[] = [];
     for (const order of orders) {
-      const cluster = await this.clusters.findById(order.clusterId);
-      const centroid = cluster?.boundary?.rings[0]?.length ? cluster.boundary.centroid() : null;
-      if (centroid === null) {
+      // A work order has no coordinates of its own. One raised from a report is drawn at that
+      // report's point (8.1.2); one raised on a cluster alone is drawn at the cluster's centre.
+      // Neither is given a fabricated point.
+      const source =
+        order.sourceReportId === null || this.reports === null ? null : await this.reports.findById(order.sourceReportId);
+      const cluster = order.clusterId === null ? null : await this.clusters.findById(order.clusterId);
+      const point =
+        source?.point ??
+        order.targetPoint ??
+        (cluster?.boundary?.rings[0]?.length ? cluster.boundary.centroid() : null);
+      if (point === null) {
         continue;
       }
-      // A work order has no coordinates of its own — it is work on a cluster, so it is drawn at
-      // that cluster's centre rather than given a fabricated point.
       markers.push({
         workOrderId: order.id,
         clusterId: order.clusterId,
-        latitude: centroid.latitude,
-        longitude: centroid.longitude,
+        sourceReportId: order.sourceReportId,
+        latitude: point.latitude,
+        longitude: point.longitude,
         status: order.currentStatus(),
         taskType: order.taskType,
       });
@@ -234,11 +350,71 @@ export class MapViewController {
    */
   async clusterDetail(clusterId: Uuid, by: Principal, now = new Date()): Promise<ClusterDetail> {
     await this.ac.authorise(by, 'cluster:read', { kind: 'cluster', id: clusterId });
+
+    if (clusterId.startsWith('inat-')) {
+      const parts = clusterId.split('-');
+      const pestType = parts[parts.length - 1] ?? '';
+      const localityId = parts.slice(1, -1).join('-');
+      const cluster = await this.clusters.findById(localityId);
+      const locality = cluster?.locality ?? 'Singapore';
+      const visual = getPestVisual(pestType);
+      const score = (await this.scores.latest()).find(
+        (s) => (s.clusterId === localityId || s.localityId === localityId) && s.pestType === pestType,
+      ) ?? null;
+      const isManager = by.role === Role.OperationsManager;
+      const obsContrib = score?.contributions?.find(
+        (c) =>
+          c.driver === Driver.ExternalObservationDensity ||
+          c.driver === Driver.ReportVelocity ||
+          c.driver === Driver.VerifiedOpenReportCount,
+      );
+      const count = obsContrib?.rawValue ? Math.round(obsContrib.rawValue) : Math.max(1, Math.round((score?.score ?? 50) / 10));
+
+      return {
+        clusterId,
+        locality: `${locality} (${visual.label} Surveillance)`,
+        caseSize: count,
+        score: score?.score ?? null,
+        tier: score?.tier ?? PriorityTier.Medium,
+        breakdown: isManager ? (score?.breakdown() ?? []) : [],
+        isDegraded: score?.isDegraded ?? false,
+        excludedDrivers: score?.excludedDrivers ?? [],
+        openReports: await this.openReportCount(localityId),
+        openWorkOrders: [],
+        series: [],
+        trajectory: Trajectory.Stable,
+      };
+    }
+
+    if (clusterId.startsWith('pest-')) {
+      const reportId = clusterId.slice(5);
+      const report = this.reports !== null ? await this.reports.findById(reportId) : null;
+      const count = report?.estimatedCount ?? (report?.corroborationCount ? report.corroborationCount + 1 : 1);
+      const pestType = report?.pestType ?? 'Pest';
+      const visual = getPestVisual(pestType);
+
+      return {
+        clusterId,
+        locality: `${report?.localityBinding || 'Singapore'} (${visual.label} Hotspot)`,
+        caseSize: count,
+        score: null,
+        tier: report ? triageForReport(report).priority as PriorityTier : null,
+        breakdown: [],
+        isDegraded: false,
+        excludedDrivers: [],
+        openReports: 1,
+        openWorkOrders: [],
+        series: [],
+        trajectory: Trajectory.Stable,
+      };
+    }
+
     const cluster = await this.clusters.findById(clusterId);
     if (cluster === null) {
       throw new Error(`no cluster ${clusterId}`);
     }
-    const score = (await this.scores.latest()).find((s) => s.clusterId === clusterId) ?? null;
+    const score = (await this.scores.latest()).find((s) => (s.clusterId === clusterId || s.localityId === clusterId) &&
+      (s.pestType ?? PestType.Mosquito) === PestType.Mosquito) ?? null;
     const isManager = by.role === Role.OperationsManager;
     const series = await this.trends.caseSeries(clusterId, undefined, now);
 

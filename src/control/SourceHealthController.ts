@@ -86,7 +86,12 @@ export class SourceHealthController {
   /** 1.4.1, 1.4.2 — every external source, whether or not it has ever run. */
   async report(now = new Date()): Promise<SourceHealthRow[]> {
     const rows: SourceHealthRow[] = [];
-    for (const source of [SourceKind.Clusters, SourceKind.Rainfall, SourceKind.Forecast]) {
+    for (const source of [
+      SourceKind.Clusters,
+      SourceKind.Rainfall,
+      SourceKind.Forecast,
+      SourceKind.Observations,
+    ]) {
       rows.push(await this.ingesting(source, now));
     }
     rows.push(this.selfReported(now));

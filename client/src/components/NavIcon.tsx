@@ -32,6 +32,7 @@ const PATHS: Record<string, string[]> = {
   WOList: ['M4 2.5h14v17H4z', 'M7.5 7h7M7.5 11h7M7.5 15h4.5'],
   StaffAccounts: ['M8.5 10.5a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8z', 'M2.5 19c0-3.3 2.7-5.6 6-5.6s6 2.3 6 5.6', 'M15 4.2a3.2 3.2 0 0 1 0 6.2M16.5 13.8c1.9.6 3 2.5 3 4.6'],
   DataSources: ['M11 8.2c3.9 0 7-1.4 7-3.1S14.9 2 11 2 4 3.4 4 5.1s3.1 3.1 7 3.1z', 'M4 5.1V11c0 1.7 3.1 3.1 7 3.1s7-1.4 7-3.1V5.1', 'M4 11v5.9c0 1.7 3.1 3.1 7 3.1s7-1.4 7-3.1V11'],
+  VehicleRegistry: ['M2 5h11v11H2zM13 9h4l3 4v3h-7z', 'M5 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4M17 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4'],
 
   // — Crew —
   MyJobs: ['M3 6.5h16v13H3z', 'M7.5 6.5V4.5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v2', 'M8 13l2.2 2.2L14.6 11'],
@@ -62,9 +63,10 @@ export function NavIcon(props: NavIconProps): JSX.Element {
           key={d}
           d={d}
           stroke="currentColor"
-          strokeWidth="1.4"
+          strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
         />
       ))}
     </svg>

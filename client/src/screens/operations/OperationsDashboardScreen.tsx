@@ -18,6 +18,10 @@ import { useLoad } from '../../lib/useLoad';
 import { StateView, StatTile } from '../../components/States';
 import { link } from '../../components/Link';
 import { SingaporeMap, MapCluster, MapMarker } from '../../components/SingaporeMap';
+import { PhotoCarousel } from '../../components/PhotoCarousel';
+import { getClusterPhotos } from '../../lib/clusterVisuals';
+import { Pagination, usePagination } from '../../components/Pagination';
+import { label } from '../../lib/labels';
 import { ScreenProps } from '../ScreenProps';
 
 interface DashboardPayload {
@@ -44,7 +48,7 @@ interface DashboardPayload {
 /** 9.1.1-9.1.6 — the layers the server decided this manager may see. */
 interface LayersPayload {
   clusters: MapCluster[];
-  reports: Array<{ reportId: string; latitude: number; longitude: number; status: string; type: string }>;
+  reports: Array<{ reportId: string; latitude: number; longitude: number; status: string; type: string; pestType?: string }>;
   workOrders: Array<{ workOrderId: string; latitude: number; longitude: number; status: string; taskType: string }>;
   savedLocations: Array<{ savedLocationId: string; latitude: number; longitude: number; label: string; exposureStatus: string }>;
 }
@@ -75,6 +79,14 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
     emptyMessage: 'No clusters have been scored yet. The next ingestion cycle will populate this table.',
   });
 
+  const {
+    currentPage: priorityPage,
+    setCurrentPage: setPriorityPage,
+    pageSize: priorityPageSize,
+    totalItems: priorityTotalItems,
+    pagedItems: priorityPagedRows,
+  } = usePagination(priority.value?.rows ?? [], 10);
+
   const overview = dashboard.value?.overview;
 
   // 9.1.3, 9.1.4 — reports and work orders as markers. Flattened here rather than in the map so
@@ -84,9 +96,13 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
       id: r.reportId,
       latitude: r.latitude,
       longitude: r.longitude,
-      title: r.type,
-      detail: `Report — ${r.status}`,
+      title:
+        r.pestType && r.pestType !== 'Mosquito'
+          ? `${label(r.pestType)} — ${label(r.type)}`
+          : label(r.type),
+      detail: `Report — ${label(r.status)}`,
       kind: 'report' as const,
+      pestType: r.pestType,
     })),
     ...(layers.value?.workOrders ?? []).map((w) => ({
       id: w.workOrderId,
@@ -175,6 +191,13 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
             markers={markers}
             size="tall"
             onSelectCluster={(clusterId) => props.onNavigate(`/ops/clusters/${clusterId}`)}
+            onSelectMarker={(marker) => {
+              if (marker.kind === 'report') {
+                props.onNavigate(`/ops/moderation/${marker.id}`);
+              } else if (marker.kind === 'workOrder') {
+                props.onNavigate(`/ops/work-orders/${marker.id}`);
+              }
+            }}
           />
         </StateView>
       </section>
@@ -182,6 +205,39 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
       <section data-part="priority">
         <h2>Priority</h2>
         <StateView state={priority.state} onRetry={priority.retry}>
+          {priority.value?.rows && priority.value.rows.length > 0 ? (
+            <div data-part="priority-cards" className="priority-clusters-cards">
+              <div className="priority-cards-grid">
+                {priority.value.rows.slice(0, 3).map((row) => (
+                  <div key={row.clusterId} className="cluster-card priority-cluster-card">
+                    <PhotoCarousel
+                      photos={getClusterPhotos({
+                        clusterId: row.clusterId,
+                        locality: row.locality,
+                        tier: row.tier,
+                        caseSize: row.caseSize,
+                      })}
+                      aspectRatio="16 / 9"
+                      label={`Surveillance photos for ${row.locality}`}
+                    />
+                    <div className="cluster-card-content">
+                      <div className="cluster-card-header">
+                        <span className="cluster-rank-badge">Rank #{row.rank}</span>
+                        <a href={`/ops/clusters/${row.clusterId}`} onClick={link(props, `/ops/clusters/${row.clusterId}`)}>
+                          {row.locality}
+                        </a>
+                      </div>
+                      <div className="cluster-card-stats">
+                        <span>{row.caseSize} confirmed cases</span>
+                        <span>Rating: {row.score.toFixed(1)}</span>
+                        <span className={`cluster-tier-tag tier-${row.tier.toLowerCase()}`}>{row.tier}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <table>
             <thead>
               <tr>
@@ -196,7 +252,7 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {(priority.value?.rows ?? []).map((row) => (
+              {priorityPagedRows.map((row) => (
                 <tr key={row.clusterId} data-tier={row.tier} data-degraded={row.isDegraded}>
                   <td className="num">{row.rank}</td>
                   <td>
@@ -230,6 +286,14 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
               ))}
             </tbody>
           </table>
+
+          <Pagination
+            currentPage={priorityPage}
+            totalItems={priorityTotalItems}
+            pageSize={priorityPageSize}
+            onPageChange={setPriorityPage}
+            itemName="priority clusters"
+          />
         </StateView>
       </section>
 

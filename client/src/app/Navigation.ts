@@ -34,6 +34,7 @@ const TOP_LEVEL: Record<Role, string[]> = {
     'DispatchProposal',
     'WOList',
     'StaffAccounts',
+    'VehicleRegistry',
     'DataSources',
   ],
   [Role.CleaningCrew]: ['MyJobs'],

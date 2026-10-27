@@ -15,6 +15,35 @@ export enum Role {
   CleaningCrew = 'CleaningCrew',
 }
 
+/**
+ * A Cleaning Crew member's recorded capability (`Account.specialisation`). Not a Role: it decides
+ * which jobs a person may hold, never what they may sign in to. The task and pest-class mapping is
+ * `control/StaffRoutingPolicy.ts`. Persisted by migration 010.
+ */
+export enum StaffSpecialisation {
+  VectorControl = 'VectorControl',
+  Sanitation = 'Sanitation',
+  Structural = 'Structural',
+  GeneralInspection = 'GeneralInspection',
+}
+
+/** Operational readiness status of staff accounts. */
+export enum StaffStatus {
+  Available = 'Available',
+  OnCall = 'OnCall',
+  Unavailable = 'Unavailable',
+  Dispatched = 'Dispatched',
+}
+
+/** Singapore operational HQ depots assigned to staff accounts. */
+export enum HqLocation {
+  Central = 'Central',
+  NorthEast = 'NorthEast',
+  NorthWest = 'NorthWest',
+  SouthEast = 'SouthEast',
+  SouthWest = 'SouthWest',
+}
+
 export enum LocationLabel {
   Home = 'Home',
   Workplace = 'Workplace',

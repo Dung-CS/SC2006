@@ -16,6 +16,8 @@ import { Uuid } from '../entity/valueTypes';
 import { Alert } from '../entity/Alert';
 import { NotificationChannel } from '../ports/ExternalGateway';
 import { AccountStore, AlertStore, Notifier } from '../ports/Stores';
+import { INotificationChannelStrategy } from './notification/INotificationChannelStrategy';
+import { NotificationChannelFactory } from './notification/NotificationChannelFactory';
 
 /** 6.1.11 — two retries at five-minute intervals, so three attempts in all. */
 export const MAX_DELIVERY_ATTEMPTS = 3;
@@ -42,12 +44,17 @@ export class NotificationController implements Notifier {
   /** 6.1.7 — single-use codes, held until claimed or expired. */
   private readonly linkCodes = new Map<string, { accountId: Uuid; expiresAt: Date }>();
 
+  private readonly channelStrategy: INotificationChannelStrategy;
+
   constructor(
-    private readonly channel: NotificationChannel,
+    channel: NotificationChannel,
     private readonly accounts: AccountStore,
     private readonly alerts: AlertStore,
     private readonly scheduler: RetryScheduler = realScheduler,
-  ) {}
+    channelStrategy: INotificationChannelStrategy = NotificationChannelFactory.create('telegram', { telegram: channel }),
+  ) {
+    this.channelStrategy = channelStrategy;
+  }
 
   /**
    * 6.1.6, 6.1.10, 6.1.11. Delivers one alert to the resident's linked chat, retrying twice.
@@ -68,7 +75,12 @@ export class NotificationController implements Notifier {
 
     alert.attempts += 1;
     alert.sentAt = now;
-    const outcome = await this.channel.send(account.telegramChatId, alert.payload);
+    const sent = await this.channelStrategy.sendNotification({
+      recipientId: account.telegramChatId,
+      message: alert.payload,
+      metadata: { alertId: alert.id, trigger: alert.triggerType },
+    });
+    const outcome = sent ? DeliveryOutcome.Sent : DeliveryOutcome.Failed;
 
     if (outcome === DeliveryOutcome.Sent || alert.attempts >= MAX_DELIVERY_ATTEMPTS) {
       // 6.1.11 — FAILED is recorded only after the third attempt, not on the first.
@@ -111,7 +123,11 @@ export class NotificationController implements Notifier {
     if (account?.telegramChatId == null) {
       return DeliveryOutcome.Suppressed;
     }
-    return this.channel.send(account.telegramChatId, text);
+    return (await this.channelStrategy.sendNotification({
+      recipientId: account.telegramChatId,
+      message: text,
+      metadata: { kind: 'crew-notification' },
+    })) ? DeliveryOutcome.Sent : DeliveryOutcome.Failed;
   }
 
   /**

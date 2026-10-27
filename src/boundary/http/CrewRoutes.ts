@@ -25,6 +25,7 @@ import { AccessControlService } from '../../control/AccessControlService';
 import { DispatchController } from '../../control/DispatchController';
 import { TransitionRefused, WorkOrderLifecycleController } from '../../control/WorkOrderLifecycleController';
 import { WorkOrder } from '../../entity/WorkOrder';
+import { WorkOrderRoutes } from './WorkOrderRoutes';
 import { CompletionEvidence } from '../../entity/CompletionEvidence';
 
 interface CompleteBody {
@@ -142,11 +143,16 @@ export class CrewRoutes extends RouteHandler {
   private static card(order: WorkOrder): Record<string, unknown> {
     return {
       id: order.id,
-      clusterId: order.clusterId,
+      clusterId: order.clusterId, // null for a report-only job (8.1.2)
+      sourceReportId: order.sourceReportId,
+      location: order.location ?? 'Singapore',
+      point: WorkOrderRoutes.point(order), // the source report's own point; null for a cluster-only job
       taskType: order.taskType,
+      pestType: order.pestType, // null = unknown legacy pest
       status: order.currentStatus(),
       scheduledDate: order.scheduledDate,
       priority: order.priority,
+      priorityBasis: order.priorityBasis(),
       instructions: order.instructions,
       startedAt: order.startedAt,
       issueFlag: order.issueFlag,

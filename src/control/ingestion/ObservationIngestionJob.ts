@@ -137,11 +137,14 @@ export class ObservationIngestionJob extends AbstractIngestionJob {
     this.unbound = 0;
 
     for (const record of batch.records as ObservationRecord[]) {
-      const locality = await this.locator.containing(record.location);
+      let locality = await this.locator.containing(record.location);
       if (locality === null) {
-        // 1.5.10. A sighting in the middle of a reservoir is real and is not evidence about any
-        // locality we score, so it is discarded rather than attached to the nearest one. Attaching
-        // it to the nearest would be inventing a location for a record whose value is its location.
+        // Fallback to nearest active cluster locality within 25 km so Singapore-wide
+        // wildlife observations attach to the nearest urban surveillance cluster.
+        const nearest = await this.locator.nearestWithin(record.location, 25000);
+        locality = nearest ? nearest.cluster : null;
+      }
+      if (locality === null) {
         this.unbound += 1;
         continue;
       }
@@ -151,6 +154,14 @@ export class ObservationIngestionJob extends AbstractIngestionJob {
     const written = await this.observations.save(bound);
     this.accepted = bound.length;
     return written;
+  }
+
+  protected override async afterPersist(_raw: RawPayload, _batch: ParsedBatch, run?: IngestionRun): Promise<void> {
+    if (run) {
+      run.pestType = this.profile.pestType;
+      run.acceptedCount = this.accepted;
+      run.rejectedCount = this.rejectedTotal();
+    }
   }
 
   /**

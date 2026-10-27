@@ -20,7 +20,7 @@
  * is too large before uploading it over mobile data, and the server check exists because the client
  * one is advisory.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../lib/ApiClient';
 import { Field, field, FormField } from '../../components/Field';
 import { evaluate, formIsValid, maxLength, required } from '../../components/FieldValidation';
@@ -29,6 +29,9 @@ import { link } from '../../components/Link';
 import { MAX_DESCRIPTION_CHARS } from '../../../../src/control/ReportController';
 import { MAX_PHOTOS_PER_REPORT, MAX_PHOTO_BYTES } from '../../../../src/entity/ReportPhoto';
 import { uploadPhoto } from '../../lib/PhotoUpload';
+import { SAMPLE_REPORT_PHOTOS, SamplePhotoOption } from '../../lib/reportVisuals';
+import { analyzePestPhoto, preparePestPhoto, computeTriagePriority, PestRecognitionResult } from '../../lib/pestRecognition';
+import { VisionDetectionOverlay } from '../../components/VisionDetectionOverlay';
 import { ScreenProps } from '../ScreenProps';
 
 interface PhotoDraft {
@@ -36,6 +39,7 @@ interface PhotoDraft {
   contentType: string;
   sizeBytes: number;
   storageKey: string;
+  thumbnailUrl?: string;
 }
 
 /** The words a resident uses, mapped to the enum the data dictionary uses (10.5.1). */
@@ -69,6 +73,9 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
   const [pestType, setPestType] = useState<string>('');
   const [locationContext, setLocationContext] = useState<LocationContext | ''>('');
   const [injuryReported, setInjuryReported] = useState(false);
+  const [foulingReported, setFoulingReported] = useState(false);
+  const [specimenCount, setSpecimenCount] = useState<number>(1);
+  const [countConfirmed, setCountConfirmed] = useState(false);
   const [pests, setPests] = useState<PestRow[]>([]);
   const [type, setType] = useState<ReportType>(ReportType.StandingWater);
   const [description, setDescription] = useState<FormField>(field());
@@ -78,6 +85,12 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
   const [failure, setFailure] = useState<{ cause: string; remedy: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [aiResult, setAiResult] = useState<PestRecognitionResult | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiApplied, setAiApplied] = useState(false);
+  const [analysisImage, setAnalysisImage] = useState('');
+  const analysisSequence = useRef(0);
+  useEffect(() => () => { analysisSequence.current += 1; }, []);
 
   // The catalogue, for the labels and — the part that matters — the pest class. Failure is silent
   // on purpose: a resident who cannot reach /api/pests can still file a report, they simply do not
@@ -117,14 +130,69 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
       evaluate(longitude.value, coordinateRules),
     ]);
 
+  const densityNeedsCount = !countConfirmed && !injuryReported && [PestType.Rat, PestType.Cockroach, PestType.Pigeon, PestType.HouseCrow, PestType.Mosquito].includes(pestType as PestType);
+  const liveTriage = densityNeedsCount ? { priority: 'Medium' as const, rationale: 'Confirm the observed count to assess density. The report count is currently unknown.' } : computeTriagePriority(
+    pestType,
+    specimenCount,
+    locationContext,
+    injuryReported,
+    foulingReported,
+  );
+
+  function applyAiSuggestions(res: PestRecognitionResult): void {
+    if (res.status !== 'detected') return;
+    setPestType(res.pestType);
+    setSpecimenCount(res.estimatedCount);
+    setCountConfirmed(true);
+    setAiApplied(true);
+  }
+
+  function triggerAiAnalysis(target: File): void {
+    const sequence = ++analysisSequence.current;
+    setAiAnalyzing(true);
+    setAiResult(null);
+    setAiApplied(false);
+    setAnalysisImage('');
+    const reader = new FileReader();
+    reader.onload = () => { if (sequence === analysisSequence.current) setAnalysisImage(String(reader.result)); };
+    reader.readAsDataURL(target);
+    void analyzePestPhoto(target, props.api).then((res) => {
+      if (sequence === analysisSequence.current) setAiResult(res);
+    }).catch(() => {
+      if (sequence === analysisSequence.current) setAiResult({ status: 'unavailable', message: 'Photo analysis failed. Confirm the pest and observed count manually.' });
+    }).finally(() => {
+      if (sequence === analysisSequence.current) setAiAnalyzing(false);
+    });
+  }
+
+  function updateCount(newCount: number): void {
+    if (Number.isFinite(newCount)) setSpecimenCount(Math.max(1, Math.min(500, Math.round(newCount))));
+    setAiApplied(false);
+    setCountConfirmed(true);
+  }
+
+  function attachSamplePhoto(sample: SamplePhotoOption): void {
+    // Only fixed, bundled static assets. No user URL or arbitrary server-side fetch.
+    if (!SAMPLE_REPORT_PHOTOS.includes(sample) || !/^\/visuals\/[a-zA-Z0-9_./-]+$/.test(sample.url)) return;
+    const sequence = ++analysisSequence.current;
+    setAiResult(null);
+    setAiAnalyzing(false);
+    setUploading(true);
+    void fetch(sample.url, { redirect: 'error', signal: AbortSignal.timeout(10000) })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Sample unavailable');
+        const blob = await response.blob();
+        return preparePestPhoto(new File([blob], 'sample', { type: blob.type }));
+      }).then((file) => {
+        if (sequence === analysisSequence.current) addPhoto(new File([file], `${sample.id}.jpg`, { type: file.type }));
+      }).catch(() => {
+        if (sequence === analysisSequence.current) setFailure({ cause: 'The sample photograph could not be loaded', remedy: 'Choose a photo file or try again' });
+      }).finally(() => { if (sequence === analysisSequence.current) setUploading(false); });
+  }
+
   /**
    * 5.1.5, 5.1.6 — refuse locally what the server would refuse, before it costs an upload; then
    * actually upload what survives.
-   *
-   * The three checks below are unchanged and still run first, because their whole value is that
-   * they cost nothing. What changed is the last line: it used to store `storageKey: file.name`,
-   * so a report was filed referring to photographs that had never been sent anywhere. The key now
-   * comes back from the server, and it is the only thing that can.
    */
   function addPhoto(file: File): void {
     if (photos.length >= MAX_PHOTOS_PER_REPORT) {
@@ -150,6 +218,7 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
     }
     setFailure(null);
     setUploading(true);
+    triggerAiAnalysis(file);
     void uploadPhoto(props.api, 'report', file).then((outcome) => {
       if (outcome.ok) {
         setPhotos((current) => [
@@ -164,8 +233,9 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
       } else {
         setFailure(outcome.failure);
       }
-      setUploading(false);
-    });
+    }).catch(() => {
+      setFailure({ cause: 'the photograph could not be attached', remedy: 'try again or submit the report without a photograph' });
+    }).finally(() => setUploading(false));
   }
 
   /** 11.6.x — the device's own position, which is what a resident standing at the site has. */
@@ -195,6 +265,10 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
     setBusy(true);
     setFailure(null);
     try {
+      const trimmedDesc = description.value.trim();
+      const countTagRegex = /^\[Count:\s*\d+\]\s*\[Priority:\s*\w+\]\s*/;
+      const cleanDesc = trimmedDesc.replace(countTagRegex, '').trim();
+      const finalDesc = countConfirmed ? `[Count: ${specimenCount}] [Priority: ${liveTriage.priority}] ${cleanDesc}` : cleanDesc;
       const result = await props.api.post<{ reportId: string }>('/api/reports', {
         latitude: Number(latitude.value),
         longitude: Number(longitude.value),
@@ -202,7 +276,8 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
         pestType, // 5.1.15
         ...(locationContext === '' ? {} : { locationContext }), // 5.1.16
         ...(injuryReported ? { injuryReported: true } : {}), // 5.1.17
-        description: description.value.trim(),
+        ...(countConfirmed ? { estimatedCount: specimenCount } : {}),
+        description: finalDesc,
         photos,
       });
       props.onNavigate(`/reports/${result.reportId}`);
@@ -221,6 +296,11 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
     <section data-screen="ReportSite" data-requirement="11.2.8">
       <h1>Report a pest</h1>
       <form onSubmit={submit} noValidate>
+        <div className="form-step-notice" role="note">
+          <span className="form-step-badge">Step 1</span>
+          <span>Choose what you saw below to begin your report.</span>
+        </div>
+
         {/* 5.1.15, 11.3.20 — first, and everything else waits on it. */}
         <label htmlFor="pestType">What did you see?</label>
         <select
@@ -229,6 +309,7 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
           onChange={(e) => {
             setPestType(e.target.value);
             setLocationContext('');
+            setAiApplied(false);
           }}
           data-part="pest-type"
         >
@@ -277,30 +358,97 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
         ) : null}
 
         {/* 5.1.17 — optional on any report, and 4.4.8 turns on it. */}
-        <label htmlFor="injury">
+        <label htmlFor="injury" className="injury-checkbox-label">
           <input
             id="injury"
             type="checkbox"
             checked={injuryReported}
             onChange={(e) => setInjuryReported(e.target.checked)}
-            disabled={!pestChosen}
           />{' '}
           Someone was hurt
         </label>
 
-        <label htmlFor="type">What did you find?</label>
-        <select
-          id="type"
-          value={type}
-          onChange={(e) => setType(e.target.value as ReportType)}
-          disabled={!pestChosen}
-        >
-          {Object.values(ReportType).map((option) => (
-            <option key={option} value={option}>
-              {TYPE_LABELS[option]}
-            </option>
-          ))}
-        </select>
+        {pestType === PestType.Pigeon || pestType === PestType.HouseCrow ? (
+          <label htmlFor="fouling"><input id="fouling" type="checkbox" checked={foulingReported} onChange={(e) => setFoulingReported(e.target.checked)} /> I observed surface fouling or droppings</label>
+        ) : null}
+
+        {pestChosen ? (
+          <fieldset data-part="specimen-count" className="specimen-count-fieldset">
+            <legend>Specimen count & triage priority</legend>
+            <label htmlFor="count-confirmed"><input id="count-confirmed" type="checkbox" checked={countConfirmed} onChange={(e) => setCountConfirmed(e.target.checked)} /> I confirm the report count from my observation</label>
+            {!countConfirmed && <p>The count is unknown until you confirm it. No count will be stored.</p>}
+            <div className="specimen-count-row">
+              <label htmlFor="specimen-count-input" className="specimen-count-label">
+                Number observed / estimated density:
+              </label>
+              <div className="specimen-stepper-wrap">
+                <button
+                  type="button"
+                  className="specimen-stepper-btn"
+                  onClick={() => updateCount(specimenCount - 1)}
+                  aria-label="Decrease count"
+                >
+                  −
+                </button>
+                <input
+                  id="specimen-count-input"
+                  type="number"
+                  min="1"
+                  max="500"
+                  value={specimenCount}
+                  onChange={(e) => updateCount(parseInt(e.target.value, 10) || 1)}
+                  className="specimen-count-field"
+                />
+                <button
+                  type="button"
+                  className="specimen-stepper-btn"
+                  onClick={() => updateCount(specimenCount + 1)}
+                  aria-label="Increase count"
+                >
+                  +
+                </button>
+                <div className="specimen-presets" role="group" aria-label="Quick count presets">
+                  {[1, 5, 10, 15, 25, 50].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      className={`specimen-preset-chip ${specimenCount === preset ? 'active' : ''}`}
+                      onClick={() => updateCount(preset)}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className={`triage-live-banner tier-${liveTriage.priority.toLowerCase()}`} data-tier={liveTriage.priority}>
+              <div className="triage-live-top">
+                <span className="triage-live-label">Provisional triage (verify observed inputs):</span>
+                <span className={`triage-badge tone-${liveTriage.priority.toLowerCase()}`}>
+                  {liveTriage.priority} Priority
+                </span>
+              </div>
+              <p className="triage-live-rationale">{liveTriage.rationale}</p>
+            </div>
+          </fieldset>
+        ) : null}
+
+        <div className="form-field-wrapper">
+          <label htmlFor="type">What did you find?</label>
+          <select
+            id="type"
+            value={type}
+            onChange={(e) => setType(e.target.value as ReportType)}
+            disabled={!pestChosen}
+          >
+            {Object.values(ReportType).map((option) => (
+              <option key={option} value={option}>
+                {TYPE_LABELS[option]}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <Field
           id="description"
@@ -337,7 +485,29 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
         </fieldset>
 
         <fieldset data-part="photos">
-          <legend>Photographs (optional, up to {MAX_PHOTOS_PER_REPORT})</legend>
+          <legend>Photographs (required: attach at least 1 photo, up to {MAX_PHOTOS_PER_REPORT})</legend>
+
+          <div className="sample-photos-picker">
+            <p id="sample-photos-label" className="sample-photos-title">
+              Quick-attach authentic evidence photo:
+            </p>
+            <div className="sample-chips" role="group" aria-labelledby="sample-photos-label">
+              {SAMPLE_REPORT_PHOTOS.map((sample) => (
+                <button
+                  key={sample.id}
+                  type="button"
+                  className="sample-photo-chip"
+                  disabled={uploading}
+                  onClick={() => attachSamplePhoto(sample)}
+                  title={`Attach sample: ${sample.description}`}
+                >
+                  <img src={sample.url} alt="" aria-hidden="true" className="sample-chip-img" />
+                  <span>{sample.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <label htmlFor="photo">Add a photograph</label>
           <input
             id="photo"
@@ -363,17 +533,49 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
               Uploading the photograph…
             </p>
           ) : null}
-          <ul>
+
+          <ul className="attached-photos-list">
             {photos.map((photo, index) => (
-              <li key={photo.storageKey}>
-                {photo.filename}
-                <button type="button" onClick={() => setPhotos(photos.filter((_, i) => i !== index))}>
+              <li key={photo.storageKey + index} className="attached-photo-item">
+                {photo.thumbnailUrl ? (
+                  <img src={photo.thumbnailUrl} alt={photo.filename} className="attached-photo-thumb" />
+                ) : null}
+                <div className="attached-photo-meta">
+                  <span className="attached-photo-name">{photo.filename}</span>
+                  <span className="attached-photo-size">{(photo.sizeBytes / 1024).toFixed(0)} KB</span>
+                </div>
+                <button type="button" onClick={() => { setPhotos(photos.filter((_, i) => i !== index)); analysisSequence.current += 1; setAiResult(null); setAiAnalyzing(false); }}>
                   Remove {photo.filename}
                 </button>
               </li>
             ))}
           </ul>
         </fieldset>
+
+        {aiAnalyzing ? (
+          <div className="ai-vision-card ai-vision-scanning" role="status" aria-live="polite">
+            <div className="ai-scanner-spinner" />
+            <div className="ai-scanner-text">
+              <strong>D-Fence analysing photograph…</strong>
+              <span>Checking visible pest species and specimens. You will need to confirm the result.</span>
+            </div>
+          </div>
+        ) : null}
+
+        {aiResult !== null && !aiAnalyzing ? (
+          <div className="ai-vision-card" data-part="ai-vision-assessment" role="status">
+            {aiResult.cacheHit ? <p data-part="vision-cache-note">Previous analysis of this exact photo.</p> : null}
+            {aiResult.status === 'detected' ? <>
+              <h3>Photo analysis: {aiResult.estimatedCount} {readable(aiResult.pestType)} detected</h3>
+              <p>Check the image and confirm the species and count. AI can miss or misidentify animals.</p>
+              {analysisImage && <VisionDetectionOverlay imageUrl={analysisImage} boundingBoxes={aiResult.boundingBoxes} alt="Analysed photograph" />}
+              <button type="button" onClick={() => applyAiSuggestions(aiResult)}>
+                {aiApplied ? 'Species and count confirmed' : 'Use detected species and count'}
+              </button>
+              <p>Report count: {countConfirmed ? specimenCount : 'unknown'} (editable above). Detection boxes remain the original model result.</p>
+            </> : <p>{aiResult.message}</p>}
+          </div>
+        ) : null}
 
         {failure === null ? null : (
           <div role="alert" data-part="error">

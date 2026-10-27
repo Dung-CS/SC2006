@@ -30,7 +30,7 @@ import { PestReportCounts, pestReportKey, ReportStore } from '../ports/Stores';
 const COLUMNS = `
   id, reporter_id, ST_AsGeoJSON(point) AS point, type, description, status, cluster_id,
   locality_binding, corroboration_count, submitted_at, moderator_id, moderated_at,
-  moderation_reason, work_order_id, pest_type, location_context, injury_reported`;
+  moderation_reason, work_order_id, pest_type, location_context, injury_reported, estimated_count`;
 
 /** 5.1.11, 5.2.5 — the three live statuses, kept in one place so the two queries cannot drift. */
 const OPEN_STATUSES = [ReportStatus.Submitted, ReportStatus.Verified, ReportStatus.Actioned];
@@ -54,9 +54,9 @@ export class ReportRepository implements ReportStore {
       `INSERT INTO report (
          id, reporter_id, point, type, description, status, cluster_id, locality_binding,
          corroboration_count, submitted_at, moderator_id, moderated_at, moderation_reason,
-         work_order_id, pest_type, location_context, injury_reported)
+         work_order_id, pest_type, location_context, injury_reported, estimated_count)
        VALUES ($1, $2, ST_MakePoint($4, $3)::geography, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-               $15, $16, $17, $18)
+               $15, $16, $17, $18, $19)
        ON CONFLICT (id) DO UPDATE SET
          reporter_id         = EXCLUDED.reporter_id,
          point               = EXCLUDED.point,
@@ -73,7 +73,8 @@ export class ReportRepository implements ReportStore {
          work_order_id       = EXCLUDED.work_order_id,
          pest_type           = EXCLUDED.pest_type,
          location_context    = EXCLUDED.location_context,
-         injury_reported     = EXCLUDED.injury_reported`,
+         injury_reported     = EXCLUDED.injury_reported,
+         estimated_count     = EXCLUDED.estimated_count`,
       [
         report.id,
         report.reporterId,
@@ -93,6 +94,7 @@ export class ReportRepository implements ReportStore {
         report.pestType, // 5.1.15
         report.locationContext, // 5.1.16
         report.injuryReported, // 5.1.17
+        report.estimatedCount,
       ],
     );
     return report;
@@ -309,6 +311,7 @@ export class ReportRepository implements ReportStore {
     report.pestType = (row.pest_type as PestType | null) ?? PestType.Mosquito;
     report.locationContext = (row.location_context as LocationContext | null) ?? null;
     report.injuryReported = row.injury_reported === true;
+    report.estimatedCount = row.estimated_count != null ? Number(row.estimated_count) : null;
     report.applyStatus(row.status as ReportStatus);
     return report;
   }

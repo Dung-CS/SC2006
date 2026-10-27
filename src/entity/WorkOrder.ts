@@ -8,12 +8,24 @@ import { AlertTrigger, ChangeClass, DeliveryOutcome, Driver, ExposureStatus, For
 
 export class WorkOrder {
   id!: Uuid;
-  clusterId!: Uuid;
-  /** 8.1.16 — the pest this work order addresses. 8.1.14 means it is never a Wildlife pest. */
-  pestType: PestType = PestType.Mosquito;
+  /**
+   * 8.1.2 — null when the target is a verified report outside any active cluster. At least one of
+   * `clusterId` and `sourceReportId` is always set (migration 011's CHECK).
+   */
+  clusterId!: Uuid | null;
+  /** Locality of the cluster or report where work is scheduled. */
+  location?: string;
+  /**
+   * 8.1.16 — the pest this work order addresses. 8.1.14 means it is never a Wildlife pest.
+   * Null only on a legacy row whose pest could not be recovered: shown as unknown and never
+   * assignable, because defaulting it to Mosquito would invent history.
+   */
+  pestType: PestType | null = PestType.Mosquito;
   assigneeId!: Uuid | null;
   /** 8.1.2 */
   sourceReportId!: Uuid | null;
+  /** Display only: the source report's own point, read through, never copied into work_order. */
+  targetPoint: GeoPoint | null = null;
   taskType!: TaskType;
   scheduledDate!: IsoDate;
   priority!: PriorityTier;
@@ -67,6 +79,17 @@ isOverdue(now: Date): boolean {
   // comparing it against a UTC one makes this answer false for the eight hours after
   // midnight SGT — exactly the hours in which an overnight backlog is being reviewed.
   return this.scheduledDate < singaporeDate(now);
+}
+
+/**
+ * Where `priority` came from. A cluster job carries its cluster's tier; a report-only job carries
+ * the unscored Medium default, or Critical when the report records a human injury (4.4.8).
+ */
+priorityBasis(): 'ClusterTier' | 'InjuryOverride' | 'UnscoredReportDefault' {
+  if (this.clusterId !== null) {
+    return 'ClusterTier';
+  }
+  return this.priority === PriorityTier.Critical ? 'InjuryOverride' : 'UnscoredReportDefault';
 }
 
 /** Verified and Cancelled — the state table gives them no outgoing transition. */

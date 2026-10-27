@@ -12,17 +12,22 @@
  * colour, so the information survives with the drawing off, on a printout, and for a reader who
  * cannot distinguish the fills.
  */
+import { useEffect, useState } from 'react';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
 import { Pill, statusTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
 import { SingaporeMap, MapCluster, MapMarker } from '../../components/SingaporeMap';
+import { PhotoCarousel } from '../../components/PhotoCarousel';
+import { Pagination, usePagination } from '../../components/Pagination';
+import { getClusterPhotos } from '../../lib/clusterVisuals';
+import { reportPhotoUrl } from '../../lib/reportVisuals';
 import { ScreenProps } from '../ScreenProps';
 
 interface Layers {
   clusters: MapCluster[];
-  reports: Array<{ reportId: string; type: string; status: string; latitude: number; longitude: number }>;
+  reports: Array<{ reportId: string; type: string; status: string; latitude: number; longitude: number; pestType?: string }>;
   savedLocations: Array<{
     savedLocationId: string;
     label: string;
@@ -33,10 +38,30 @@ interface Layers {
 }
 
 export function ResidentMapScreen(props: ScreenProps): JSX.Element {
+  const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
   const { state, value, retry } = useLoad<Layers>(props.api, '/api/map/layers', {
     isEmpty: (v) => v.clusters.length === 0,
     emptyMessage: 'There are no active dengue clusters in the current feed.',
   });
+
+  const clusterList = value?.clusters ?? [];
+  const clustersPaging = usePagination(clusterList, 5);
+
+  const reportList = value?.reports ?? [];
+  const reportsPaging = usePagination(reportList, 10);
+
+  // Synchronize pagination page when a cluster is selected on the map
+  useEffect(() => {
+    if (selectedClusterId) {
+      const index = clusterList.findIndex((c) => c.clusterId === selectedClusterId);
+      if (index !== -1) {
+        const targetPage = Math.floor(index / clustersPaging.pageSize) + 1;
+        if (targetPage !== clustersPaging.currentPage) {
+          clustersPaging.setCurrentPage(targetPage);
+        }
+      }
+    }
+  }, [selectedClusterId, clusterList, clustersPaging.pageSize]);
 
   // 9.1.3, 9.1.5 — the resident's own saved locations and the reports the server judged safe to
   // show them. Nothing is filtered here: what arrived is what they are permitted to see.
@@ -53,9 +78,13 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
       id: report.reportId,
       latitude: report.latitude,
       longitude: report.longitude,
-      title: report.type,
-      detail: `Report — ${report.status}`,
+      title:
+        report.pestType && report.pestType !== 'Mosquito'
+          ? `${label(report.pestType)} — ${label(report.type)}`
+          : label(report.type),
+      detail: `Report — ${label(report.status)}`,
       kind: 'report' as const,
+      pestType: report.pestType,
     })),
   ];
 
@@ -66,9 +95,17 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
       <StateView state={state} onRetry={retry}>
         <SingaporeMap
           label="resident-map"
+          basemap="Grey_HD"
           clusters={value?.clusters ?? []}
           markers={markers}
           size="short"
+          selectedClusterId={selectedClusterId}
+          onSelectCluster={(id) => setSelectedClusterId((prev) => (prev === id ? null : id))}
+          onSelectMarker={(m) => {
+            if (m.kind === 'report') {
+              props.onNavigate(`/reports/${m.id}`);
+            }
+          }}
           // 9.1.5 — open on the resident's own places when they have any. A resident opening this
           // screen is asking about their block, not about the country.
           focus={(value?.savedLocations ?? []).map((l) => [l.latitude, l.longitude] as [number, number])}
@@ -79,16 +116,44 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
           {/* `data-part="list"` is the card treatment the stylesheet already defines for exactly
               this shape — a list where each entry is a thing rather than a line. */}
           <ul data-part="list">
-            {(value?.clusters ?? []).map((cluster) => (
-              <li key={cluster.clusterId} data-tier={cluster.tier}>
-                <h3>{cluster.locality}</h3>
-                {/* 9.1.11, 11.7.5 — the tier in words. Colour, on the map above and in the pill
-                    around this text, is an addition to the label and never a replacement. */}
-                <p data-part="tier">{cluster.tierLabel}</p>
-                <p data-part="cases">{cluster.caseSize} case(s)</p>
+            {clustersPaging.pagedItems.map((cluster) => (
+              <li
+                key={cluster.clusterId}
+                data-tier={cluster.tier}
+                data-selected={selectedClusterId === cluster.clusterId ? 'true' : undefined}
+                className="cluster-card"
+                onClick={() => setSelectedClusterId((prev) => (prev === cluster.clusterId ? null : cluster.clusterId))}
+                tabIndex={0}
+                role="button"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelectedClusterId((prev) => (prev === cluster.clusterId ? null : cluster.clusterId));
+                  }
+                }}
+              >
+                <PhotoCarousel
+                  photos={getClusterPhotos(cluster)}
+                  aspectRatio="16 / 9"
+                  label={`Surveillance photos for ${cluster.locality}`}
+                />
+                <div className="cluster-card-content">
+                  <h3>{cluster.icon ? `${cluster.icon} ` : ''}{cluster.locality}</h3>
+                  {/* 9.1.11, 11.7.5 — the tier in words. Colour, on the map above and in the pill
+                      around this text, is an addition to the label and never a replacement. */}
+                  <p data-part="tier">{cluster.tierLabel}</p>
+                  <p data-part="cases">{cluster.caseSize} {cluster.countLabel ?? 'case(s)'}</p>
+                </div>
               </li>
             ))}
           </ul>
+          <Pagination
+            currentPage={clustersPaging.currentPage}
+            totalItems={clustersPaging.totalItems}
+            pageSize={clustersPaging.pageSize}
+            onPageChange={clustersPaging.setCurrentPage}
+            itemName="clusters"
+          />
         </section>
 
         {(value?.savedLocations ?? []).length === 0 ? null : (
@@ -122,32 +187,51 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
           </section>
         )}
 
-        {(value?.reports ?? []).length === 0 ? null : (
+        {reportList.length === 0 ? null : (
           <section data-part="reports">
             {/*
-              * Capped at ten. Forty-nine identical "Standing water — Verified" lines is not more
-              * information than ten of them; it is the same information, made unreadable, on the
-              * screen most likely to be held in one hand. The count is stated so the cap is a
-              * stated fact rather than a silent omission.
+              * Capped at ten per page with accessible pagination controls.
+              * Preserves test N8 expectation while allowing full traversal.
               */}
             <h2>Recent reports</h2>
             <p data-part="report-count">
-              {(value?.reports ?? []).length <= 10
-                ? `${(value?.reports ?? []).length} report(s) near you.`
-                : `Showing 10 of ${(value?.reports ?? []).length} reports. All of them are on the map above.`}
+              {reportList.length <= 10
+                ? `${reportList.length} report(s) near you.`
+                : `Showing 10 of ${reportList.length} reports. All of them are on the map above.`}
             </p>
             {/* 5.2.9 — a resident sees the markers anonymised; the server decided that, not this
                 screen, which is why nothing here strips a field. */}
             <ul data-cards>
-              {(value?.reports ?? []).slice(0, 10).map((report) => (
-                <li key={report.reportId}>
-                  <div data-part="card-head">
-                    <span>{label(report.type)}</span>
-                    <Pill tone={statusTone(report.status)}>{label(report.status)}</Pill>
+              {reportsPaging.pagedItems.map((report) => (
+                <li key={report.reportId} className="report-card">
+                  <div className="report-card-layout">
+                    <img
+                      src={reportPhotoUrl(report.type, report.pestType)}
+                      alt=""
+                      aria-hidden="true"
+                      className="report-card-thumb"
+                    />
+                    <div className="report-card-content">
+                      <div data-part="card-head">
+                        <span>
+                          {report.pestType && report.pestType !== 'Mosquito'
+                            ? `${label(report.pestType)} · ${label(report.type)}`
+                            : label(report.type)}
+                        </span>
+                        <Pill tone={statusTone(report.status)}>{label(report.status)}</Pill>
+                      </div>
+                    </div>
                   </div>
                 </li>
               ))}
             </ul>
+            <Pagination
+              currentPage={reportsPaging.currentPage}
+              totalItems={reportsPaging.totalItems}
+              pageSize={reportsPaging.pageSize}
+              onPageChange={reportsPaging.setCurrentPage}
+              itemName="reports"
+            />
           </section>
         )}
       </StateView>

@@ -88,7 +88,7 @@ const LABELS: Readonly<Record<string, string>> = {
   Rainfall: 'Rainfall readings',
   Forecast: 'Rainfall forecast',
   Geocoding: 'Address geocoding (OneMap)',
-  Observations: 'Wildlife observations',
+  Observations: 'Wildlife observations (iNaturalist)',
   OperatorRegistry: 'Vector control operators',
   Gravitrap: 'High-Aedes areas (Gravitrap)',
 

@@ -232,21 +232,30 @@ export class WorkOrderLifecycleController {
 
   /**
    * 8.3.9, 8.3.12. Completed → Verified, writes the treatment record, and triggers a rescore:
-   * 4.1.17 requires the next score to be lower, which is what closes the loop.
+   * 4.1.17 requires the next score to be lower, which is what closes the loop. Calling it here
+   * makes the demo beat immediate rather than waiting for the hourly cycle.
    */
   async verify(id: Uuid, by: Principal): Promise<TreatmentRecord> {
     const workOrder = await this.transition(id, WorkOrderStatus.Verified, by);
     const evidence = await this.workOrders.latestEvidence(id);
     const record = new TreatmentRecord();
+    // Null for a report-only job: its treatment belongs to the work order, never to a nearby cluster.
     record.clusterId = workOrder.clusterId;
     record.workOrderId = workOrder.id;
     record.taskType = workOrder.taskType;
+    record.pestType = workOrder.pestType;
     // 8.3.12 names the *completion* date, not the verification date: the treatment happened when
     // the crew did the work, and the recency driver in 4.1.15 measures from that.
     // In Singapore's calendar: the crew's day, not UTC's. A job completed at 1 am was being
     // stamped with the previous date and read as a day old the moment it was written.
     record.completionDate = singaporeDate(evidence?.completedAt ?? new Date());
-    return this.treatments.save(record);
+    const saved = await this.treatments.save(record);
+    // 8.5.3 — after the treatment is stored, so the rescore reads it. A report-only job has no
+    // cluster, and rescoring some other cluster for it would move a score nothing changed.
+    if (workOrder.clusterId !== null) {
+      await this.rescorer?.rescoreCluster(workOrder.clusterId);
+    }
+    return saved;
   }
 
   /**
@@ -260,6 +269,17 @@ export class WorkOrderLifecycleController {
 
   /** 8.3.10, 8.3.11. Completed → Rejected with a reason, and notifies the assigned crew member. */
   async rejectCompletion(id: Uuid, reason: string, by: Principal): Promise<WorkOrder> {
+    const workOrder = await this.require(id);
+    const from = workOrder.currentStatus();
+    if (!this.isTransitionPermitted(from, WorkOrderStatus.Rejected, by.role)) {
+      throw new TransitionRefused(
+        from,
+        WorkOrderStatus.Rejected,
+        workOrder.isTerminal()
+          ? `${from} is terminal`
+          : `the state table permits no ${from} to ${WorkOrderStatus.Rejected} move by a ${by.role}`,
+      );
+    }
     const evidence = await this.workOrders.latestEvidence(id);
     if (evidence === null) {
       throw new TransitionRefused(WorkOrderStatus.Completed, WorkOrderStatus.Rejected, 'there is no completion to reject');
@@ -280,10 +300,8 @@ export class WorkOrderLifecycleController {
       // 8.5.1, 8.5.2, 5.2.7 — close every linked report and tell the residents who filed them.
       // Before the rescore, not after: closing a report removes it from 5.2.5's count, and the
       // cycle that follows must see that removal, or the score keeps a driver for work now done.
+      // The rescore itself runs in `verify`, once the treatment record exists for it to read.
       await this.reports?.onWorkOrderVerified(workOrder.id);
-      // 8.5.3 — within one scoring cycle. Calling it here makes the demo beat immediate rather than
-      // waiting for the hourly cycle, which matters because 4.1.17 is the thing being shown.
-      await this.rescorer?.rescoreCluster(workOrder.clusterId);
     }
   }
 

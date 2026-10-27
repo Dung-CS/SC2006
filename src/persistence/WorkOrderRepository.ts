@@ -20,14 +20,19 @@ import { Database, Row } from './Database';
 import { WorkOrder } from '../entity/WorkOrder';
 import { CompletionEvidence } from '../entity/CompletionEvidence';
 import { TreatmentRecord } from '../entity/TreatmentRecord';
-import { IsoDate, Uuid } from '../entity/valueTypes';
-import { PriorityTier, TaskType, WorkOrderStatus } from '../entity/enums';
+import { GeoPoint, IsoDate, Uuid } from '../entity/valueTypes';
+import { PestType, PriorityTier, TaskType, WorkOrderStatus } from '../entity/enums';
 import { TreatmentRecordStore, WorkOrderStore } from '../ports/Stores';
 
-const COLUMNS = `
-  id, cluster_id, assignee_id, source_report_id, task_type, scheduled_date, priority,
-  instructions, status, started_at, created_at, verified_at, cancellation_reason,
-  issue_flag, issue_reason`;
+const SELECT_WORK_ORDERS = `
+  SELECT w.id, w.cluster_id, w.assignee_id, w.source_report_id, w.task_type, w.scheduled_date, w.priority,
+         w.instructions, w.status, w.started_at, w.created_at, w.verified_at, w.cancellation_reason,
+         w.issue_flag, w.issue_reason, w.pest_type,
+         COALESCE(c.locality, r.locality_binding, 'Singapore') AS location,
+         ST_Y(r.point::geometry) AS target_latitude, ST_X(r.point::geometry) AS target_longitude
+  FROM work_order w
+  LEFT JOIN cluster c ON c.id = w.cluster_id
+  LEFT JOIN report r ON r.id = w.source_report_id`;
 
 /** `WorkOrder.isTerminal()`, expressed once for SQL. The two must not drift. */
 const TERMINAL = `('Verified','Cancelled')`;
@@ -53,7 +58,7 @@ export class WorkOrderRepository implements WorkOrderStore {
   constructor(private readonly db: Database) {}
 
   async findById(id: Uuid): Promise<WorkOrder | null> {
-    const rows = await this.db.query(`SELECT ${COLUMNS} FROM work_order WHERE id = $1`, [id]);
+    const rows = await this.db.query(`${SELECT_WORK_ORDERS} WHERE w.id = $1`, [id]);
     return rows.length === 0 ? null : WorkOrderRepository.toWorkOrder(rows[0] as Row);
   }
 
@@ -63,10 +68,11 @@ export class WorkOrderRepository implements WorkOrderStore {
       `INSERT INTO work_order (
          id, cluster_id, assignee_id, source_report_id, task_type, scheduled_date, priority,
          instructions, status, started_at, created_at, verified_at, cancellation_reason,
-         issue_flag, issue_reason)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         issue_flag, issue_reason, pest_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT (id) DO UPDATE SET
          cluster_id          = EXCLUDED.cluster_id,
+         pest_type           = EXCLUDED.pest_type,
          assignee_id         = EXCLUDED.assignee_id,
          source_report_id    = EXCLUDED.source_report_id,
          task_type           = EXCLUDED.task_type,
@@ -95,6 +101,7 @@ export class WorkOrderRepository implements WorkOrderStore {
         workOrder.cancellationReason,
         workOrder.issueFlag,
         workOrder.issueReason,
+        workOrder.pestType,
       ],
     );
     return workOrder;
@@ -103,10 +110,21 @@ export class WorkOrderRepository implements WorkOrderStore {
   /** 8.1.11 — served by the partial index `work_order_cluster_open_idx`. */
   async findOpenForCluster(clusterId: Uuid): Promise<WorkOrder[]> {
     const rows = await this.db.query(
-      `SELECT ${COLUMNS} FROM work_order
-        WHERE cluster_id = $1 AND status NOT IN ${TERMINAL}
-        ORDER BY scheduled_date`,
+      `${SELECT_WORK_ORDERS}
+        WHERE w.cluster_id = $1 AND w.status NOT IN ${TERMINAL}
+        ORDER BY w.scheduled_date`,
       [clusterId],
+    );
+    return rows.map((r) => WorkOrderRepository.toWorkOrder(r));
+  }
+
+  /** 8.1.2 — served by the partial index `work_order_source_open_idx` (migration 011). */
+  async findOpenForReport(sourceReportId: Uuid): Promise<WorkOrder[]> {
+    const rows = await this.db.query(
+      `${SELECT_WORK_ORDERS}
+        WHERE w.source_report_id = $1 AND w.status NOT IN ${TERMINAL}
+        ORDER BY w.scheduled_date`,
+      [sourceReportId],
     );
     return rows.map((r) => WorkOrderRepository.toWorkOrder(r));
   }
@@ -114,7 +132,7 @@ export class WorkOrderRepository implements WorkOrderStore {
   /** 8.4.1 — a crew member sees only what is assigned to them. */
   async findForAssignee(assigneeId: Uuid): Promise<WorkOrder[]> {
     const rows = await this.db.query(
-      `SELECT ${COLUMNS} FROM work_order WHERE assignee_id = $1 ORDER BY scheduled_date`,
+      `${SELECT_WORK_ORDERS} WHERE w.assignee_id = $1 ORDER BY w.scheduled_date`,
       [assigneeId],
     );
     return rows.map((r) => WorkOrderRepository.toWorkOrder(r));
@@ -122,23 +140,23 @@ export class WorkOrderRepository implements WorkOrderStore {
 
   async findAllOpen(): Promise<WorkOrder[]> {
     const rows = await this.db.query(
-      `SELECT ${COLUMNS} FROM work_order WHERE status NOT IN ${TERMINAL} ORDER BY scheduled_date`,
+      `${SELECT_WORK_ORDERS} WHERE w.status NOT IN ${TERMINAL} ORDER BY w.scheduled_date`,
     );
     return rows.map((r) => WorkOrderRepository.toWorkOrder(r));
   }
 
   /** 2.3.4, 8.2.x — terminal ones included: a manager reviewing the week needs the evidence. */
   async findAll(): Promise<WorkOrder[]> {
-    const rows = await this.db.query(`SELECT ${COLUMNS} FROM work_order ORDER BY scheduled_date`);
+    const rows = await this.db.query(`${SELECT_WORK_ORDERS} ORDER BY w.scheduled_date`);
     return rows.map((r) => WorkOrderRepository.toWorkOrder(r));
   }
 
   /** 7.3.4 — verified inside the window, oldest first. */
   async findVerifiedSince(since: Date): Promise<WorkOrder[]> {
     const rows = await this.db.query(
-      `SELECT ${COLUMNS} FROM work_order
-        WHERE verified_at IS NOT NULL AND verified_at >= $1
-        ORDER BY verified_at`,
+      `${SELECT_WORK_ORDERS}
+        WHERE w.verified_at IS NOT NULL AND w.verified_at >= $1
+        ORDER BY w.verified_at`,
       [since],
     );
     return rows.map((r) => WorkOrderRepository.toWorkOrder(r));
@@ -219,7 +237,14 @@ export class WorkOrderRepository implements WorkOrderStore {
   private static toWorkOrder(row: Row): WorkOrder {
     const order = new WorkOrder();
     order.id = row.id as Uuid;
-    order.clusterId = row.cluster_id as Uuid;
+    order.clusterId = (row.cluster_id as Uuid | null) ?? null;
+    // Null stays null: an unresolved legacy pest is unknown, never Mosquito by default.
+    order.pestType = (row.pest_type as PestType | null) ?? null;
+    order.location = (row.location as string | null) ?? (row.locality as string | null) ?? undefined;
+    order.targetPoint =
+      row.target_latitude === null || row.target_latitude === undefined
+        ? null
+        : new GeoPoint(Number(row.target_latitude), Number(row.target_longitude));
     order.assigneeId = (row.assignee_id as Uuid | null) ?? null;
     order.sourceReportId = (row.source_report_id as Uuid | null) ?? null;
     order.taskType = row.task_type as TaskType;
@@ -245,10 +270,10 @@ export class TreatmentRecordRepository implements TreatmentRecordStore {
   async save(record: TreatmentRecord): Promise<TreatmentRecord> {
     record.id = record.id || randomUUID();
     await this.db.query(
-      `INSERT INTO treatment_record (id, cluster_id, work_order_id, task_type, completion_date)
-       VALUES ($1,$2,$3,$4,$5)
+      `INSERT INTO treatment_record (id, cluster_id, work_order_id, task_type, completion_date, pest_type)
+       VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (id) DO NOTHING`,
-      [record.id, record.clusterId, record.workOrderId, record.taskType, record.completionDate],
+      [record.id, record.clusterId, record.workOrderId, record.taskType, record.completionDate, record.pestType ?? null],
     );
     return record;
   }
@@ -261,19 +286,22 @@ export class TreatmentRecordRepository implements TreatmentRecordStore {
   /** Oldest first, matching the in-memory store: `latestForCluster` reads the last element. */
   async allForCluster(clusterId: Uuid): Promise<TreatmentRecord[]> {
     const rows = await this.db.query(
-      `SELECT id, cluster_id, work_order_id, task_type, completion_date FROM treatment_record
+      `SELECT id, cluster_id, work_order_id, task_type, completion_date, pest_type FROM treatment_record
         WHERE cluster_id = $1 ORDER BY completion_date`,
       [clusterId],
     );
-    return rows.map((r) => {
-      const record = new TreatmentRecord();
-      record.id = r.id as Uuid;
-      record.clusterId = r.cluster_id as Uuid;
-      record.workOrderId = r.work_order_id as Uuid;
-      record.taskType = r.task_type as TaskType;
-      record.completionDate = toIsoDate(r.completion_date);
-      return record;
-    });
+    return rows.map((r) => TreatmentRecordRepository.toRecord(r));
+  }
+
+  private static toRecord(r: Row): TreatmentRecord {
+    const record = new TreatmentRecord();
+    record.id = r.id as Uuid;
+    record.clusterId = (r.cluster_id as Uuid | null) ?? null;
+    record.workOrderId = r.work_order_id as Uuid;
+    record.taskType = r.task_type as TaskType;
+    record.completionDate = toIsoDate(r.completion_date);
+    record.pestType = (r.pest_type as PestType | null) ?? null;
+    return record;
   }
 
   /**
@@ -282,8 +310,15 @@ export class TreatmentRecordRepository implements TreatmentRecordStore {
    * is part of the port's behaviour: a cluster with no treatment enters the driver saturated, and
    * a store that returned 0 there would make an untreated cluster look freshly treated.
    */
-  async daysSinceLastTreatment(clusterId: Uuid, now: Date): Promise<number> {
-    const latest = await this.latestForCluster(clusterId);
+  async daysSinceLastTreatment(clusterId: Uuid, now: Date, pestType = PestType.Mosquito): Promise<number> {
+    // Same filter as the in-memory store: this pest, plus legacy records of unknown pest.
+    const rows = await this.db.query(
+      `SELECT id, cluster_id, work_order_id, task_type, completion_date, pest_type FROM treatment_record
+        WHERE cluster_id = $1 AND (pest_type IS NULL OR pest_type = $2)
+        ORDER BY completion_date DESC LIMIT 1`,
+      [clusterId, pestType],
+    );
+    const latest = rows.length === 0 ? null : TreatmentRecordRepository.toRecord(rows[0] as Row);
     if (latest === null) {
       return 90;
     }

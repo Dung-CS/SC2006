@@ -57,8 +57,46 @@ import { ObjectStorage, COMPLETION_EVIDENCE, REPORT_PHOTOS } from '../../ports/O
  */
 const TTL_SECONDS = 300;
 
-/** As `ObjectStorage.upload` mints them: a UUID and an extension, one path segment, no separators. */
-const KEY = /^[0-9a-f-]{36}\.(jpg|jpeg|png)$/i;
+/** As `ObjectStorage.upload` mints them: a UUID and an extension, or a curated sample photo key. */
+const KEY = /^([0-9a-f-]{36}|(evidence|sample)-[a-z0-9_-]+)\.(jpg|jpeg|png|webp)$/i;
+
+function resolveSamplePhotoUrl(key: string): string | null {
+  const lower = key.toLowerCase();
+  if (!lower.startsWith('evidence-') && !lower.startsWith('sample-')) {
+    return null;
+  }
+  if (lower.includes('rat')) {
+    return '/visuals/pests/rattus-norvegicus-brown-rat.jpg';
+  }
+  if (lower.includes('cockroach')) {
+    return '/visuals/pests/blattella-germanica-german-cockroach.jpg';
+  }
+  if (lower.includes('snake') || lower.includes('python')) {
+    return '/visuals/pests/reticulated-python-snake.jpg';
+  }
+  if (lower.includes('wasp') || lower.includes('bee') || lower.includes('hornet')) {
+    return '/visuals/pests/asian-hornet-wasp.webp';
+  }
+  if (lower.includes('crow') || lower.includes('pigeon') || lower.includes('myna')) {
+    return '/visuals/pests/corvus-splendens-house-crow-singapore.webp';
+  }
+  if (lower.includes('mosquito') || lower.includes('aedes')) {
+    return '/visuals/pests/aedes-mosquito.jpg';
+  }
+  if (lower.includes('standing-water')) {
+    return '/visuals/reports/standing-water.webp';
+  }
+  if (lower.includes('blocked-drain')) {
+    return '/visuals/reports/blocked-drain.webp';
+  }
+  if (lower.includes('refuse') || lower.includes('litter')) {
+    return '/visuals/reports/uncleared-refuse.jpg';
+  }
+  if (lower.includes('overgrown') || lower.includes('puddle') || lower.includes('veg')) {
+    return '/visuals/reports/overgrown-vegetation.webp';
+  }
+  return '/visuals/reports/standing-water.webp';
+}
 
 export class ImageRoutes extends RouteHandler {
   constructor(
@@ -100,6 +138,11 @@ export class ImageRoutes extends RouteHandler {
               error: 'that photograph is not part of this report',
               remedy: 'open the report again',
             });
+            return;
+          }
+          const sampleUrl = resolveSamplePhotoUrl(key);
+          if (sampleUrl !== null) {
+            res.json({ url: sampleUrl, expiresInSeconds: TTL_SECONDS });
             return;
           }
           await this.answer(res, REPORT_PHOTOS, key);

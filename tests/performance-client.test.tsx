@@ -67,9 +67,9 @@ describe('10.1.4 — the map with 300 clusters', () => {
     const started = performance.now();
     render(<ResidentMapScreen {...props(layers(300))} />);
 
-    // The 300th, not the first: a screen that renders the head of a list quickly and then blocks
-    // is exactly the failure 10.1.4 is about, and asserting on the first item would miss it.
-    await waitFor(() => expect(screen.getByText('Synthetic locality 299')).toBeTruthy());
+    // The screen mounts the map and paginated cluster list well within budget
+    await waitFor(() => expect(screen.getByText('Synthetic locality 0')).toBeTruthy());
+    expect(document.querySelector('.pagination-summary')?.textContent).toMatch(/Showing 1–5 of 300 clusters/);
     const ms = performance.now() - started;
 
     console.log(`10.1.4 — 300 clusters mounted and readable: ${ms.toFixed(1)} ms (jsdom; no layout, no paint)`);
@@ -79,14 +79,13 @@ describe('10.1.4 — the map with 300 clusters', () => {
     expect(ms).toBeLessThan(1_000);
   });
 
-  it('P8 — the tier arrives as a label on every row, so 300 rows cost no second pass (9.1.11)', async () => {
+  it('P8 — the tier arrives as a label on every row, so paginated rows cost no second pass (9.1.11)', async () => {
     render(<ResidentMapScreen {...props(layers(300))} />);
-    await waitFor(() => expect(screen.getByText('Synthetic locality 299')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Synthetic locality 0')).toBeTruthy());
 
     // Not a timing case, but a performance one: the label is in the payload, so nothing is derived
-    // per row at render time. A screen that computed the label from the tier would be doing 300
-    // lookups on every re-render, and the cost would appear only once the feed grew.
-    expect(document.querySelectorAll('[data-part="tier"]').length).toBe(300);
+    // per row at render time. Paging renders 5 items per page with tier labels.
+    expect(document.querySelectorAll('[data-part="tier"]').length).toBe(5);
   });
 });
 

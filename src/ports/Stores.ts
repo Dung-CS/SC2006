@@ -136,6 +136,8 @@ export interface WorkOrderStore {
   save(workOrder: WorkOrder): Promise<WorkOrder>;
   /** 8.1.11 — an open work order of the same task type on the same cluster blocks a second one. */
   findOpenForCluster(clusterId: Uuid): Promise<WorkOrder[]>;
+  /** 8.1.2, 8.1.11 — the open work orders raised from one source report. */
+  findOpenForReport(sourceReportId: Uuid): Promise<WorkOrder[]>;
   /** 8.4.1 — a crew member sees only what is assigned to them. */
   findForAssignee(assigneeId: Uuid): Promise<WorkOrder[]>;
   findAllOpen(): Promise<WorkOrder[]>;
@@ -170,8 +172,11 @@ export interface TreatmentRecordStore {
    * an untreated cluster enters the driver saturated, and a store that answered 0 would make a
    * cluster nobody has ever visited look freshly treated. Leaving it off the port let `server.ts`
    * call it on the concrete in-memory class, which is what a swap to Postgres would have broken.
+   *
+   * Counts treatments of `pestType` (default Mosquito, the tier A caller) plus legacy records of
+   * unknown pest, so a rat inspection cannot reset the dengue driver.
    */
-  daysSinceLastTreatment(clusterId: Uuid, now: Date): Promise<number>;
+  daysSinceLastTreatment(clusterId: Uuid, now: Date, pestType?: PestType): Promise<number>;
 }
 
 /**

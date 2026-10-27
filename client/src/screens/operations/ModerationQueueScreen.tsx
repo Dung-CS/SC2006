@@ -17,7 +17,9 @@ import { Freshness, QUEUE_REFRESH_MS, StateView } from '../../components/States'
 import { link } from '../../components/Link';
 import { Pill } from '../../components/Presentation';
 import { label } from '../../lib/labels';
+import { reportPhotoUrl } from '../../lib/reportVisuals';
 import { ReportType } from '../../../../src/entity/enums';
+import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
 
 interface QueuePayload {
@@ -46,13 +48,25 @@ export function ModerationQueueScreen(props: ScreenProps): JSX.Element {
     refreshMs: QUEUE_REFRESH_MS,
   });
 
+  const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(
+    value?.queue ?? [],
+    10,
+  );
+
   return (
     <section data-screen="ModQueue" data-requirement="11.2.14">
       <h1>Moderation</h1>
       <Freshness at={lastLoadedAt} everyMs={QUEUE_REFRESH_MS} onRefresh={retry} />
 
       <label htmlFor="type-filter">Filter by type</label>
-      <select id="type-filter" value={type} onChange={(event) => setType(event.target.value)}>
+      <select
+        id="type-filter"
+        value={type}
+        onChange={(event) => {
+          setType(event.target.value);
+          setCurrentPage(1);
+        }}
+      >
         <option value="">All types</option>
         {Object.values(ReportType).map((option) => (
           <option key={option} value={option}>
@@ -63,41 +77,59 @@ export function ModerationQueueScreen(props: ScreenProps): JSX.Element {
 
       <StateView state={state} onRetry={retry}>
         <ol data-part="queue" data-cards>
-          {(value?.queue ?? []).map((row) => (
-            <li key={row.reportId}>
-              <div data-part="card-head">
-                <a href={`/ops/moderation/${row.reportId}`} onClick={link(props, `/ops/moderation/${row.reportId}`)}>
-                  {label(row.type)}
-                </a>
-                {/*
-                  How long it has waited, as a pill that changes colour rather than as a sentence
-                  in body text. 5.3.1 exists so a stale corner of the queue is visible; "Waiting
-                  360 hour(s)", set in the same grey as everything around it, was not visible.
-                  Three days is the threshold because that is when a manager should be uneasy, and
-                  a fortnight is when the queue has stopped being worked at all.
-                */}
-                <Pill tone={row.waitingHours >= 336 ? 'bad' : row.waitingHours >= 72 ? 'warn' : 'neutral'}>
-                  {row.waitingHours < 24
-                    ? `waiting ${Math.round(row.waitingHours)} h`
-                    : `waiting ${Math.floor(row.waitingHours / 24)} d`}
-                </Pill>
-                {row.clusterId === null ? <Pill>outside every cluster</Pill> : null}
-              </div>
-              <p data-part="description">{row.description}</p>
-              <div data-part="card-meta">
-                <span data-part="locality">{row.localityBinding}</span>
-                <span data-part="meta">
-                  {row.photoCount} photograph{row.photoCount === 1 ? '' : 's'}
-                </span>
-                {row.corroborationCount > 0 ? (
-                  <span>
-                    {row.corroborationCount} corroboration{row.corroborationCount === 1 ? '' : 's'}
-                  </span>
-                ) : null}
+          {pagedItems.map((row) => (
+            <li key={row.reportId} className="queue-card">
+              <div className="queue-card-layout">
+                <img
+                  src={reportPhotoUrl(row.type)}
+                  alt=""
+                  aria-hidden="true"
+                  className="queue-card-thumb"
+                />
+                <div className="queue-card-content">
+                  <div data-part="card-head">
+                    <a href={`/ops/moderation/${row.reportId}`} onClick={link(props, `/ops/moderation/${row.reportId}`)}>
+                      {label(row.type)}
+                    </a>
+                    {/*
+                      How long it has waited, as a pill that changes colour rather than as a sentence
+                      in body text. 5.3.1 exists so a stale corner of the queue is visible; "Waiting
+                      360 hour(s)", set in the same grey as everything around it, was not visible.
+                      Three days is the threshold because that is when a manager should be uneasy, and
+                      a fortnight is when the queue has stopped being worked at all.
+                    */}
+                    <Pill tone={row.waitingHours >= 336 ? 'bad' : row.waitingHours >= 72 ? 'warn' : 'neutral'}>
+                      {row.waitingHours < 24
+                        ? `waiting ${Math.round(row.waitingHours)} h`
+                        : `waiting ${Math.floor(row.waitingHours / 24)} d`}
+                    </Pill>
+                    {row.clusterId === null ? <Pill>outside every cluster</Pill> : null}
+                  </div>
+                  <p data-part="description">{row.description}</p>
+                  <div data-part="card-meta">
+                    <span data-part="locality">{row.localityBinding}</span>
+                    <span data-part="meta">
+                      {row.photoCount} photograph{row.photoCount === 1 ? '' : 's'}
+                    </span>
+                    {row.corroborationCount > 0 ? (
+                      <span>
+                        {row.corroborationCount} corroboration{row.corroborationCount === 1 ? '' : 's'}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </li>
           ))}
         </ol>
+
+        <Pagination
+          currentPage={currentPage}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          itemName="reports"
+        />
       </StateView>
     </section>
   );

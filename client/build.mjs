@@ -15,7 +15,7 @@
  * "succeeded" while the code did not typecheck would be the worst of both.
  */
 import { build, context } from 'esbuild';
-import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -123,6 +123,14 @@ for (const { family, pkg, weights } of FONT_FACES) {
 }
 
 const ourCss = await readFile(resolve(here, 'styles.css'), 'utf8');
+
+// Validate CSS brace balance so unclosed rules cannot corrupt concatenated vendor bundles (e.g. leaflet.css)
+const openBraces = (ourCss.match(/{/g) || []).length;
+const closeBraces = (ourCss.match(/}/g) || []).length;
+if (openBraces !== closeBraces) {
+  throw new Error(`CSS brace balance error in styles.css: ${openBraces} opening vs ${closeBraces} closing braces. Unclosed rule would corrupt Leaflet styles.`);
+}
+
 await writeFile(
   resolve(outdir, 'styles.css'),
   `/* --- IBM Plex, self-hosted rather than fetched from Google Fonts --- */
@@ -144,7 +152,7 @@ ${leafletCss}
  */
 const publicDir = resolve(here, 'public');
 for (const name of await readdir(publicDir)) {
-  await copyFile(resolve(publicDir, name), resolve(outdir, name));
+  await cp(resolve(publicDir, name), resolve(outdir, name), { recursive: true });
 }
 
 /**

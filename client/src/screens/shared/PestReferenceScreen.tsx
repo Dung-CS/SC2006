@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
+import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
 
 interface PestRow {
@@ -30,6 +31,15 @@ interface PestRow {
   /** 8.1.14 — this pest is referred to an authority, not dispatched to a D-Fence crew. */
   referred: boolean;
 }
+
+const PEST_VISUALS: Record<string, { src: string; caption: string }> = {
+  Mosquito: { src: '/visuals/pests/aedes-mosquito.jpg', caption: 'Aedes aegypti' },
+  Rat: { src: '/visuals/pests/rattus-norvegicus-brown-rat.jpg', caption: 'Rattus norvegicus' },
+  Snake: { src: '/visuals/pests/reticulated-python-snake.jpg', caption: 'Reticulated python' },
+  BeeWasp: { src: '/visuals/pests/asian-hornet-wasp.webp', caption: 'Asian hornet / wasp' },
+  Cockroach: { src: '/visuals/pests/blattella-germanica-german-cockroach.jpg', caption: 'German cockroach' },
+  HouseCrow: { src: '/visuals/pests/corvus-splendens-house-crow-singapore.webp', caption: 'Corvus splendens' },
+};
 
 /** 10.5.1 — the data dictionary's identifiers, spaced for reading. Not renamed, only spaced. */
 function readable(pestType: string): string {
@@ -49,6 +59,11 @@ export function PestReferenceScreen(props: ScreenProps): JSX.Element {
     readable(p.pestType).toLowerCase().includes(query.trim().toLowerCase()),
   );
 
+  const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(
+    rows,
+    10,
+  );
+
   return (
     <section data-screen="PestReference" data-requirement="11.2.27">
       <h1>Which pest, and who handles it</h1>
@@ -64,7 +79,10 @@ export function PestReferenceScreen(props: ScreenProps): JSX.Element {
             id="pest-filter"
             type="search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCurrentPage(1);
+            }}
             data-action="filter"
           />
         </p>
@@ -79,9 +97,32 @@ export function PestReferenceScreen(props: ScreenProps): JSX.Element {
             </tr>
           </thead>
           <tbody>
-            {rows.map((pest) => (
-              <tr key={pest.pestType} data-pest={pest.pestType} data-referred={pest.referred}>
-                <td>{readable(pest.pestType)}</td>
+            {pagedItems.map((pest) => {
+              const visual = PEST_VISUALS[pest.pestType];
+              return (
+                <tr key={pest.pestType} data-pest={pest.pestType} data-referred={pest.referred}>
+                  <td data-cell="pest">
+                    <div data-part="pest-ident">
+                      {visual !== undefined ? (
+                        <img
+                          src={visual.src}
+                          alt={visual.caption}
+                          className="pest-thumbnail"
+                          loading="lazy"
+                          width="44"
+                          height="44"
+                        />
+                      ) : (
+                        <span className="pest-thumbnail-placeholder" aria-hidden="true" />
+                      )}
+                      <div>
+                        <span className="pest-name">{readable(pest.pestType)}</span>
+                        {visual !== undefined ? (
+                          <small className="pest-caption">{visual.caption}</small>
+                        ) : null}
+                      </div>
+                    </div>
+                  </td>
                 <td>
                   {pest.authority}
                   {/* 8.1.14 in words. A resident should not discover only after filing that we do
@@ -111,9 +152,18 @@ export function PestReferenceScreen(props: ScreenProps): JSX.Element {
                         : 'Logged and monitored'}
                 </td>
               </tr>
-            ))}
+            );
+          })}
           </tbody>
         </table>
+
+        <Pagination
+          currentPage={currentPage}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          itemName="pests"
+        />
 
         {rows.length === 0 ? (
           <p role="status" data-part="no-match">

@@ -44,6 +44,7 @@ export function useLoad<T>(
      * is a p95 on a B1 instance shared with the ingestion cycle.
      */
     refreshMs?: number;
+    allowForbidden?: boolean;
   } = {},
 ): Loaded<T> {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
@@ -68,14 +69,18 @@ export function useLoad<T>(
   useEffect(() => {
     let live = true;
     setState({ kind: 'loading' });
-    void api.load<T>(path, optionsRef.current.isEmpty, optionsRef.current.emptyMessage).then((result) => {
-      if (!live) {
-        return;
-      }
-      setState(result.state);
-      setValue(result.value);
-      setLastLoadedAt(new Date());
-    });
+    void api
+      .load<T>(path, optionsRef.current.isEmpty, optionsRef.current.emptyMessage, {
+        allowForbidden: optionsRef.current.allowForbidden,
+      })
+      .then((result) => {
+        if (!live) {
+          return;
+        }
+        setState(result.state);
+        setValue(result.value);
+        setLastLoadedAt(new Date());
+      });
     return () => {
       live = false;
     };

@@ -16,7 +16,8 @@ import { ApiError } from '../../lib/ApiClient';
 import { Field, field, FormField } from '../../components/Field';
 import { evaluate, formIsValid, maxLength, required } from '../../components/FieldValidation';
 import { link } from '../../components/Link';
-import { TaskType } from '../../../../src/entity/enums';
+import { PestType, TaskType } from '../../../../src/entity/enums';
+import { label } from '../../lib/labels';
 import { ScreenProps } from '../ScreenProps';
 
 const INSTRUCTIONS_MAX = 500;
@@ -30,26 +31,29 @@ interface Duplicate {
 
 export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
   const query = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
+  const sourceReportId = query.get('sourceReportId');
   const [clusterId, setClusterId] = useState<FormField>(field(query.get('clusterId') ?? ''));
-  const [taskType, setTaskType] = useState<string>(query.get('taskType') ?? TaskType.Fogging);
+  const [taskType, setTaskType] = useState<string>(query.get('taskType') ?? (sourceReportId === null ? TaskType.Fogging : TaskType.Inspection));
+  const queryPestType = Object.values(PestType).find((pest) => pest === query.get('pestType'));
+  const [pestType, setPestType] = useState<PestType>(queryPestType ?? PestType.Mosquito);
   const [scheduledDate, setScheduledDate] = useState<FormField>(field(query.get('date') ?? ''));
   const [instructions, setInstructions] = useState<FormField>(field());
   const [failure, setFailure] = useState<{ cause: string; remedy: string } | null>(null);
   const [duplicate, setDuplicate] = useState<Duplicate | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const clusterRules = [required('Cluster')];
+  const clusterRules = sourceReportId === null ? [required('Cluster')] : [];
   const dateRules = [required('Scheduled date')];
   const instructionRules = [maxLength(INSTRUCTIONS_MAX, '8.1.5')];
   const valid = formIsValid([
-    evaluate(clusterId.value, clusterRules),
+    ...(sourceReportId === null ? [evaluate(clusterId.value, clusterRules)] : []),
     evaluate(scheduledDate.value, dateRules),
     evaluate(instructions.value, instructionRules),
   ]);
 
   async function submit(event: { preventDefault: () => void }): Promise<void> {
     event.preventDefault();
-    setClusterId((f) => ({ ...f, touched: true }));
+    if (sourceReportId === null) setClusterId((f) => ({ ...f, touched: true }));
     setScheduledDate((f) => ({ ...f, touched: true }));
     if (!valid || busy) {
       return;
@@ -59,11 +63,12 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
     setDuplicate(null);
     try {
       const created = await props.api.post<{ id: string }>('/api/ops/work-orders', {
-        clusterId: clusterId.value.trim(),
+        ...(sourceReportId === null ? { clusterId: clusterId.value.trim() } : {}),
         taskType,
+        ...(sourceReportId === null || queryPestType !== undefined ? { pestType } : {}),
         scheduledDate: scheduledDate.value,
         instructions: instructions.value.trim(),
-        ...(query.get('sourceReportId') === null ? {} : { sourceReportId: query.get('sourceReportId') }),
+        ...(sourceReportId === null ? {} : { sourceReportId }),
       });
       props.onNavigate(`/ops/work-orders/${created.id}`);
     } catch (error) {
@@ -86,7 +91,7 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
     <section data-screen="WOCreate" data-requirement="11.2.17">
       <h1>New work order</h1>
       <form onSubmit={submit} noValidate>
-        <Field
+        {sourceReportId === null ? <Field
           id="clusterId"
           label="Cluster"
           value={clusterId.value}
@@ -94,7 +99,9 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
           rules={clusterRules}
           hint="Pre-filled when you arrive from the dispatch list or a cluster."
           onChange={(v) => setClusterId({ value: v, touched: clusterId.touched })}
-        />
+        /> : (
+          <p data-part="report-target">This work order will target verified report {sourceReportId}. Its recorded location and pest type are the source of truth.</p>
+        )}
 
         <label htmlFor="taskType">Task</label>
         <select id="taskType" value={taskType} onChange={(event) => setTaskType(event.target.value)}>
@@ -104,6 +111,21 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
             </option>
           ))}
         </select>
+
+        {sourceReportId === null ? (
+          <>
+            <label htmlFor="pestType">Pest</label>
+            <select id="pestType" value={pestType} onChange={(event) => setPestType(event.target.value as PestType)}>
+              {Object.values(PestType).map((option) => (
+                <option key={option} value={option}>
+                  {label(option)}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <p data-part="report-pest">Pest type: {queryPestType === undefined ? 'taken from the verified report' : label(queryPestType)}.</p>
+        )}
 
         <Field
           id="scheduledDate"
