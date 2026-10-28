@@ -13,7 +13,7 @@
  * 3. **Authorisation happens here, not only at the route** (2.3.4). The route calls it too; putting
  *    it in the control class means a second caller — a scheduled export, a test — cannot bypass it.
  */
-import { PriorityTier, Driver, SourceKind, Role } from '../entity/enums';
+import { PriorityTier, Driver, SourceKind, Role, PestType } from '../entity/enums';
 import { Uuid } from '../entity/valueTypes';
 import { Cluster } from '../entity/Cluster';
 import { PriorityScore } from '../entity/PriorityScore';
@@ -125,7 +125,7 @@ export class DashboardController {
     // difference, it is two different questions answered under one heading.
     const activeIds = new Set(active.map((c) => c.id));
     for (const score of latest) {
-      if (activeIds.has(score.clusterId)) {
+      if (activeIds.has(score.clusterId) && (score.pestType ?? PestType.Mosquito) === PestType.Mosquito) {
         tierDistribution[score.tier] += 1;
       }
     }
@@ -168,7 +168,8 @@ export class DashboardController {
     }
 
     let rows = latest
-      .filter((score) => byId.has(score.clusterId))
+      // Dengue case counts and boundaries belong only to mosquito scores.
+      .filter((score) => byId.has(score.clusterId) && (score.pestType ?? PestType.Mosquito) === PestType.Mosquito)
       .map((score) =>
         DashboardController.toRow(
           score,

@@ -153,6 +153,7 @@ describe('The map on a screen — §11.2.5, §11.2.12', () => {
     await waitFor(() => expect(document.querySelector('[data-part="resident-map"]')).toBeTruthy());
     expect(document.querySelector('[data-part="tier"]')?.textContent).toBe('High priority');
     expect(screen.getByText('61 case(s)')).toBeTruthy();
+    expect(document.querySelector('.photo-carousel')).toBeNull();
     // 9.1.5 — the saved location is rendered from `label`/`exposureStatus`, the field names the
     // server actually sends. It used to read `name`/`status`, which no payload has ever carried,
     // so every saved location rendered as " — " on this screen.

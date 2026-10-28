@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.13 · drafted 2026-09-02, revised 2026-10-28 · status: DRAFT for team review
+Version 0.14 · drafted 2026-09-02, revised 2026-10-28 · status: DRAFT for team review
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -598,10 +598,10 @@ separate validation questions.)*
 - **7.2.7** The system shall open the cluster detail view when a row is selected.
 - **7.2.8** The system shall mark every row whose score is DEGRADED.
 - **7.2.9** The system shall name the excluded driver on every row marked under 7.2.8. *(Split from 7.2.8 in v0.3 for atomicity.)*
-- **7.2.10** The priority table shall display the pest type and evidence tier of every row. *(Added in v0.9.)*
-- **7.2.11** The system shall allow the priority table to be filtered by pest type. *(Added in v0.9.)*
-- **7.2.12** The system shall allow the priority table to be filtered by pest class. *(Added in v0.9.)*
-- **7.2.13** The system shall present rows of every pest type in one ranking by default, rather than in a separate ranking per pest type. *(Added in v0.9. One comparable queue across all pests is the purpose of the model in `PEST-PRIORITY-MODEL.md`; a per-pest view is a filter applied to it, not the default.)*
+- **7.2.10** The dengue-cluster priority table shall contain only mosquito scores, so each feed cluster and its dengue case count appear once. Non-mosquito scores shall remain available to the all-pest dispatch queue.
+- **7.2.11** Pest-type distinctions shall be retained in the all-pest dispatch queue; a dengue-cluster table shall not relabel other pests as mosquitoes.
+- **7.2.12** The dengue-cluster table shall use mosquito scores for its priority-tier distribution, so the distribution agrees with the active dengue-cluster count.
+- **7.2.13** The dispatch queue shall retain the unified priority order across supported pest types. The dengue-cluster table shall present the mosquito subset of stored scores without duplicating dengue cases for other pest scores.
 - **7.2.14** The system shall distinguish every row in the Critical tier from every other row by a visual treatment that does not rely on colour alone. *(Added in v0.9. Traces to 10.5.x and 11.7.x on accessibility.)*
 - **7.2.15** The priority table shall display, for each row, only the drivers available to that row's evidence tier. *(Added in v0.9. The v0.8 column set in 7.2.2 names case size and rainfall, which are empty for every pest outside tier A.)*
 
@@ -936,6 +936,8 @@ can be packed together in three dimensions. The planner makes no exact packing g
 - **9.1.15** The system shall open the Resident's map on that Resident's own saved locations when they have any, and on the extent of the active clusters otherwise. *(Added in v0.7. A resident opens this screen to ask about their block; an island-wide frame answers a question nobody asked.)*
 - **9.1.16** The system shall continue to present every fact in 9.1.1 to 9.1.5 as text on the same screen, so that the information survives without the drawing. *(Added in v0.7 to make explicit what 11.7.5 already implies, because "we have a map now" is exactly the argument under which a textual record gets deleted.)*
 - **9.1.17** The report-hotspot map shall derive report priority from the shared triage policy used by dispatch candidates under 8.9.27.
+- **9.1.18** Externally supplied cluster boundaries and case counts shall be preserved. A priority score shall not generate a pest-cluster boundary, animal count or sighting count at a dengue-cluster centre. Retired generated-cluster URLs shall return a clear not-found response after authorisation.
+- **9.1.19** The Operations, Resident map and cluster-detail screens shall not present generic reference photographs as surveillance evidence for a named cluster. Actual uploaded report photographs and explicitly labelled general pest-reference content shall remain available.
 
 ### 11.9 The visual design
 
@@ -1362,6 +1364,12 @@ Requirements are written against these sources. Verification status is from
 ---
 
 # 14. Revision history and review dispositions
+
+**v0.14 (2026-10-28)** - preserve genuine external cluster data and remove unsupported duplicate mosquito presentations.
+
+- The dengue-cluster priority table and tier distribution now use mosquito scores only; other pest scores remain in the all-pest dispatch path. Removed generated surveillance circles, score-derived animal counts and their fabricated detail panels. Retired generated IDs return an authorised 404.
+- Removed generic cluster-photo carousels from the Operations, Resident map and cluster-detail screens. Actual source boundaries, case counts, observations, reports and uploaded report photographs are preserved.
+- Regression coverage: one source cluster plus twelve other pest scores yields one mosquito cluster/table row; source scores remain available and mixed-pest dispatch continues to pass. Database integration tests remain explicitly disabled for this change.
 
 **v0.13 (2026-10-28)** - reduce dispatch-map clutter at Yen Kit's request and preserve user zoom during polling.
 

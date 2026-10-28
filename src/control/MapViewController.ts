@@ -145,6 +145,8 @@ function getPestVisual(pestType: string): { emoji: string; label: string; countL
   }
 }
 
+export class MapClusterNotFound extends Error {}
+
 export class MapViewController {
   constructor(
     private readonly ac: AccessControlService,
@@ -181,7 +183,6 @@ export class MapViewController {
       .map((s) => [s.localityId || s.clusterId, s]));
     const shapes: ClusterShape[] = [];
     const activeClusters = await this.clusters.findActive();
-    const clusterById = new Map(activeClusters.map((c) => [c.id, c]));
 
     for (const cluster of activeClusters) {
       const ring = cluster.boundary?.rings[0] ?? [];
@@ -202,38 +203,8 @@ export class MapViewController {
       });
     }
 
-    const nonMosquitoScores = latestScores.filter(
-      (s) => s.pestType && s.pestType !== PestType.Mosquito,
-    );
-    for (const s of nonMosquitoScores) {
-      const cluster = clusterById.get(s.localityId || s.clusterId) ?? (await this.clusters.findById(s.localityId || s.clusterId));
-      if (!cluster?.boundary?.rings[0]?.length) {
-        continue;
-      }
-      const visual = getPestVisual(s.pestType);
-      const centroid = cluster.boundary.centroid();
-      const ring = circleRing(centroid.latitude, centroid.longitude, 280);
-
-      const obsContrib = s.contributions?.find(
-        (c) =>
-          c.driver === Driver.ExternalObservationDensity ||
-          c.driver === Driver.ReportVelocity ||
-          c.driver === Driver.VerifiedOpenReportCount,
-      );
-      const count = obsContrib?.rawValue ? Math.round(obsContrib.rawValue) : Math.max(1, Math.round(s.score / 10));
-
-      shapes.push({
-        clusterId: `inat-${s.clusterId}-${s.pestType}`,
-        locality: `${cluster.locality} (${visual.label} Surveillance)`,
-        ring,
-        tier: s.tier,
-        tierLabel: `${s.tier} priority`,
-        caseSize: count,
-        pestType: s.pestType,
-        icon: visual.emoji,
-        countLabel: visual.countLabel,
-      });
-    }
+    // Scores do not establish a pest boundary or count. Preserve source observations without
+    // inventing circles at dengue centroids or turning priority scores into animal counts.
 
     if (this.reports !== null) {
       for (const group of await this.reportGroups(latestScores)) {
@@ -367,38 +338,7 @@ export class MapViewController {
     await this.ac.authorise(by, 'cluster:read', { kind: 'cluster', id: clusterId });
 
     if (clusterId.startsWith('inat-')) {
-      const parts = clusterId.split('-');
-      const pestType = parts[parts.length - 1] ?? '';
-      const localityId = parts.slice(1, -1).join('-');
-      const cluster = await this.clusters.findById(localityId);
-      const locality = cluster?.locality ?? 'Singapore';
-      const visual = getPestVisual(pestType);
-      const score = (await this.scores.latest()).find(
-        (s) => (s.clusterId === localityId || s.localityId === localityId) && s.pestType === pestType,
-      ) ?? null;
-      const isManager = by.role === Role.OperationsManager;
-      const obsContrib = score?.contributions?.find(
-        (c) =>
-          c.driver === Driver.ExternalObservationDensity ||
-          c.driver === Driver.ReportVelocity ||
-          c.driver === Driver.VerifiedOpenReportCount,
-      );
-      const count = obsContrib?.rawValue ? Math.round(obsContrib.rawValue) : Math.max(1, Math.round((score?.score ?? 50) / 10));
-
-      return {
-        clusterId,
-        locality: `${locality} (${visual.label} Surveillance)`,
-        caseSize: count,
-        score: score?.score ?? null,
-        tier: score?.tier ?? PriorityTier.Medium,
-        breakdown: isManager ? (score?.breakdown() ?? []) : [],
-        isDegraded: score?.isDegraded ?? false,
-        excludedDrivers: score?.excludedDrivers ?? [],
-        openReports: await this.openReportCount(localityId),
-        openWorkOrders: [],
-        series: [],
-        trajectory: Trajectory.Stable,
-      };
+      throw new MapClusterNotFound('This generated surveillance cluster has been removed.');
     }
 
     if (clusterId.startsWith('pest-')) {

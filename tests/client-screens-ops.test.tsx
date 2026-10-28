@@ -144,6 +144,7 @@ describe('Operations Dashboard — §11.2.12, §7.1.x, §7.2.x, §1.4.4', () => 
     // The score is the stored one, printed as given — nothing here recomputes it (7.2.1).
     expect(screen.getByText('65.2')).toBeTruthy();
     expect(screen.getByText('+3')).toBeTruthy();
+    expect(document.querySelector('.photo-carousel')).toBeNull(); // Reference photos are not site evidence.
   });
 });
 
@@ -268,6 +269,8 @@ describe('Dispatch, clusters and work orders — §11.2.16, §11.2.13, §11.2.17
 
     await waitFor(() => expect(screen.getByText('0.35')).toBeTruthy());
     expect(screen.queryByText('0.29')).toBeNull();
+    expect(screen.queryByText('Site surveillance & habitat photographs')).toBeNull();
+    expect(document.querySelector('.photo-carousel')).toBeNull();
   });
 
   it('W3 — a duplicate refusal offers the order that blocked it (8.1.12)', async () => {

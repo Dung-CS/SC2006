@@ -20,7 +20,7 @@ import { Cluster } from '../src/entity/Cluster';
 import { PriorityScore } from '../src/entity/PriorityScore';
 import { DriverContribution } from '../src/entity/DriverContribution';
 import { PremisesMix } from '../src/entity/valueTypes';
-import { Driver, PriorityTier, Role, SourceKind } from '../src/entity/enums';
+import { Driver, PriorityTier, Role, SourceKind, PestType } from '../src/entity/enums';
 
 const AT = new Date('2026-09-03T04:00:00Z');
 
@@ -152,6 +152,21 @@ describe('DashboardController — §7', () => {
     // And week-over-week stays null until seven days of history exist, rather than comparing
     // against whatever happens to be the oldest row.
     expect(overview.weekOverWeek.totalActiveCases).toBeNull();
+  });
+
+  it('does not repeat dengue cluster cases and tiers for other pest scores at the same locality', async () => {
+    const mosquitoScores = await scores.latest();
+    const others = Object.values(PestType).filter((pest) => pest !== PestType.Mosquito).slice(0, 12).map((pest) => {
+      const other = score(mosquitoScores[0]!.clusterId, 95, PriorityTier.Critical);
+      other.pestType = pest;
+      return other;
+    });
+    await scores.saveAll([...mosquitoScores, ...others]);
+    const rows = await dashboard.buildPriorityTable(manager);
+    expect(rows).toHaveLength(3);
+    expect(rows.filter((row) => row.clusterId === mosquitoScores[0]!.clusterId)).toHaveLength(1);
+    expect((await dashboard.buildOverview(manager)).tierDistribution).toEqual({ Critical: 0, High: 1, Medium: 1, Low: 1 });
+    expect(await scores.latest()).toHaveLength(15); // Source scores remain available to dispatch.
   });
 
   it('D3 — a Resident cannot build the dashboard, even calling the controller directly (2.3.3)', async () => {

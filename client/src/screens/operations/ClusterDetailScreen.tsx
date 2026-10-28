@@ -17,8 +17,6 @@ import { StateView, StatTile } from '../../components/States';
 import { link } from '../../components/Link';
 import { Pill, Sparkline, statusTone, tierTone } from '../../components/Presentation';
 import { driverHelp, driverLabel, label, withUnit } from '../../lib/labels';
-import { PhotoCarousel } from '../../components/PhotoCarousel';
-import { getClusterPhotos } from '../../lib/clusterVisuals';
 import { ScreenProps } from '../ScreenProps';
 
 interface ClusterDetailPayload {
@@ -97,20 +95,6 @@ export function ClusterDetailScreen(props: ScreenProps): JSX.Element {
                 This score is degraded. Excluded drivers: {value.excludedDrivers.map(driverLabel).join(', ')}.
               </p>
             ) : null}
-
-            <section data-part="surveillance" className="cluster-surveillance-card">
-              <h2>Site surveillance & habitat photographs</h2>
-              <PhotoCarousel
-                photos={getClusterPhotos({
-                  clusterId: value.clusterId,
-                  locality: value.locality,
-                  tier: value.tier ?? undefined,
-                  caseSize: value.caseSize,
-                })}
-                aspectRatio="21 / 9"
-                label={`Habitat surveillance photos for ${value.locality}`}
-              />
-            </section>
 
             <section data-part="breakdown">
               <h2>How this score was reached</h2>

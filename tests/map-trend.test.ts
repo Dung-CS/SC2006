@@ -29,6 +29,7 @@ import { InMemorySavedLocationStore } from '../src/persistence/memory/InMemoryLo
 import { InMemoryWorkOrderStore } from '../src/persistence/memory/InMemoryWorkOrderStores';
 import { Cluster } from '../src/entity/Cluster';
 import { ClusterSnapshot } from '../src/entity/ClusterSnapshot';
+import { PriorityScore } from '../src/entity/PriorityScore';
 import { Report } from '../src/entity/Report';
 import { SavedLocation } from '../src/entity/SavedLocation';
 import { WorkOrder } from '../src/entity/WorkOrder';
@@ -46,6 +47,8 @@ import {
   WorkOrderStatus,
 } from '../src/entity/enums';
 import { Principal } from '../src/control/Principal';
+import { MapRoutes } from '../src/boundary/http/MapRoutes';
+import type { Response } from '../src/boundary/http/RouteHandler';
 
 const MANAGER = principalFor(Role.OperationsManager, 'manager-1');
 const RESIDENT = new Principal('resident-1', Role.Resident, 'session-r1');
@@ -63,6 +66,7 @@ interface Fixture {
   map: MapViewController;
   trends: TrendAnalyser;
   clusters: InMemoryClusterStore;
+  scores: InMemoryPriorityScoreStore;
   reports: InMemoryReportStore;
   workOrders: InMemoryWorkOrderStore;
   locations: InMemorySavedLocationStore;
@@ -106,6 +110,7 @@ async function fixture(): Promise<Fixture> {
     map: new MapViewController(ac, clusters, scores, trends, reports, workOrders, locations),
     trends,
     clusters,
+    scores,
     reports,
     workOrders,
     locations,
@@ -255,6 +260,36 @@ describe('Map layers — §9.1.1 to §9.1.6', () => {
   let f: Fixture;
   beforeEach(async () => {
     f = await fixture();
+  });
+
+  it('keeps one genuine Ho Ching mosquito shape and does not invent clusters from twelve other pest scores', async () => {
+    const locality = await f.clusters.findById(f.clusterId);
+    locality!.locality = 'Ho Ching Rd / Kang Ching Rd / Tah Ching Rd / Yuan Ching Rd';
+    locality!.caseSize = 99;
+    const mosquito = (await f.scores.latest())[0]!;
+    const others = Object.values(PestType).filter((pest) => pest !== PestType.Mosquito).slice(0, 12).map((pest) => {
+      const other = new PriorityScore();
+      Object.assign(other, { clusterId: f.clusterId, localityId: f.clusterId, pestType: pest,
+        computedAt: mosquito.computedAt, score: 95, tier: PriorityTier.Critical });
+      return other;
+    });
+    await f.scores.saveAll([mosquito, ...others]);
+    for (const principal of [MANAGER, RESIDENT, CREW]) {
+      const shapes = (await f.map.layers(principal)).clusters;
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0]).toMatchObject({ clusterId: f.clusterId, pestType: 'Mosquito', caseSize: 99, countLabel: 'cases' });
+    }
+    const retiredId = `inat-${f.clusterId}-${others[0]!.pestType}`;
+    await expect(f.map.clusterDetail(retiredId, MANAGER)).rejects.toThrow(/removed/);
+    const routes = new MapRoutes(new AccessControlService(new AccessPolicy(), new InMemoryAuditStore()), f.map);
+    routes.useResolver({ resolve: async () => MANAGER });
+    let status = 200;
+    let body: unknown;
+    const response: Response = { status(code) { status = code; return this; }, json(value) { body = value; }, text() {} };
+    await routes.handle({ headers: { authorization: 'Bearer manager' }, params: { route: '/api/map/clusters/:id', id: retiredId }, body: null }, response);
+    expect(status).toBe(404);
+    expect(body).toMatchObject({ error: expect.stringContaining('removed') });
+    expect(await f.scores.latest()).toHaveLength(13);
   });
 
   it('uses the shared report triage for both hotspot polygons and their details', async () => {

@@ -19,9 +19,7 @@ import { link } from '../../components/Link';
 import { Pill, statusTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
 import { SingaporeMap, MapCluster, MapMarker } from '../../components/SingaporeMap';
-import { PhotoCarousel } from '../../components/PhotoCarousel';
 import { Pagination, usePagination } from '../../components/Pagination';
-import { getClusterPhotos } from '../../lib/clusterVisuals';
 import { reportPhotoUrl } from '../../lib/reportVisuals';
 import { ScreenProps } from '../ScreenProps';
 
@@ -132,11 +130,6 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
                   }
                 }}
               >
-                <PhotoCarousel
-                  photos={getClusterPhotos(cluster)}
-                  aspectRatio="16 / 9"
-                  label={`Surveillance photos for ${cluster.locality}`}
-                />
                 <div className="cluster-card-content">
                   <h3>{cluster.icon ? `${cluster.icon} ` : ''}{cluster.locality}</h3>
                   {/* 9.1.11, 11.7.5 — the tier in words. Colour, on the map above and in the pill

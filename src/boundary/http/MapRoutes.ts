@@ -12,7 +12,7 @@
  */
 import { RouteHandler, Request, Response } from './RouteHandler';
 import { AccessControlService } from '../../control/AccessControlService';
-import { MapViewController } from '../../control/MapViewController';
+import { MapViewController, MapClusterNotFound } from '../../control/MapViewController';
 
 export class MapRoutes extends RouteHandler {
   constructor(
@@ -40,6 +40,10 @@ export class MapRoutes extends RouteHandler {
           res.status(404).json({ error: 'no such route', remedy: 'check the path' });
       }
     } catch (error) {
+      if (error instanceof MapClusterNotFound) {
+        res.status(404).json({ error: error.message, remedy: 'Select an active source-backed cluster from the map.' });
+        return;
+      }
       this.fail(res, error instanceof Error ? error : new Error(String(error)));
     }
   }

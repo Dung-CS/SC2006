@@ -18,8 +18,6 @@ import { useLoad } from '../../lib/useLoad';
 import { StateView, StatTile } from '../../components/States';
 import { link } from '../../components/Link';
 import { SingaporeMap, MapCluster, MapMarker } from '../../components/SingaporeMap';
-import { PhotoCarousel } from '../../components/PhotoCarousel';
-import { getClusterPhotos } from '../../lib/clusterVisuals';
 import { Pagination, usePagination } from '../../components/Pagination';
 import { label } from '../../lib/labels';
 import { ScreenProps } from '../ScreenProps';
@@ -210,16 +208,6 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
               <div className="priority-cards-grid">
                 {priority.value.rows.slice(0, 3).map((row) => (
                   <div key={row.clusterId} className="cluster-card priority-cluster-card">
-                    <PhotoCarousel
-                      photos={getClusterPhotos({
-                        clusterId: row.clusterId,
-                        locality: row.locality,
-                        tier: row.tier,
-                        caseSize: row.caseSize,
-                      })}
-                      aspectRatio="16 / 9"
-                      label={`Surveillance photos for ${row.locality}`}
-                    />
                     <div className="cluster-card-content">
                       <div className="cluster-card-header">
                         <span className="cluster-rank-badge">Rank #{row.rank}</span>
