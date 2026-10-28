@@ -60,7 +60,7 @@ describe('Daily dispatch combines report triage and locality scores', () => {
     expect(all.find((p) => p.sourceReportId === 'rat')).toMatchObject({ point: { latitude: 1.32, longitude: 103.85 }, priorityBasis: 'ReportTriage' });
   });
 
-  it('does not let one pest/task occupy all work at the same locality', async () => {
+  it('keeps locality scores as risk information for non-mosquito pests', async () => {
     const f = fixture();
     const c = await cluster(f);
     const order = Object.assign(new WorkOrder(), { id: 'mosquito-order', clusterId: c.id,
@@ -71,9 +71,8 @@ describe('Daily dispatch combines report triage and locality scores', () => {
     await f.scores.saveAll([Object.assign(new PriorityScore(), { clusterId: 'legacy-score-subject', localityId: c.id,
       pestType: PestType.Cockroach, tier: PriorityTier.High, score: 80, rank: 1 })]);
     const proposed = await f.dispatch.proposeDailyList(date, manager);
-    expect(proposed).toHaveLength(2);
-    expect(proposed.map((p) => p.pestType)).toEqual(expect.arrayContaining([PestType.Rat, PestType.Cockroach]));
-    expect(proposed.every((p) => p.tier === 'High')).toBe(true);
+    expect(proposed).toHaveLength(1);
+    expect(proposed[0]).toMatchObject({ pestType: PestType.Rat, sourceReportId: 'rat', priorityBasis: 'ReportTriage' });
   });
 
   it('keeps submitted reports out and uses the recorded condition for task requirements', async () => {

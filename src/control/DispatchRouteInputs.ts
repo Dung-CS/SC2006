@@ -153,8 +153,13 @@ export function buildDispatchRouteInputs(input: {
 
   for (const proposal of input.proposals) {
     const pest = proposal.pestType ?? PestType.Mosquito;
+    // Non-mosquito work needs a verified source report. A score-only proposal can
+    // otherwise bypass proposeDailyList when this builder is called independently.
+    if (pest !== PestType.Mosquito && !proposal.sourceReportId) continue;
+    const source = proposal.sourceReportId ? reports.get(proposal.sourceReportId) : undefined;
+    if (pest !== PestType.Mosquito && (!source || source.pestType !== pest || !validPoint(source.point))) continue;
     if (proposal.sourceReportId) {
-      // When passed independently of reports, daily report proposals still remain routable.
+      // Avoid repeating report groups or existing work orders.
       const ids = proposal.reportIds ?? [proposal.sourceReportId];
       if (ids.some((id) => representedReports.has(id) || jobs.some((j) => j.sourceReportId === id || j.reportIds?.includes(id)) ||
           referrals.some((r) => r.reportId === id || r.reportIds?.includes(id))) ||
@@ -166,7 +171,10 @@ export function buildDispatchRouteInputs(input: {
           o.taskType === proposal.suggestedTaskType)) continue;
     }
     const cluster = clusters.get(proposal.clusterId);
-    const point = proposal.point ?? (cluster?.boundary?.rings[0]?.length ? cluster.boundary.centroid() : undefined);
+    const sourcePoint = source?.point;
+    // A report's recorded location is authoritative; callers cannot substitute a locality point.
+    const proposalPoint = pest !== PestType.Mosquito ? sourcePoint : proposal.point;
+    const point = proposalPoint ?? sourcePoint ?? (cluster?.boundary?.rings[0]?.length ? cluster.boundary.centroid() : undefined);
     if (!validPoint(point)) continue;
     const workOrderId = proposal.sourceReportId ? `report-${proposal.sourceReportId}` : `prop-${proposal.clusterId}-${pest}`;
     addJob({ workOrderId, sourceReportId: proposal.sourceReportId, clusterId: cluster?.id ?? null,

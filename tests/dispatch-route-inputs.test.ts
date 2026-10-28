@@ -154,6 +154,32 @@ describe('Mixed-pest dispatch admission', () => {
     expect(input.jobs.map((j) => j.workOrderId)).toEqual(['report-rat', 'mosquito', 'prop-shared-Mosquito']);
   });
 
+  it('rejects standalone high non-mosquito score proposals while preserving report and order evidence', () => {
+    const point = new GeoPoint(1.31, 103.91);
+    const verified = report('verified-ant', PestType.Ant, { point, clusterId: 'soon-lee', localityBinding: 'Soon Lee Rd' });
+    const explicit = Object.assign(order('explicit-order', 'soon-lee'), { pestType: PestType.Rat,
+      taskType: TaskType.Inspection, targetPoint: new GeoPoint(1.32, 103.92) });
+    const proposals = [PriorityTier.Critical, PriorityTier.High].map((tier, i) => ({
+      clusterId: 'soon-lee', pestType: PestType.Cockroach, locality: 'Soon Lee Rd', score: 99 - i,
+      tier, suggestedTaskType: TaskType.Inspection, scheduledDate: date,
+    }));
+    proposals.push({ clusterId: 'soon-lee', pestType: PestType.Cockroach, locality: 'Soon Lee Rd', score: 100,
+      tier: PriorityTier.Critical, suggestedTaskType: TaskType.Inspection, scheduledDate: date,
+      sourceReportId: 'missing-report', point: new GeoPoint(1.5, 104) } as typeof proposals[number]);
+    proposals.push({ clusterId: 'soon-lee', pestType: PestType.Ant, locality: 'Soon Lee Rd', score: 100,
+      tier: PriorityTier.Critical, suggestedTaskType: TaskType.Inspection, scheduledDate: date,
+      sourceReportId: verified.id, point: new GeoPoint(1.5, 104) } as typeof proposals[number]);
+    const before = structuredClone(proposals);
+    const input = build({ clusters: [cluster('soon-lee')], reports: [verified], orders: [explicit], proposals });
+    expect(input.jobs.map((job) => job.workOrderId)).toEqual(expect.arrayContaining(['explicit-order', 'report-verified-ant']));
+    expect(input.jobs).toHaveLength(2);
+    expect(input.jobs.find((job) => job.sourceReportId === verified.id)).toMatchObject({
+      point, sourceReportId: verified.id, reportIds: [verified.id], locality: 'Soon Lee Rd',
+    });
+    expect(input.jobs.find((job) => job.workOrderId === explicit.id)?.point).toBe(explicit.targetPoint);
+    expect(proposals).toEqual(before);
+  });
+
   it('does not duplicate a report already represented by an open order, and retains overdue work', () => {
     const source = report('source', PestType.Rat, { workOrderId: 'existing' });
     const existing = Object.assign(order('existing'), { clusterId: null, sourceReportId: source.id,

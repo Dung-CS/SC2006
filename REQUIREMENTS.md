@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.15 · drafted 2026-09-02, revised 2026-10-28 · status: DRAFT for team review; local implementation verified
+Version 0.16 · drafted 2026-09-02, revised 2026-10-29 · status: DRAFT for team review; routing correction locally verified (typecheck, build and full test suite)
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -652,7 +652,7 @@ separate validation questions.)*
 - **8.1.4** The system shall require each work order to carry a scheduled date that is not in the past.
 - **8.1.5** The system shall default a new work order's priority to the priority tier of its target cluster.
 - **8.1.6** The system shall allow instructions of up to 1000 characters on a work order.
-- **8.1.7** The system shall propose a daily dispatch list of eligible cluster and verified report targets with no equivalent open task, ordered by Critical, High, Medium and Low tier, then by score descending. *(Revised in v0.11 to include report targets independently of dengue scoring.)*
+- **8.1.7** The system shall propose a daily dispatch list of official mosquito cluster targets and verified report targets with no equivalent open task, ordered by Critical, High, Medium and Low tier, then by score descending. A non-mosquito locality score alone shall not create a site target. *(Revised in v0.16; verified report targets remain independent of locality scoring.)*
 - **8.1.8** The system shall limit the displayed proposed dispatch list to a configurable number of targets, defaulting to ten. *(Revised in v0.10: this presentation limit shall not truncate the route-planning candidate queue in 8.7.2.)*
 - **8.1.9** The system shall allow an Operations Manager to accept, edit or reject each item on the proposed dispatch list individually.
 - **8.1.10** The system shall create work orders only for accepted dispatch-list items.
@@ -768,7 +768,7 @@ maximum task count or a mathematically shortest circuit. Planning remains a prev
 manager creates or assigns the work orders.)*
 
 - **8.7.1** The system shall allow an Operations Manager to request route plans for a selected Singapore calendar date.
-- **8.7.2** The planner shall consider all eligible ranked proposals and verified report targets alongside eligible open work orders scheduled on or before the selected date, irrespective of the number of existing orders or the display limit in 8.1.8. *(Revised in v0.11 to retain overdue and non-dengue work.)*
+- **8.7.2** The planner shall consider all eligible ranked proposals and verified report targets alongside eligible open work orders scheduled on or before the selected date, irrespective of the number of existing orders or the display limit in 8.1.8. Ranked proposals are eligible for site dispatch only under 8.7.55. *(Revised in v0.16; retains overdue and non-dengue work.)*
 - **8.7.3** The planner shall exclude cases requiring external referral from internal crew routes.
 - **8.7.4** The planner shall exclude duplicate representations of the same target task from its candidate queue.
 - **8.7.5** The planner shall exclude a task whose location or pest capability cannot be established from stored evidence.
@@ -821,6 +821,8 @@ manager creates or assigns the work orders.)*
 - **8.7.52** The planner shall exclude Assigned, Accepted, In Progress and Rejected work orders from new allocation and retain each in unplanned output with a reason distinct from a capacity or road-verification reason.
 - **8.7.53** The planner shall reserve a known assignee of an Assigned, Accepted, In Progress or Rejected work order from available crew capacity for that plan date.
 - **8.7.54** An unplanned Rejected work order shall state that its existing assignment requires review; the planner shall not infer an assignee when none is recorded.
+- **8.7.55** Locality-score proposals shall create dispatch tasks only for official mosquito cluster proposals. A non-mosquito dispatch task shall require a verified source report and use that report's exact recorded point, or an explicit existing work order; a locality score alone, at any priority tier, is risk information and shall not establish a site task. *(Added in v0.16 after the Soon Lee routing review. This eligibility rule applies both when proposals are generated and when route inputs are built independently.)*
+- **8.7.56** The system shall preserve all pest locality rankings, underlying observations and their scores when applying 8.7.55. It shall preserve verified report locations and provenance, existing work orders and external-authority referral behaviour; the rule changes dispatch eligibility only.
 
 These route improvements are bounded local search. They do not establish a global optimum, use live GPS
 locations, prove exact three-dimensional packing, or replace the route planner with a solver. Work-order
@@ -893,7 +895,7 @@ tier so that an unscored verified report does not disappear beneath dengue-only 
 - **8.9.18** The candidate queue shall include eligible reports of every covered pest type whose status is Verified or Actioned.
 - **8.9.19** The candidate queue shall retain an eligible report whose point lies outside every active dengue cluster.
 - **8.9.20** The candidate queue shall include eligible open work orders scheduled on or before the selected Singapore date.
-- **8.9.21** The candidate queue shall include all eligible scored locality-and-pest proposals without applying the proposal display limit.
+- **8.9.21** The candidate queue shall include all eligible scored locality-and-pest proposals under 8.7.55 without applying the proposal display limit; score-only non-mosquito localities remain ranking information, not dispatch tasks.
 - **8.9.22** The planner shall use the highest applicable tier from the stored work order, current locality-and-pest score and linked report triage.
 - **8.9.23** The candidate queue shall avoid scheduling the same source report and task twice through report, proposal and work-order representations.
 - **8.9.24** An open task for one pest type shall not suppress a different pest type's task at the same locality.

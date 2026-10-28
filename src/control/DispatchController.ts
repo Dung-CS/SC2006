@@ -175,6 +175,8 @@ export class DispatchController {
       const cluster = active.get(score.localityId || score.clusterId) ?? active.get(score.clusterId);
       if (!cluster) continue;
       const pestType = score.pestType ?? PestType.Mosquito;
+      // Locality scores guide risk review; only mosquito clusters are official site proposals.
+      if (pestType !== PestType.Mosquito) continue;
       const profile = this.profileFor(pestType);
       const authority = externalAuthority(profile);
       const suggestedTaskType = pestType === PestType.Mosquito ? DispatchController.suggestTask(cluster) : TaskType.Inspection;
