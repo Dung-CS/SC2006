@@ -5,7 +5,7 @@
  * controller (assignment and reassignment refuse anyone the policy refuses, whoever calls), and the
  * HTTP boundary (a request that skips the screen meets the same refusal).
  */
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { AccessControlService } from '../src/control/AccessControlService';
 import { AccessPolicy } from '../src/control/AccessPolicy';
 import { WorkOrderTransitionTable } from '../src/control/WorkOrderTransitionTable';
@@ -43,7 +43,7 @@ import { Cluster } from '../src/entity/Cluster';
 import { Report } from '../src/entity/Report';
 import { PremisesMix } from '../src/entity/valueTypes';
 import { GeoPoint } from '../src/entity/valueTypes';
-import { RouteOptimizationService } from '../src/control/RouteOptimizationService';
+import { RouteJob, RouteOptimizationService } from '../src/control/RouteOptimizationService';
 import { DispatchPlanService } from '../src/control/DispatchPlanService';
 import { MockRoadRoutingStrategy } from './helpers/MockRoadRoutingStrategy';
 import { PestClass, PestType, ReportStatus, ReportType, Role, StaffSpecialisation, TaskType, WorkOrderStatus } from '../src/entity/enums';
@@ -497,6 +497,38 @@ describe('HTTP — the boundary refuses what the screen would not offer', () => 
       routes: [{ staffCount: 1, workOrderIds: ['routine'] }],
       unplanned: [{ workOrderId: 'urgent', priority: 'High', requiredStaff: 3 }] });
     expect(await f.workOrders.findAll()).toHaveLength(0);
+  });
+
+  it('keeps committed work out of fallback allocation and distinguishes committed and unverified reasons', async () => {
+    const point = new GeoPoint(1.32, 103.85);
+    const jobs: RouteJob[] = [
+      ...[WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress].map((status, i) => ({
+        workOrderId: `committed-${i}`, point, requiredCapability: 'Vector', status,
+      })),
+      { workOrderId: 'rejected', point, requiredCapability: 'Vector', status: WorkOrderStatus.Rejected },
+      { workOrderId: 'road-unknown', point, requiredCapability: 'Vector' },
+      { workOrderId: 'capacity', point, requiredCapability: 'Vector' },
+    ];
+    const planner = { plan: vi.fn(async (_teams: unknown, pending: RouteJob[], _vehicles: unknown, unverified: Set<string>) => {
+      expect(pending.map((job) => job.workOrderId)).toEqual(['road-unknown', 'capacity']);
+      unverified.add('road-unknown');
+      return [];
+    }) } as unknown as RouteOptimizationService;
+    const handler = new WorkOrderRoutes(f.ac, f.dispatch, f.lifecycle, f.staff, planner, async () => ({ teams: [], jobs }));
+    handler.useResolver({ resolve: async () => MANAGER });
+    const res = response();
+    await handler.handle(req('/api/ops/dispatch/routes', { date: FUTURE }), res);
+    expect(res.code).toBe(200);
+    expect(res.body).toMatchObject({ routes: [], unplanned: [
+      ...[WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress].map((_status, i) => ({
+        workOrderId: `committed-${i}`,
+        reason: 'Already assigned, accepted or in progress; retain existing assignment and exclude from new allocation.',
+      })),
+      { workOrderId: 'rejected', reason: 'Committed work is excluded from new allocation; retain/review its existing assignment.' },
+      { workOrderId: 'road-unknown', reason: expect.stringContaining('could not be verified') },
+      { workOrderId: 'capacity', reason: expect.stringContaining('sufficient staff') },
+    ] });
+    expect(planner.plan).toHaveBeenCalledWith([], expect.any(Array), undefined, expect.any(Set));
   });
 
   it('H2 — a crew member cannot assign at all (role guard preserved)', async () => {

@@ -60,9 +60,15 @@ export function buildDispatchRouteInputs(input: {
   reportClusterDistanceMetres?: number;
 }): DispatchInputs {
   const pools = new Map<string, RouteTeam>();
+  const committedAssignees = new Set(input.orders.filter((order) => order.scheduledDate <= input.date &&
+    [WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress, WorkOrderStatus.Rejected].includes(order.currentStatus()) && order.assigneeId)
+    .map((order) => order.assigneeId!));
   for (const member of input.crew) {
     if (!member.isActive || member.role !== Role.CleaningCrew || !member.specialisation || !member.hqLocation) continue;
     if (member.staffStatus !== StaffStatus.Available && member.staffStatus !== StaffStatus.OnCall) continue;
+    // A known committed assignee cannot also appear as free capacity. WorkOrder has no reliable
+    // supporting-crew count, so reserve only the explicitly identified assignee.
+    if (committedAssignees.has(member.id)) continue;
     const lag = member.staffStatus === StaffStatus.OnCall ? member.onCallLagHours : 0;
     if (!Number.isFinite(lag) || lag < 0) continue;
     const teamId = `${member.hqLocation}-${member.specialisation}-${member.staffStatus}${lag ? `-${lag}h` : ''}`;

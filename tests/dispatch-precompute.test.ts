@@ -73,6 +73,63 @@ describe('Dispatch precomputation', () => {
     expect(service.snapshot(date)).toMatchObject({ planStatus: 'ready', unplanned: [{ workOrderId: 'retry' }] });
   });
 
+  it('replans an unchanged snapshot only after its five-minute TTL', async () => {
+    vi.useFakeTimers();
+    try {
+      const planner = { plan: vi.fn().mockResolvedValue([]) };
+      const service = new DispatchPlanService(async () => input(), planner);
+      await service.refresh(date);
+      vi.advanceTimersByTime(5 * 60_000 - 1);
+      service.snapshot(date);
+      expect(planner.plan).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1);
+      service.snapshot(date);
+      await vi.advanceTimersByTimeAsync(250);
+      await service.refresh(date);
+      expect(planner.plan).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('keeps the last good snapshot after failure and rate-limits read-triggered retries', async () => {
+    vi.useFakeTimers();
+    try {
+      const planner = { plan: vi.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue([]) };
+      const service = new DispatchPlanService(async () => input(), planner);
+      await service.refresh(date);
+      vi.advanceTimersByTime(5 * 60_000);
+      service.snapshot(date);
+      await vi.advanceTimersByTimeAsync(250);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(service.snapshot(date)).toMatchObject({ planStatus: 'failed', unplanned: [{ workOrderId: 'job' }] });
+      for (let i = 0; i < 10; i++) service.snapshot(date);
+      expect(planner.plan).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(30_000);
+      service.snapshot(date);
+      await vi.advanceTimersByTimeAsync(250);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(planner.plan).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('excludes assigned and in-progress tasks from new planning with a distinct reason', async () => {
+    const committed = [{ ...input('assigned').jobs[0]!, status: 'Assigned' },
+      { ...input('accepted').jobs[0]!, status: 'Accepted' },
+      { ...input('working').jobs[0]!, status: 'InProgress' },
+      { ...input('rejected').jobs[0]!, status: 'Rejected' }];
+    const planner = { plan: vi.fn().mockResolvedValue([]) };
+    const service = new DispatchPlanService(async () => ({ teams: [], vehicles: [], jobs: committed }), planner);
+    await service.refresh(date);
+    expect(planner.plan).toHaveBeenCalledWith([], [], [], expect.any(Set));
+    expect(service.snapshot(date).unplanned).toEqual(committed.map((job) => expect.objectContaining({
+      workOrderId: job.workOrderId,
+      reason: job.status === 'Rejected'
+        ? 'Committed work is excluded from new allocation; retain/review its existing assignment.'
+        : 'Already assigned, accepted or in progress; retain existing assignment and exclude from new allocation.',
+    })));
+  });
+
   it('keeps date-specific plans separate and returns cloned snapshots', async () => {
     const service = new DispatchPlanService(async (selected) => input(selected), { plan: async () => [] });
     await service.refresh(date);

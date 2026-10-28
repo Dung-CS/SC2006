@@ -1,5 +1,57 @@
 # Dengue Prioritiser — Feature Backlog
 
+## Current delivery delta - 2026-10-28 (routing implementation)
+
+### Bounded road-cost planning and fresh snapshots
+- **Status:** Locally verified; not deployed. Production remains `4c44def`.
+- **Entrypoints:** `dengue/src/control/RouteOptimizationService.ts`, `dengue/src/control/routing/OneMapRoadRoutingStrategy.ts`, `dengue/src/control/DispatchPlanService.ts`, `dengue/src/control/DispatchRouteInputs.ts`, `dengue/src/boundary/http/WorkOrderRoutes.ts`.
+- **Expected actions:** review the verification note; treat benchmark values as synthetic fixture results only.
+- **Acceptance:** compare bounded candidate allocations on consistent actual directed-road duration; accept only strict road-time improvements preserving served IDs and whole-plan constraints; expose ordered leg ETAs; cap concurrency and cancel queued work; refresh five-minute snapshots in the background; retain last good plans; keep committed work out of new allocation with clear reasons.
+- **Evidence:** `scratchpad/routing-implementation-20261028/VERIFICATION.md`, `REVIEW.md`, and `synthetic-benchmark.md`. Offline 1,061 pass / 58 SQL skips; typecheck, production build, diff check and clean-package smoke pass. Frozen fixture comparison: 900 s to 120 s for `synthetic-j1`; separate cross-route unit fixture: 320 s to 150 s with the same three task IDs. Neither is operational savings evidence.
+- **Open:** no live benchmark or deployment was run. Supporting crew identities are not represented; no live-GPS rolling optimisation, exact 3D packing, global-optimum proof or strict provider API quota is claimed.
+
+## Current delivery delta - 2026-10-28 (routing research)
+
+### Compile routing best practices and an evaluation plan
+- **Status:** Done (research review-ready after root QA and resolved material critique; implementation remains separate).
+- **Entrypoints:** `../research/routing-20261028/ROUTING_RESEARCH.md`, source ledgers and reproducible suitability calculation.
+- **Expected actions:** review current algorithm and prioritised improvements before implementation.
+- **Acceptance:** distinguish code findings, primary evidence and design judgement; disclose channel depth/access; preserve hard road/resource/priority constraints; define matched benchmark and independent feasibility checks.
+- **Evidence:** web/official documentation and Perplexity discovery; three Consensus queries (60 raw / 54 unique records); four primary full texts and one supplemental review read. NTU search reachable; bounded publisher retry after Microsoft sign-in still returned zero PDFs / three HTML files. Publisher/proxy access gap and ABI tab failure disclosed. No operational benchmark or savings claim.
+- **Implementation:** The bounded road-cost/snapshot slice is now locally verified; see `scratchpad/routing-implementation-20261028/VERIFICATION.md` and the implementation delta above. This does not complete the proposed solver-adapter comparison or live benchmark. Production deployment remains separate; no live route or savings claim.
+
+## Current delivery delta - 2026-10-28 (demo mosquito data)
+
+### Remove confirmed demo mosquito hotspots and jobs
+- **Status:** Done (live data cleaned and verified).
+- **Entrypoints:** Operations map, Resident map, moderation/report data and dispatch queue.
+- **Acceptance:** no confirmed demo mosquito reports, jobs or fixture clusters; preserve genuine NEA data and other records; retain a recovery copy.
+- **Evidence:** removed 92 reports, 62 work orders and four test clusters; nine genuine NEA clusters preserved; live map/dispatch checks passed. See ../HANDOVER.md for the backup and exact dependent-record counts. Data-only operation; no new app release.
+
+## Current delivery delta - 2026-10-28 (external provenance)
+
+### Keep external map facts and remove generated pest clusters
+- **Status:** Done (deployed and verified live).
+- **Release:** commit `4c44def0f18d35f8143aa2802ea2fc8b90357eba` deployed; [Actions run 40620963572](https://github.com/Dung-CS/SC2006/actions/runs/40620963572) succeeded.
+- **Entrypoints:** Operations dashboard/map, Resident map, Cluster detail and supporting map/priority APIs.
+- **Expected actions:** inspect the real NEA Ho Ching cluster once; view source observations/reports in their own records.
+- **Acceptance:** retain external NEA boundaries/counts; no duplicated mosquito rows from other pests' scores; no generated surveillance circles/counts or locality photo carousels; preserve real source records and mixed-pest dispatch.
+- **Evidence:** raw NEA feed has nine features and one matching Ho Ching cluster with 99 cases (`scratchpad/map-readability/nea-origin.json`). 1,036 offline tests pass / 58 SQL skip; typecheck/build/diff and main's 81 focused tests pass. Requirements v0.14. Live APIs/screens confirm one Ho Ching entry, nine unique dengue rows, no generated shapes/carousels and a matching client hash. Dispatch zoom/road-route regression also passes. No new live database-test writes occurred.
+
+
+## Current delivery delta - 2026-10-28
+
+### Dispatch map: readable road tasks and a stable view
+- **Status:** Done (deployed and verified live).
+- **Release:** commit `11c7680fd40affe1bdde9240951f416d5f0e424b` deployed; [Actions run 40618465605](https://github.com/Dung-CS/SC2006/actions/runs/40618465605) succeeded.
+- **Entrypoint:** `/ops/dispatch`.
+- **Expected actions:** zoom/pan while dispatch refreshes; choose all road-accessible teams or one team; use explicit focus or Fit to map when required.
+- **Acceptance:** only unfinished tasks from validated driving routes appear; duplicate/completed markers are hidden; polling preserves the viewport; original reports/orders remain available.
+- **Evidence:** 1,034 offline tests passed / 58 SQL skipped; typecheck/build and `node tools/check-map-browser.mjs` pass. Live polling preserves zoom, team filtering reduces pins, three live routes use OneMap, and served client hash matches the tested build. Requirements v0.13.
+- **Test safety:** database integration requires `DFENCE_TEST_LIVE_DB=true` and an isolated disposable database. An earlier live run cleared source metadata; required metadata recovery is verified from genuine feeds/run history, with historical-data caveats retained. See `../HANDOVER.md`.
+
+The delivery records below are historical; their counts and fallback descriptions do not describe the current road-only map contract.
+
 ## Current delivery delta - 2026-10-27
 
 - **Deployed through CI/CD:** background all-pest dispatch, HQ vehicle registry, dimensioned logistics and vehicle-constrained routes. [Actions run 40515218625](https://github.com/Dung-CS/SC2006/actions/runs/40515218625) succeeded; Azure `c143da4b-d1fe-47d8-a40a-0a7ea89a8577` is active/status 4. Final live fleet/dispatch, cache and invalidation checks passed.

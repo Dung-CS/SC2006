@@ -2,6 +2,13 @@ import { createHash } from 'node:crypto';
 import { singaporeDate } from '../entity/valueTypes';
 import { Vehicle } from '../entity/Vehicle';
 import { RouteJob, RouteTeam, PlannedTeamRoute, RouteOptimizationService } from './RouteOptimizationService';
+import { WorkOrderStatus } from '../entity/enums';
+
+const SNAPSHOT_TTL_MS = 5 * 60_000;
+const RETRY_DELAY_MS = 30_000;
+const COMMITTED_REASON = 'Already assigned, accepted or in progress; retain existing assignment and exclude from new allocation.';
+const isCommitted = (job: RouteJob): boolean =>
+  [WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress, WorkOrderStatus.Rejected].includes(job.status as WorkOrderStatus);
 
 export interface DispatchPlanInputs {
   teams: RouteTeam[];
@@ -30,6 +37,7 @@ interface CachedPlan {
   running: Promise<void> | null;
   timer: ReturnType<typeof setTimeout> | null;
   retryAt: number | null;
+  expiresAt: number | null;
 }
 
 /** Compute in the background. Page requests only read a snapshot and never wait for road APIs. */
@@ -42,8 +50,9 @@ export class DispatchPlanService {
   snapshot(date: string): DispatchPlanSnapshot {
     const existed = this.entries.has(date);
     const entry = this.entry(date);
-    if (!existed || entry.value.planStatus === 'failed' ||
-        entry.retryAt !== null && entry.retryAt <= Date.now()) this.invalidate(date);
+    const now = Date.now();
+    if (!existed || entry.retryAt !== null && entry.retryAt <= now ||
+        entry.value.planStatus === 'ready' && entry.expiresAt !== null && entry.expiresAt <= now) this.invalidate(date);
     return structuredClone(entry.value);
   }
 
@@ -82,7 +91,7 @@ export class DispatchPlanService {
         const old = [...this.entries].find(([key, item]) => key !== singaporeDate(new Date()) && !item.running && !item.timer);
         if (old) this.entries.delete(old[0]);
       }
-      entry = { fingerprint: null, requested: false, running: null, timer: null, retryAt: null, value: {
+      entry = { fingerprint: null, requested: false, running: null, timer: null, retryAt: null, expiresAt: null, value: {
         date, planStatus: 'pending', computedAt: null, planningDurationSeconds: null, error: null,
         routes: [], unplanned: [], referrals: [],
       } };
@@ -106,7 +115,7 @@ export class DispatchPlanService {
           vehicles: [...input.vehicles].sort((a, b) => a.id.localeCompare(b.id)),
         };
         const fingerprint = createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
-        if (fingerprint === entry.fingerprint) {
+        if (fingerprint === entry.fingerprint && entry.expiresAt !== null && entry.expiresAt > Date.now()) {
           entry.value.planStatus = entry.requested ? 'refreshing' : 'ready';
           entry.value.error = null;
           continue;
@@ -114,7 +123,9 @@ export class DispatchPlanService {
         entry.value.planStatus = entry.value.computedAt ? 'refreshing' : 'pending';
         const start = Date.now();
         const roadUnverified = new Set<string>();
-        const routes = await this.planner.plan(input.teams, input.jobs, input.vehicles, roadUnverified);
+        const committed = input.jobs.filter(isCommitted);
+        const allocatable = input.jobs.filter((job) => !committed.includes(job));
+        const routes = await this.planner.plan(input.teams, allocatable, input.vehicles, roadUnverified);
         const plannedIds = new Set(routes.flatMap((route) => route.workOrderIds));
         const rank: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
         const unplanned = input.jobs.filter((job) => !plannedIds.has(job.workOrderId))
@@ -122,7 +133,9 @@ export class DispatchPlanService {
           .map((job) => ({ workOrderId: job.workOrderId, locality: job.locality, priority: job.priority,
             pestType: job.pestType, taskType: job.taskType, requiredStaff: job.requiredStaff,
             reportIds: job.reportIds, reportCount: job.reportCount, individualCounts: job.individualCounts,
-            reason: roadUnverified.has(job.workOrderId)
+            reason: job.status === WorkOrderStatus.Rejected
+              ? 'Committed work is excluded from new allocation; retain/review its existing assignment.'
+              : committed.includes(job) ? COMMITTED_REASON : roadUnverified.has(job.workOrderId)
               ? 'A complete driving route to this task could not be verified. Road access or the routing service may be unavailable; verification will retry.'
               : 'No qualified crew and available HQ vehicle can fit this task within staff, cargo and four-hour limits.' }));
         entry.value = { date, planStatus: entry.requested ? 'refreshing' : 'ready', routes, unplanned,
@@ -131,10 +144,12 @@ export class DispatchPlanService {
         const needsRoadRetry = unplanned.some((job) => roadUnverified.has(job.workOrderId));
         // Unverified roads are not a permanent capacity result. Retry unchanged inputs on later reads.
         entry.fingerprint = needsRoadRetry ? null : fingerprint;
-        entry.retryAt = needsRoadRetry ? Date.now() + 30_000 : null;
+        entry.retryAt = needsRoadRetry ? Date.now() + RETRY_DELAY_MS : null;
+        entry.expiresAt = Date.now() + SNAPSHOT_TTL_MS;
       } catch {
         entry.value.planStatus = 'failed';
         entry.value.error = 'The latest plan could not be computed. The next refresh will retry.';
+        entry.retryAt = Date.now() + RETRY_DELAY_MS;
       }
     }
   }

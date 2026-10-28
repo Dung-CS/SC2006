@@ -84,6 +84,44 @@ describe('Real dispatch candidate admission and staffing', () => {
         suggestedTaskType: TaskType.Inspection, scheduledDate: date }] });
     expect(input.jobs.map((j) => j.workOrderId)).toEqual(['existing']);
   });
+
+  it('keeps assigned, accepted and rejected work visible and reserves known assignees', () => {
+    const committed = Object.assign(order('committed'), { assigneeId: 'busy-crew' });
+    committed.applyStatus(WorkOrderStatus.Assigned);
+    const accepted = Object.assign(order('accepted'), { assigneeId: 'accepted-crew' });
+    accepted.applyStatus(WorkOrderStatus.Accepted);
+    const rejected = Object.assign(order('rejected'), { assigneeId: 'rejected-crew' });
+    rejected.applyStatus(WorkOrderStatus.Rejected);
+    const input = build({ crew: [crew('busy-crew'), crew('accepted-crew'), crew('rejected-crew'), crew('free-crew')],
+      orders: [committed, accepted, rejected],
+      clusters: [cluster('committed'), cluster('accepted'), cluster('rejected')], proposals: [{ clusterId: 'committed', locality: 'committed', score: 1,
+        tier: PriorityTier.High, suggestedTaskType: TaskType.Inspection, scheduledDate: date }] });
+    expect(input.jobs).toHaveLength(3);
+    expect(input.jobs[0]).toMatchObject({ workOrderId: 'committed', status: WorkOrderStatus.Assigned });
+    expect(input.jobs.map((job) => job.status)).toEqual(expect.arrayContaining([
+      WorkOrderStatus.Accepted, WorkOrderStatus.Rejected,
+    ]));
+    expect(input.teams).toHaveLength(1);
+    expect(input.teams[0]?.staffCount).toBe(1);
+  });
+
+  it('reserves an in-progress assignee and does not create duplicate report-group work', () => {
+    const active = Object.assign(order('active'), { assigneeId: 'busy-crew' });
+    active.applyStatus(WorkOrderStatus.InProgress);
+    const source = report('active-report', PestType.Mosquito, { workOrderId: active.id, clusterId: 'active' });
+    const input = build({ crew: [crew('busy-crew')], orders: [active], reports: [source], clusters: [cluster('active')] });
+    expect(input.jobs).toHaveLength(1);
+    expect(input.jobs[0]?.status).toBe(WorkOrderStatus.InProgress);
+    expect(input.teams).toEqual([]);
+  });
+
+  it('does not invent an assignee for rejected work with a missing assignee', () => {
+    const rejected = order('rejected-no-assignee');
+    rejected.applyStatus(WorkOrderStatus.Rejected);
+    const input = build({ crew: [crew('available')], orders: [rejected], clusters: [cluster(rejected.id)] });
+    expect(input.jobs).toMatchObject([{ workOrderId: rejected.id, status: WorkOrderStatus.Rejected }]);
+    expect(input.teams[0]?.staffCount).toBe(1);
+  });
 });
 
 function report(id: string, pestType: PestType, overrides: Partial<Report> = {}): Report {

@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.14 · drafted 2026-09-02, revised 2026-10-28 · status: DRAFT for team review
+Version 0.15 · drafted 2026-09-02, revised 2026-10-28 · status: DRAFT for team review; local implementation verified
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -31,6 +31,17 @@ is no longer displayed on Dispatch; the dedicated referral workflow remains. Exe
 complete validated driving-road geometry. Spatial grouping uses an adjustable 100 m default, a bounded
 diameter, and preserves each original report as a distinct record. This is a requirements amendment;
 implementation verification and deployment status are recorded separately.
+
+**v0.15 specifies bounded road-cost route improvement and fresher dispatch snapshots.** Candidate
+allocations are compared using actual directed OneMap travel durations on a consistent circuit basis;
+geometric estimates may shortlist alternatives only. Within-route and cross-route improvements must
+retain the same served task IDs and pass whole-plan priority, crew, vehicle, load and elapsed-time
+checks. OneMap route responses expose per-leg ETA and distance, with at most four concurrent leg
+requests and cancellation of queued work. Snapshots expire after five minutes, retain the last good plan,
+and retry failed or unverified refreshes after 30 seconds. Assigned, Accepted, In Progress and Rejected
+work is excluded from new allocation with a distinct reason; known assignees are reserved from available
+crew pools. Root local implementation checks passed. The root verification record is `scratchpad/routing-implementation-20261028/VERIFICATION.md`; no production deployment or operational-savings claim is made. There is no claim of global
+optimality, live GPS optimisation, exact packing or solver replacement.
 
 ## How to read this document
 
@@ -766,7 +777,7 @@ manager creates or assigns the work orders.)*
 - **8.7.8** The planner shall not invent an outpost crew when the eligible roster is empty.
 - **8.7.9** The planner shall not insert synthetic emergency tasks into an operational route.
 - **8.7.10** The planner shall process priority tiers in the strict order Critical, High, Medium, Low.
-- **8.7.11** Within a tier, the planner shall first consider tasks with fewer qualified staff pools, then lower required staff-minutes, then descending priority score when available. These are greedy tie-breaks, not a guarantee of maximum task throughput.
+- **8.7.11** Candidate road-cost ranking shall not apply a fixed additive penalty for staff count or capability count; the 14,400-second dispatch limit remains a feasibility cap, not a travel-cost penalty.
 - **8.7.12** The planner shall allocate a lower-tier task only after no remaining higher-tier task can be added to the current plan within staff, capability, vehicle and elapsed-time limits.
 - **8.7.13** The planner shall retry a previously unallocated higher-tier task when a subsequent allocation changes route feasibility.
 - **8.7.14** The planner shall test a task against qualified capacity at every eligible outpost before leaving it unallocated.
@@ -797,6 +808,24 @@ manager creates or assigns the work orders.)*
 - **8.7.39** The planner shall reuse successful, validated directed driving-road geometry for up to five minutes in a bounded cache of at most 512 entries; failed or invalid road responses shall remain retryable.
 - **8.7.40** A background calculation shall limit its total wait for road-provider responses to thirty seconds. Legs without a successful, validated road response at that deadline shall remain unverified, and affected tasks shall remain unplanned without a direct-distance fallback.
 - **8.7.41** The planner shall mark a task unplanned when a validated road result confirms that no drivable route connects it, including offshore or no-road locations. It shall not treat a timeout or unverified response as proof that a task is unreachable.
+- **8.7.42** The planner shall compare road-verified candidate insertions using actual directed-road travel duration on the same complete circuit basis, measured as the candidate circuit duration less the replaced circuit duration, or the full circuit duration when creating a route.
+- **8.7.43** The planner shall use geometric travel estimates only to shortlist candidate insertions and shall not use them as executable travel duration or road-feasibility evidence.
+- **8.7.44** The planner shall limit road-verified alternatives to six per insertion attempt and limit total route evaluations in one planning run to `max(160, 6N + 200)`, where N is the number of candidate tasks; this is an internal route-evaluation bound, not a strict OneMap API-request quota.
+- **8.7.45** The planner shall not use staff count, capability count or other fixed resource penalties as a substitute for actual incremental directed-road duration when ranking feasible insertions.
+- **8.7.46** The planner shall apply a bounded within-route reorder and cross-route relocate or swap only when complete validated road results show a strict reduction in total affected-route travel time.
+- **8.7.47** Each accepted route improvement shall preserve the plan's served work-order ID set and strict priority order within every route.
+- **8.7.48** Each accepted route improvement shall recheck affected routes against qualified staff, crew size, vehicle uniqueness and fit, payload, cargo volume, individual-item fit and the four-hour elapsed limit.
+- **8.7.49** The planner shall expose the verified duration and distance for each directed road leg in route stop order when the routing provider returns those values.
+- **8.7.50** The OneMap routing strategy shall allow no more than four concurrent driving-leg provider requests per strategy instance.
+- **8.7.51** The OneMap routing strategy shall remove a cancelled queued leg request before it acquires a provider slot.
+- **8.7.52** The planner shall exclude Assigned, Accepted, In Progress and Rejected work orders from new allocation and retain each in unplanned output with a reason distinct from a capacity or road-verification reason.
+- **8.7.53** The planner shall reserve a known assignee of an Assigned, Accepted, In Progress or Rejected work order from available crew capacity for that plan date.
+- **8.7.54** An unplanned Rejected work order shall state that its existing assignment requires review; the planner shall not infer an assignee when none is recorded.
+
+These route improvements are bounded local search. They do not establish a global optimum, use live GPS
+locations, prove exact three-dimensional packing, or replace the route planner with a solver. Work-order
+records identify a lead assignee but do not reliably record the count of supporting crew; capacity
+reservation therefore uses only a known lead assignee, and supporting-crew reservation remains a model gap.
 
 ## 8.8 Task capabilities, crew sizes and effort
 
@@ -882,6 +911,10 @@ tier so that an unscored verified report does not disappear beneath dengue-only 
 - **8.9.36** An open work order linked to any group member shall suppress a duplicate proposal for that group.
 - **8.9.37** The system shall keep existing lifecycle work orders as separate records when it groups reports.
 - **8.9.38** The planner shall exclude reports linked to completed or verified work orders from a new group proposal.
+- **8.9.39** A completed dispatch snapshot shall expire five minutes after its computation completes.
+- **8.9.40** The system shall recompute an expired snapshot even when its fully verified source fingerprint is unchanged.
+- **8.9.41** A snapshot read shall return the last good plan without waiting for an age-triggered, failed or unverified background refresh.
+- **8.9.42** The system shall defer an unchanged-input retry after a failed or road-unverified refresh for 30 seconds and shall not start an immediate repeated refresh loop.
 
 ## 8.10 Logistics loads and vehicle allocation
 
@@ -1281,6 +1314,15 @@ checks remain separate verification steps; no v0.11 production-deployment claim 
 | 8.10; 11.11.7–11.11.11 | `LogisticsPolicy`, `RouteOptimizationService`, route cards | Item weight/dimensions, shared versus per-task loads, vehicle uniqueness, seats, payload, volume, rotated item fit, parallel load splits and explicit-return rules |
 | All v0.11 additions | `EPICS-STORIES.md`, use cases, data dictionaries, models and Lab 4 test plan | Carry the new permanent IDs through downstream artefacts; those updates are not certified by this master-file revision |
 
+**v0.15 traceability and verification status (2026-10-28).** Root completed local verification. Full offline tests: 1,061 passed and 58 SQL tests skipped; typecheck, production build, diff check and clean-package smoke passed. The release remains local; production is `4c44def`. See `scratchpad/routing-implementation-20261028/VERIFICATION.md`, `REVIEW.md`, `synthetic-benchmark.md`, and `../research/routing-20261028/COMBINED_SOURCE_LEDGER.json`. Fixture results are not operational savings evidence; no live benchmark or deployment is claimed.
+
+| Requirement group | Implementation reference | Acceptance evidence required |
+|---|---|---|
+| 8.7.11; 8.7.42-8.7.48 | `RouteOptimizationService`, `IRouteStrategy`, routing tests | Directed-road incremental-cost fixtures; bounded alternatives; strict actual improvements; identical served IDs; whole-plan priority, staffing, vehicle, load and time invariants; document local-search limits |
+| 8.7.49-8.7.51 | `OneMapRoadRoutingStrategy`, `IRouteStrategy`, road-strategy tests | Leg duration/distance and stop order; at most four concurrent provider calls; cancellation removes queued calls; no unverified route is executable |
+| 8.7.52-8.7.54 | `DispatchPlanService`, `DispatchRouteInputs`, dispatch tests | Assigned/Accepted/In Progress/Rejected exclusion and reasons; known assignee reservation; missing assignee does not imply a crew member |
+| 8.9.39-8.9.42 | `DispatchPlanService`, precompute tests | Unchanged snapshot before/after five-minute TTL; nonblocking last-good response on failure; 30-second retry; no immediate retry loop |
+
 ---
 
 # 13. Assumptions
@@ -1364,6 +1406,17 @@ Requirements are written against these sources. Verification status is from
 ---
 
 # 14. Revision history and review dispositions
+
+**v0.15 (2026-10-28)** - specify bounded road-cost improvement, cancellable bounded OneMap leg concurrency,
+five-minute snapshot freshness and committed-work exclusion. Local implementation verification passed; production deployment remains separate.
+
+- Revised 8.7.11 so fixed staff/capability penalties cannot be used as road-cost ranking.
+- Added 8.7.42-8.7.54 for actual directed-road incremental cost, bounded candidate verification,
+  bounded route improvement, whole-plan invariants, leg ETA data, four-way OneMap concurrency,
+  queued-call cancellation and Assigned/Accepted/In Progress/Rejected work with known-assignee reservation.
+- Added 8.9.39-8.9.42 for five-minute snapshot expiry, unchanged-input refresh, nonblocking last-good reads,
+  and a 30-second retry interval after failure or unverified road results.
+- Root local checks and clean-package smoke passed; fixture comparisons are recorded separately and are not operational savings evidence. No live benchmark or deployment occurred; production remains `4c44def`. No global-optimum, live-GPS or exact-packing claim is made.
 
 **v0.14 (2026-10-28)** - preserve genuine external cluster data and remove unsupported duplicate mosquito presentations.
 

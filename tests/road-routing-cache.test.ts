@@ -30,6 +30,7 @@ describe('Road routing directed-leg reuse', () => {
     const routes = strategy(drivingRoute);
     const first = routes.calculateRoute([a, b]);
     const second = routes.calculateRoute([a, b]);
+    await Promise.resolve();
     expect(drivingRoute).toHaveBeenCalledTimes(1);
     finish(leg(a, b));
     expect((await first).durationSeconds).toBe(20);

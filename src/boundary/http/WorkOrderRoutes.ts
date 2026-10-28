@@ -112,14 +112,24 @@ export class WorkOrderRoutes extends RouteHandler {
             return;
           }
           const input = await this.routeInputs(date);
-          const routes = await this.routePlanner.plan(input.teams, input.jobs);
+          const roadUnverified = new Set<string>();
+          const committedStatuses = [WorkOrderStatus.Assigned, WorkOrderStatus.Accepted,
+            WorkOrderStatus.InProgress, WorkOrderStatus.Rejected];
+          const allocatable = input.jobs.filter((job) => !committedStatuses.includes(job.status as WorkOrderStatus));
+          const routes = await this.routePlanner.plan(input.teams, allocatable, undefined, roadUnverified);
           const plannedIds = new Set(routes.flatMap((route) => route.workOrderIds));
           const tierOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
           const unplanned = input.jobs.filter((job) => !plannedIds.has(job.workOrderId))
             .sort((a, b) => (tierOrder[a.priority ?? 'Medium'] ?? 2) - (tierOrder[b.priority ?? 'Medium'] ?? 2))
             .map((job) => ({ workOrderId: job.workOrderId, locality: job.locality, priority: job.priority,
               taskType: job.taskType, requiredStaff: job.requiredStaff,
-              reason: 'No qualified crew with sufficient staff and remaining four-hour capacity in this plan.' }));
+              reason: job.status === WorkOrderStatus.Rejected
+                ? 'Committed work is excluded from new allocation; retain/review its existing assignment.'
+                : committedStatuses.includes(job.status as WorkOrderStatus)
+                  ? 'Already assigned, accepted or in progress; retain existing assignment and exclude from new allocation.'
+                  : roadUnverified.has(job.workOrderId)
+                    ? 'A complete driving route could not be verified. Road access or the routing service may be unavailable; the task remains unplanned pending a later verification.'
+                    : 'No qualified crew with sufficient staff and remaining four-hour capacity in this plan.' }))
           res.json({ date, routes, unplanned });
           return;
         }
