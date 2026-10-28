@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.12 · drafted 2026-09-02, revised 2026-10-27 · status: DRAFT for team review
+Version 0.13 · drafted 2026-09-02, revised 2026-10-28 · status: DRAFT for team review
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -1181,8 +1181,8 @@ otherwise.*
 - **11.10.4** The dispatch map shall draw route lines only from complete, validated driving-road geometry.
 - **11.10.5** The dispatch map shall distinguish Critical, High, Medium and Low cluster priorities through distinct colours, identified by the legend in 11.10.6.
 - **11.10.6** The dispatch map shall include a legend naming all four priority tiers.
-- **11.10.7** The Dispatch Proposal screen shall allow the manager to switch between all active clusters and clusters represented in the current dispatch preview.
-- **11.10.8** The Dispatch Proposal screen shall provide a control on a target or stop card that centres the map on that target.
+- **11.10.7** The Dispatch Proposal map shall show only clusters represented by unfinished task stops on complete, validated driving routes. The manager shall be able to show all road-accessible teams or one selected team. Other active clusters remain available on the operations map.
+- **11.10.8** The Dispatch Proposal screen shall provide a map-focus control for a proposal represented on the current road-route map. Other proposals shall state that they are not on that map.
 - **11.10.9** Each route card shall display its crew size, required task staff counts, total duration, capacity use and routing source.
 - **11.10.10** Each route card shall display an ordered waypoint list including departure, tasks and return to outpost.
 - **11.10.11** Each route card shall display its packing checklist and task progress.
@@ -1193,6 +1193,8 @@ otherwise.*
 - **11.10.16** The Report a Site screen shall display a loading state while image analysis runs.
 - **11.10.17** The Report a Site screen shall retain manually entered report fields when image analysis fails.
 - **11.10.18** Each pest marker on the dispatch map shall show only a pest icon, coloured by priority, with no descriptive marker text. The marker shall have an accessible name; hover or popup detail may retain the descriptive information.
+- **11.10.19** Map data refreshes and unrelated screen controls shall preserve the current zoom and pan. The map shall frame once when initial data arrive, unless the user has already moved it; an explicit cluster focus, team or date change, or Fit to map control may frame it again.
+- **11.10.20** The Dispatch Proposal map shall omit duplicate cluster-centroid icons and completed task-stop markers. Source reports and work-order lifecycle records shall remain unchanged. A locally completed stop shall also remove its cluster polygon when no other unfinished mapped stop represents that cluster.
 
 ## 11.11 Dispatch refresh, load display and fleet controls
 
@@ -1360,6 +1362,11 @@ Requirements are written against these sources. Verification status is from
 ---
 
 # 14. Revision history and review dispositions
+
+**v0.13 (2026-10-28)** - reduce dispatch-map clutter at Yen Kit's request and preserve user zoom during polling.
+
+- Revised 11.10.7-11.10.8 and added 11.10.19-11.10.20 for road-verified unfinished map tasks, team filtering, preserved viewports, explicit framing, and removal of duplicate/completed marker clutter without changing lifecycle records.
+- Regression evidence: `tests/dispatch-plan-screen.test.tsx`, `tests/road-only-dispatch.test.ts` and the real-Leaflet browser check `node tools/check-map-browser.mjs` (requires Edge, or `DFENCE_BROWSER_EXECUTABLE`). Generated browser evidence remains in ignored scratchpad output.
 
 **v0.12 (2026-10-27)** — at Yen Kit's request, remove the referral list from Dispatch while keeping dedicated referral workflows; require complete validated driving-road geometry; distinguish provider timeouts from confirmed no-road cases; add configurable spatial report grouping.
 

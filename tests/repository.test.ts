@@ -15,9 +15,10 @@
  *  4. `pg` returns a `date` column as a `Date` at *local* midnight, and `toISOString()` on it
  *     yields the previous day in Singapore. 8.3.12's completion date is a calendar date.
  *
- * The whole file skips when `DATABASE_URL` is unset, so `npm test` stays offline by default. It
- * cleans up after itself in `afterAll` and uses its own account and its own cluster, far from any
- * real one, so it can run against the shared development database without disturbing it.
+ * This file runs only with DFENCE_TEST_LIVE_DB=true and a configured DATABASE_URL.
+ * Normal npm test stays offline even when local configuration includes a database URL.
+ * Use an isolated disposable database: these tests write records, replace feed tables,
+ * delete source-health/state rows and retain append-only test audit entries.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -61,7 +62,7 @@ import { HighAedesAreaRepository } from '../src/persistence/HighAedesAreaReposit
 import { HighAedesArea } from '../src/entity/HighAedesArea';
 
 const url = ConfigLoader.load().get('DATABASE_URL');
-const live = url !== '' && process.env.DFENCE_TEST_LIVE_DB !== 'false';
+const live = url !== '' && process.env.DFENCE_TEST_LIVE_DB === 'true';
 
 /** A metre of latitude, in degrees. Used to place points at known distances apart. */
 const METRE = 1 / 111_320;

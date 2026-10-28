@@ -6,18 +6,18 @@ import { ApiClient, Fetcher } from '../client/src/lib/ApiClient';
 import { Role } from '../src/entity/enums';
 
 vi.mock('../client/src/components/SingaporeMap', () => ({
-  SingaporeMap: ({ clusters }: { clusters: Array<{ locality: string }> }) =>
-    <div data-testid="dispatch-map-targets">{clusters.map((cluster) => cluster.locality).join(', ')}</div>,
+  SingaporeMap: ({ clusters, routes, showClusterBadges }: { clusters: Array<{ locality: string }>; routes: Array<{ teamId: string; waypoints: unknown[] }>; showClusterBadges: boolean }) =>
+    <div data-testid="dispatch-map-targets" data-routes={routes.map((r) => r.teamId).join(',')} data-stops={routes.flatMap((r) => r.waypoints).length} data-badges={String(showClusterBadges)}>{clusters.map((cluster) => cluster.locality).join(', ')}</div>,
 }));
 afterEach(() => cleanup());
 
 const route = {
   teamId: 'Central-Sanitation-Available', staffCount: 2, depotLocation: 'Central', status: 'Available',
-  onCallLagHours: 0, workOrderIds: ['report-rat-1'], waypointOrder: [{ label: 'Stop 1: Rat hotspot',
+  onCallLagHours: 0, workOrderIds: ['report-rat-1'], waypointOrder: [{ label: 'HQ', point: { latitude: 1.321, longitude: 103.851 }, isHq: true }, { label: 'Stop 1: Rat hotspot',
     point: { latitude: 1.32, longitude: 103.85 }, workOrderId: 'report-rat-1', mapClusterId: 'pest-rat-1',
     taskType: 'Inspection', pestType: 'Rat', priority: 'High', status: 'Pending', isCompleted: false,
     estimatedEffortMinutes: 30, requiredStaff: 1, isHq: false, cumulativeDurationSeconds: 2000 }],
-  route: { coordinates: [], distanceMetres: 2000, durationSeconds: 600, source: 'onemap' },
+  route: { coordinates: [{ latitude: 1.32, longitude: 103.85 }, { latitude: 1.321, longitude: 103.851 }], distanceMetres: 2000, durationSeconds: 600, source: 'onemap' },
   totalDurationSeconds: 2400, totalTravelSeconds: 600, totalEffortSeconds: 1800,
   capacityUsedPercentage: 17, isWithinFourHourCap: true, completedCount: 0, totalStopsCount: 1,
   progressPercentage: 0, color: '#2563EB', vehicleId: 'demo-1', vehicleRegistration: 'DEMO-C1',
@@ -93,9 +93,33 @@ describe('Precomputed dispatch and vehicle-load display', () => {
   it('filters dispatch map targets by waypoint map identity rather than work-order identifiers', async () => {
     mount({ planStatus: 'ready', routes: [route] });
     await screen.findByRole('button', { name: /Planned Multi-Team Routes \(1 Teams\)/ });
-    fireEvent.click(screen.getByRole('button', { name: /Today's Dispatch Clusters Only/ }));
     const map = screen.getByTestId('dispatch-map-targets');
     expect(within(map).getByText('Rat report target')).toBeTruthy();
     expect(within(map).queryByText(/Unrelated locality/)).toBeNull();
   });
+  it('excludes unverified proposals, direct estimates and unusable road geometry from the map', async () => {
+    mount({ planStatus: 'ready', routes: [
+      { ...route, teamId: 'direct', route: { ...route.route, source: 'direct-distance' } },
+      { ...route, teamId: 'unverified', route: { ...route.route, coordinates: [] } },
+    ] }, [{ clusterId: 'other', locality: 'Unverified proposal', tier: 'Low', score: 1,
+      suggestedTaskType: 'Inspection', scheduledDate: '2099-01-01' }]);
+    await screen.findByText('Unverified proposal');
+    const map = screen.getByTestId('dispatch-map-targets');
+    expect(map.textContent).toBe('');
+    expect(map.getAttribute('data-routes')).toBe('');
+    expect(screen.getByText('Not on the current road-route map')).toBeTruthy();
+  });
+
+  it('can isolate one road-accessible team and omits duplicate badges and completed stops', async () => {
+    mount({ planStatus: 'ready', routes: [route, { ...route, teamId: 'Second', waypointOrder:
+      route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, status: 'Completed', isCompleted: true }) }] });
+    await screen.findByRole('option', { name: 'Team Second' });
+    fireEvent.change(screen.getByLabelText('Map team:'), { target: { value: 'Second' } });
+    const map = screen.getByTestId('dispatch-map-targets');
+    expect(map.getAttribute('data-routes')).toBe('Second');
+    expect(map.getAttribute('data-stops')).toBe('1'); // HQ only.
+    expect(map.getAttribute('data-badges')).toBe('false');
+    expect(map.textContent).toBe('');
+  });
+
 });

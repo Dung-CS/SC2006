@@ -16,6 +16,21 @@ storage and Telegram credentials stay in Azure App Settings. Tests use
 `DFENCE_TEST_LIVE_DB=false` and an empty `DATABASE_URL`; they do not connect to production services.
 The repository integration suite is therefore skipped in CI rather than writing to the live database.
 
+Local `npm test` also skips database integration tests unless `DFENCE_TEST_LIVE_DB` is exactly
+`true`, even when local configuration contains a database URL. The integration suite writes and
+replaces data, clears source metadata, and retains append-only audit fixtures. Run it only against
+an isolated disposable PostGIS database. To opt in explicitly from PowerShell:
+
+```powershell
+$env:DATABASE_URL = '<isolated disposable PostGIS connection string>'
+$env:DFENCE_TEST_LIVE_DB = 'true'
+try { npx vitest run tests/repository.test.ts }
+finally { Remove-Item Env:DFENCE_TEST_LIVE_DB }
+```
+
+Keep the CI setting `DFENCE_TEST_LIVE_DB=false`.
+
+
 The deploy job reads these encrypted **repository Actions secrets**:
 
 | Secret | Purpose |

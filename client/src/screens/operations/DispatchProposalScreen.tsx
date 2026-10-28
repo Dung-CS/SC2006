@@ -14,6 +14,8 @@ import { coveringSpecialisations } from '../../../../src/control/StaffRoutingPol
 import { PestClass, TaskType } from '../../../../src/entity/enums';
 import { SingaporeMap, MapCluster, MapRoute } from '../../components/SingaporeMap';
 import { ScreenProps } from '../ScreenProps';
+import { isUsableDrivingRoute } from '../../../../src/boundary/gateways/OneMapGateway';
+import { GeoPoint } from '../../../../src/entity/valueTypes';
 import type { DispatchReferral } from '../../../../src/control/DispatchRouteInputs';
 
 interface DispatchPayload {
@@ -153,7 +155,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
 
   const [view, setView] = useState<'proposals' | 'routes'>('proposals');
   const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
-  const [clusterScope, setClusterScope] = useState<'all' | 'dispatch'>('all');
+  const [selectedTeam, setSelectedTeam] = useState('');
   const [activePackingLists, setActivePackingLists] = useState<Record<string, boolean>>({});
   const [checkedGear, setCheckedGear] = useState<Record<string, boolean>>({});
   // Local stop status overrides for interactive progress tracking
@@ -168,27 +170,26 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   const plan = routesLoad.value;
   const referrals = plan?.referrals ?? [];
   const allClusters = layersLoad.value?.clusters ?? [];
-  const proposedClusterIds = new Set(value?.proposals.map(proposalMapId) ?? []);
-  routes.forEach((r) => {
-    r.waypointOrder.forEach((waypoint) => {
-      if (waypoint.mapClusterId) proposedClusterIds.add(waypoint.mapClusterId);
-      else if (waypoint.clusterId) proposedClusterIds.add(waypoint.clusterId);
-    });
-  });
-  const displayedClusters =
-    clusterScope === 'dispatch'
-      ? allClusters.filter((c) => proposedClusterIds.has(c.clusterId))
-      : allClusters;
+  // A proposal alone is not evidence of road access. Only validated road-plan stops belong here.
+  const roadRoutes = routes.filter((r) => r.route.source === 'onemap' && isUsableDrivingRoute({
+    ...r.route, coordinates: r.route.coordinates.map((p) => new GeoPoint(p.latitude, p.longitude)),
+  }, r.waypointOrder.map((wp) => new GeoPoint(wp.point.latitude, wp.point.longitude))));
+  const displayedRoutes = roadRoutes.filter((r) => selectedTeam === '' || r.teamId === selectedTeam);
+  const roadClusterIds = new Set(displayedRoutes.flatMap((r) => r.waypointOrder
+    .flatMap((wp, idx) => !wp.isHq && (stopOverrides[`${r.teamId}-${idx}`] ?? wp.status) !== 'Completed'
+      ? [wp.mapClusterId ?? wp.clusterId] : [])));
+  const displayedClusters = allClusters.filter((c) => roadClusterIds.has(c.clusterId));
 
-  const mapRoutes: MapRoute[] = routes.map((r) => ({
+  const mapRoutes: MapRoute[] = displayedRoutes.map((r) => ({
     teamId: r.teamId,
     color: r.color || '#2563EB',
     label: `${r.totalStopsCount} stops · ${Math.round(r.totalDurationSeconds / 60)}m`,
     coordinates: r.route.coordinates,
-    waypoints: r.waypointOrder.map((wp, idx) => {
+    waypoints: r.waypointOrder.flatMap((wp, idx) => {
       const overrideKey = `${r.teamId}-${idx}`;
       const effectiveStatus = stopOverrides[overrideKey] ?? wp.status;
-      return {
+      if (!wp.isHq && effectiveStatus === 'Completed') return [];
+      return [{
         label: wp.label,
         point: wp.point,
         isCompleted: effectiveStatus === 'Completed',
@@ -197,7 +198,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
         priority: wp.priority,
         pestType: wp.pestType,
         taskType: wp.taskType,
-      };
+      }];
     }),
   }));
 
@@ -275,39 +276,14 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
           <h2 style={{ fontSize: '1.2rem', margin: 0 }}>Active Clusters & Multi-Team Road Routes</h2>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Cluster View:</span>
-            <button
-              type="button"
-              onClick={() => setClusterScope('all')}
-              style={{
-                padding: '4px 10px',
-                fontSize: '0.82rem',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                background: clusterScope === 'all' ? '#1e293b' : '#ffffff',
-                color: clusterScope === 'all' ? '#ffffff' : '#334155',
-                cursor: 'pointer',
-                fontWeight: clusterScope === 'all' ? 600 : 400,
-              }}
-            >
-              All Island Clusters ({allClusters.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setClusterScope('dispatch')}
-              style={{
-                padding: '4px 10px',
-                fontSize: '0.82rem',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                background: clusterScope === 'dispatch' ? '#2563eb' : '#ffffff',
-                color: clusterScope === 'dispatch' ? '#ffffff' : '#334155',
-                cursor: 'pointer',
-                fontWeight: clusterScope === 'dispatch' ? 600 : 400,
-              }}
-            >
-              🎯 Today's Dispatch Clusters Only ({proposedClusterIds.size})
-            </button>
+            <label htmlFor="dispatch-map-team">Map team:</label>
+            <select id="dispatch-map-team" value={selectedTeam} onChange={(event) => {
+              setSelectedTeam(event.target.value);
+              setSelectedClusterId(null);
+            }}>
+              <option value="">All road-accessible teams</option>
+              {roadRoutes.map((r) => <option key={r.teamId} value={r.teamId}>Team {r.teamId}</option>)}
+            </select>
             {selectedClusterId ? (
               <button
                 type="button"
@@ -327,8 +303,12 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
             ) : null}
           </div>
         </div>
+        <p>Only tasks on verified driving routes are shown. Completed stop markers and duplicate cluster icons are hidden.
+          {' '}Choose one team to see fewer routes. Tasks without verified road access remain in the list.</p>
         <SingaporeMap
           label="dispatch-routes-map"
+          viewKey={`${date}:${selectedTeam}`}
+          showClusterBadges={false}
           clusters={displayedClusters}
           routes={mapRoutes}
           selectedClusterId={selectedClusterId}
@@ -823,7 +803,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                   </span>
                 </div>
                 <div data-part="card-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
+                  {roadClusterIds.has(proposalMapId(proposal)) ? <button
                     type="button"
                     onClick={() => {
                       setSelectedClusterId(proposalMapId(proposal));
@@ -841,7 +821,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                     }}
                   >
                     📍 Show on map
-                  </button>
+                  </button> : <span>Not on the current road-route map</span>}
                   {proposal.referralAuthority ? (
                     proposal.sourceReportId ? <a href={`/ops/referrals/${proposal.sourceReportId}`}
                       onClick={link(props, `/ops/referrals/${proposal.sourceReportId}`)}>Review referral</a> : null

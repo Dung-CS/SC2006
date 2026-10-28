@@ -101,6 +101,9 @@ export interface SingaporeMapProps {
   markers?: MapMarker[];
   routes?: MapRoute[];
   basemap?: Basemap;
+  /** Deliberate caller view changes may refit; data refreshes must not. */
+  viewKey?: string;
+  showClusterBadges?: boolean;
   /** Called when a cluster shape or its list entry is chosen. Absent means the shapes are inert. */
   onSelectCluster?: (clusterId: string) => void;
   /** Drawn thicker, and the map opens on it. */
@@ -246,6 +249,8 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
   const [drawn, setDrawn] = useState(false);
   const [failed, setFailed] = useState(false);
   const legendId = useId();
+  const framedView = useRef<string | null>(null);
+  const userMoved = useRef(false);
 
   const markers = useMemo(() => props.markers ?? [], [props.markers]);
   // 9.1.6 — a layer can be hidden. Only the kinds actually present are offered, so a resident is
@@ -311,6 +316,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           markerLayers.current[kind] = L.layerGroup().addTo(instance);
         }
         map.current = instance;
+        instance.on('dragstart', () => { userMoved.current = true; });
         if (!cancelled) {
           setDrawn(true);
         }
@@ -348,6 +354,8 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       observer.observe(element);
     }
 
+    const markUserMoved = () => { userMoved.current = true; };
+    for (const event of ['wheel', 'touchstart', 'keydown', 'pointerdown']) element.addEventListener(event, markUserMoved);
     const handleWindowResize = () => {
       map.current?.invalidateSize();
     };
@@ -355,6 +363,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
 
     return () => {
       cancelled = true;
+      for (const event of ['wheel', 'touchstart', 'keydown', 'pointerdown']) element.removeEventListener(event, markUserMoved);
       observer?.disconnect();
       window.removeEventListener('resize', handleWindowResize);
       map.current?.remove();
@@ -374,14 +383,11 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
     }
     try {
       const layer = clusterLayer.current;
-      const instance = map.current;
-      if (layer === null || instance === null) {
+      if (layer === null) {
         return;
       }
       layer.clearLayers();
-      const bounds = L.latLngBounds([]);
-      /** Each cluster's own extent, kept so the nearest one to a saved location can be found. */
-      const shapeBounds: Array<ReturnType<typeof L.latLngBounds>> = [];
+
       for (const cluster of props.clusters) {
         if (cluster.ring.length < 3) {
           continue;
@@ -408,91 +414,42 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         }
         shape.addTo(layer);
 
-        // Prominent centroid badge pill with case count and tier color for high map visibility
-        const center = shape.getBounds().getCenter();
-        const badgeIcon = L.divIcon({
-          className: 'cluster-badge-container',
-          html: `<div class="cluster-map-pill ${getMapPriorityClass(cluster.tier)} ${selected ? 'is-selected' : ''}" role="button" tabindex="0" aria-label="${escapeHtml(cluster.locality)}: ${escapeHtml(cluster.tierLabel)}">
-            <span class="cluster-pill-icon" aria-hidden="true">${getMapPestIcon(cluster.pestType)}</span>
-          </div>`,
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
-        });
-        const badgeMarker = L.marker(center, { icon: badgeIcon, interactive: true });
-        badgeMarker.bindTooltip(`${escapeHtml(cluster.locality)} — ${escapeHtml(cluster.tierLabel)}`, {
-          sticky: true,
-        });
-        badgeMarker.bindPopup(
-          `<strong>${escapeHtml(cluster.locality)}</strong><br>${escapeHtml(cluster.tierLabel)}<br>${cluster.caseSize} ${escapeHtml(cluster.countLabel ?? 'case(s)')}`,
-        );
-        if (props.onSelectCluster !== undefined) {
-          badgeMarker.on('click', () => props.onSelectCluster?.(cluster.clusterId));
-          badgeMarker.on('keypress', (event) => {
-            const key = (event as unknown as { originalEvent?: KeyboardEvent }).originalEvent?.key;
-            if (key === 'Enter' || key === ' ') {
-              props.onSelectCluster?.(cluster.clusterId);
-            }
+        if (props.showClusterBadges !== false) {
+          // Prominent centroid badge pill with case count and tier color for high map visibility
+          const center = shape.getBounds().getCenter();
+          const badgeIcon = L.divIcon({
+            className: 'cluster-badge-container',
+            html: `<div class="cluster-map-pill ${getMapPriorityClass(cluster.tier)} ${selected ? 'is-selected' : ''}" role="button" tabindex="0" aria-label="${escapeHtml(cluster.locality)}: ${escapeHtml(cluster.tierLabel)}">
+              <span class="cluster-pill-icon" aria-hidden="true">${getMapPestIcon(cluster.pestType)}</span>
+            </div>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
           });
-        }
-        badgeMarker.addTo(layer);
+          const badgeMarker = L.marker(center, { icon: badgeIcon, interactive: true });
+          badgeMarker.bindTooltip(`${escapeHtml(cluster.locality)} — ${escapeHtml(cluster.tierLabel)}`, {
+            sticky: true,
+          });
+          badgeMarker.bindPopup(
+            `<strong>${escapeHtml(cluster.locality)}</strong><br>${escapeHtml(cluster.tierLabel)}<br>${cluster.caseSize} ${escapeHtml(cluster.countLabel ?? 'case(s)')}`,
+          );
+          if (props.onSelectCluster !== undefined) {
+            badgeMarker.on('click', () => props.onSelectCluster?.(cluster.clusterId));
+            badgeMarker.on('keypress', (event) => {
+              const key = (event as unknown as { originalEvent?: KeyboardEvent }).originalEvent?.key;
+              if (key === 'Enter' || key === ' ') {
+                props.onSelectCluster?.(cluster.clusterId);
+              }
+            });
+          }
+          badgeMarker.addTo(layer);
 
-        bounds.extend(shape.getBounds());
-        shapeBounds.push(shape.getBounds());
-      }
-      if (props.selectedClusterId) {
-        const selected = props.clusters.find((c) => c.clusterId === props.selectedClusterId);
-        if (selected && selected.ring.length >= 3) {
-          const selLatLngs = selected.ring.map(([lng, lat]) => [lat, lng] as [number, number]);
-          const selBounds = L.latLngBounds(selLatLngs);
-          instance.fitBounds(selBounds, { padding: [32, 32], maxZoom: 15 });
-          instance.invalidateSize();
-          return;
         }
-      }
-      const focus = props.focus ?? [];
-      if (focus.length > 0) {
-        const near = L.latLngBounds(focus.map(([lat, lng]) => L.latLng(lat, lng)));
-        // One saved location is a point, and a point has no extent — `fitBounds` on it would zoom
-        // to the maximum and show a rooftop. Roughly 700 m of margin in each direction gives a
-        // frame with streets in it.
-        const margin = 0.0065;
-        const frame = L.latLngBounds(
-          [near.getSouth() - margin, near.getWest() - margin],
-          [near.getNorth() + margin, near.getEast() + margin],
-        );
-        /*
-          And then the nearest cluster, if there is one.
-          ---------------------------------------------
-          A photograph of this screen on a phone showed the Ang Mo Kio street grid and not one
-          dengue cluster: the frame was fitted to the resident's saved location alone, and the
-          nearest cluster was several hundred metres outside it. A screen called "Dengue map" that
-          opens showing no dengue is answering the wrong question — "where do I live" rather than
-          3.2.x's "is there dengue near me".
-
-          So the frame is widened to take in whichever cluster is closest to the saved location.
-          Only one, and only the closest: taking in all of them is the island, which is the view
-          the resident would have got with no saved location at all.
-        */
-        const centre = near.getCenter();
-        const closest = shapeBounds
-          .slice()
-          .sort((a, b) => centre.distanceTo(a.getCenter()) - centre.distanceTo(b.getCenter()))[0];
-        if (closest !== undefined) {
-          frame.extend(closest);
-        }
-        instance.fitBounds(frame, { padding: [16, 16], maxZoom: 15 });
-        instance.invalidateSize();
-      } else if (bounds.isValid()) {
-        // Open on the data rather than on the middle of the island: sixteen clusters in the north
-        // and an empty south would otherwise put every shape in the top third of the frame.
-        instance.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
-        instance.invalidateSize();
       }
     } catch {
       // A redraw that fails must not take the screen with it; the list below is unaffected.
       setFailed(true);
     }
-  }, [drawn, props.clusters, props.focus, props.selectedClusterId, props.onSelectCluster]);
+  }, [drawn, props.clusters, props.focus, props.selectedClusterId, props.onSelectCluster, props.showClusterBadges]);
 
   /** Redraw the multi-team route polylines and stop waypoints. */
   useEffect(() => {
@@ -501,19 +458,15 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
     }
     try {
       const layer = routeLayer.current;
-      const instance = map.current;
       layer.clearLayers();
       const routes = props.routes ?? [];
       if (routes.length === 0) {
         return;
       }
 
-      const bounds = L.latLngBounds([]);
-
       routes.forEach((r) => {
         if (r.coordinates.length >= 2) {
           const latlngs = r.coordinates.map((c) => [c.latitude, c.longitude] as [number, number]);
-          latlngs.forEach((pt) => bounds.extend(pt));
 
           const polyline = L.polyline(latlngs, {
             color: r.color,
@@ -527,7 +480,6 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
 
         if (r.waypoints) {
           r.waypoints.forEach((wp, idx) => {
-            bounds.extend([wp.point.latitude, wp.point.longitude]);
             const isHq = wp.isHq;
             const isDone = wp.isCompleted;
 
@@ -555,26 +507,44 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         }
       });
 
-      if (bounds.isValid() && props.selectedClusterId == null) {
-        if (props.clusters.length === 0) {
-          instance.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
-        } else {
-          const combined = L.latLngBounds([]);
-          props.clusters.forEach((c) => {
-            if (c.ring.length >= 3) {
-              c.ring.forEach(([lng, lat]) => combined.extend([lat, lng]));
-            }
-          });
-          combined.extend(bounds);
-          if (combined.isValid()) {
-            instance.fitBounds(combined, { padding: [24, 24], maxZoom: 14 });
-          }
-        }
-      }
     } catch {
       // Degrades gracefully
     }
   }, [drawn, props.routes, props.clusters.length, props.selectedClusterId]);
+
+  // Frame once after data arrives, or after an explicit focus/team change. Polls only redraw.
+  useEffect(() => {
+    const instance = map.current;
+    if (!drawn || instance === null) return;
+    const viewKey = JSON.stringify([props.viewKey ?? '', props.selectedClusterId ?? null, props.focus ?? []]);
+    if (framedView.current === viewKey) return;
+    if (framedView.current === null && userMoved.current) {
+      framedView.current = viewKey; // Consume only the initial frame; later explicit focus still works.
+      return;
+    }
+    const bounds = L.latLngBounds([]);
+    const selected = props.clusters.find((c) => c.clusterId === props.selectedClusterId);
+    if (selected && selected.ring.length >= 3) {
+      selected.ring.forEach(([lng, lat]) => bounds.extend([lat, lng]));
+    } else if ((props.focus?.length ?? 0) > 0) {
+      const near = L.latLngBounds(props.focus!);
+      bounds.extend([near.getSouth() - .0065, near.getWest() - .0065]);
+      bounds.extend([near.getNorth() + .0065, near.getEast() + .0065]);
+      const closest = props.clusters.filter((c) => c.ring.length >= 3)
+        .map((c) => L.latLngBounds(c.ring.map(([lng, lat]) => [lat, lng] as [number, number])))
+        .sort((a, b) => near.getCenter().distanceTo(a.getCenter()) - near.getCenter().distanceTo(b.getCenter()))[0];
+      if (closest) bounds.extend(closest);
+    } else {
+      props.clusters.forEach((c) => c.ring.forEach(([lng, lat]) => bounds.extend([lat, lng])));
+      (props.routes ?? []).forEach((r) => {
+        r.coordinates.forEach((p) => bounds.extend([p.latitude, p.longitude]));
+        r.waypoints?.forEach((p) => bounds.extend([p.point.latitude, p.point.longitude]));
+      });
+    }
+    if (!bounds.isValid()) return; // The first async payload has not arrived yet.
+    instance.fitBounds(bounds, { padding: [24, 24], maxZoom: selected || props.focus?.length ? 15 : 14 });
+    framedView.current = viewKey;
+  }, [drawn, props.clusters, props.routes, props.selectedClusterId, props.focus, props.viewKey]);
 
   /** Redraw the markers. Separate from the shapes so toggling a layer does not refit the view. */
   useEffect(() => {
@@ -670,6 +640,10 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       return;
     }
     const bounds = L.latLngBounds([]);
+    for (const route of props.routes ?? []) {
+      for (const point of route.coordinates) bounds.extend([point.latitude, point.longitude]);
+      for (const waypoint of route.waypoints ?? []) bounds.extend([waypoint.point.latitude, waypoint.point.longitude]);
+    }
     for (const cluster of props.clusters) {
       for (const [lng, lat] of cluster.ring) {
         bounds.extend([lat, lng]);
@@ -702,7 +676,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           </label>
         ))}
         <button type="button" onClick={resetView} disabled={!drawn}>
-          Fit to clusters
+          Fit to map
         </button>
       </div>
 
