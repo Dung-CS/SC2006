@@ -48,7 +48,7 @@ describe('Background dispatch horizon', () => {
 
   it('carries unplanned jobs forward, honours scheduled dates and keeps referrals and committed work distinct', async () => {
     const load = vi.fn(async () => ({ ...input([
-      job('blocked'), job('tomorrow', { scheduledDate: '2099-01-02' }),
+      job('blocked', { mapClusterId: 'pest-report-1' }), job('tomorrow', { scheduledDate: '2099-01-02' }),
       job('assigned', { status: 'Assigned', reportIds: ['committed-report'] }),
       job('alias', { sourceReportId: 'committed-report' }),
     ]), referrals: [{ reportId: 'external', priority: 'High', authority: 'NParks' }] }));
@@ -63,7 +63,8 @@ describe('Background dispatch horizon', () => {
     expect(result.plans[2]!.routes).toEqual([]);
     expect(result.unassigned).toEqual([
       expect.objectContaining({ workOrderId: 'assigned', disposition: 'committed', status: 'Assigned' }),
-      expect.objectContaining({ workOrderId: 'blocked', disposition: 'unassigned' }),
+      expect.objectContaining({ workOrderId: 'blocked', disposition: 'unassigned',
+        point: { latitude: 1.3, longitude: 103.8 }, mapClusterId: 'pest-report-1' }),
     ]);
     expect(result.referrals).toHaveLength(1);
     expect(planner.plan.mock.calls.every((call) => call[1].some((item) => item.workOrderId === 'blocked'))).toBe(true);

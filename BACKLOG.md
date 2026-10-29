@@ -1,5 +1,15 @@
 # Dengue Prioritiser — Feature Backlog
 
+## Current delivery delta - 2026-10-29 (dispatch map interaction, v0.19)
+
+### Show filtered dispatch tasks and proposals on the bounded map
+- **Status:** Implemented; local checks passed; browser and deployment validation pending.
+- **Scope:** Dispatch map, dispatch screen, proposal/unplanned response metadata, map tests and focused backend regressions.
+- **Acceptance:** Routes, Horizon Unassigned / Committed and Daily Proposals views change the mapped tasks and route lines appropriately. Team and Job Type filters use checkbox groups with All, multi-select and explicit none-selected behaviour. Task callouts show pest type, task type, priority, location, photo and assigned team without generated task headings. Photos load only after selection through the existing authenticated report/image path; missing incident photos use a labelled reference fallback. Map zoom and pan remain within the Singapore extent, and polling retains zoom and selected task while updates are reconciled by task ID.
+- **Metadata and routing:** Unplanned tasks expose serialized source coordinates and optional `mapClusterId`. Official cluster proposals expose display-only `mapPoint` from the source boundary centroid; absent boundary geometry yields no invented point. Source-report proposal `point` remains exact. Route calculation, area access, admission and resource limits are unchanged.
+- **Known local checks:** Full suite: 1,152 passed / 58 SQL tests skipped; typecheck and build passed; clean package extraction smoke passed. Focused metadata tests: 33 passed across two files. `DFENCE_TEST_LIVE_DB=false`.
+- **Pending:** Browser interaction/photo checks and deployment review.
+
 ## Current delivery delta - 2026-10-29 (unified authority operations and concise cards)
 
 ### Dispatch authority cases through qualified crews

@@ -57,6 +57,15 @@ The script never creates or searches for records to mutate. It acts only on mani
 - Do not query the removed `[data-part="urgent-task-queue"]` or require a separate urgent/referral list. Verify urgent coverage through the API dispositions and the ordinary rendered cards.
 - Authority-response fixtures use recorded `AuthorityResponse` staff capability; generic inspection staff must not appear as eligible. Insufficient crew, vehicle capacity or verified access must leave the task unassigned with a reason.
 
+## Dispatch map interaction contract (v0.19; browser validation pending)
+
+- The Routes view shows selected-day verified routes and matching tasks. Horizon Unassigned / Committed shows horizon disposition pins without executable route lines. Daily Proposals shows selected-day proposal pins without executable route lines.
+- Team and Job Type are checkbox groups, initially all selected, with an All control. Multiple selections are supported; no selected values means no matching tasks. These filters apply to the mapped tasks and any matching detail cards.
+- Task callouts show pest type, task type, priority, location, photo and assigned team. They use the task identity and do not show generated task-name headings. Unplanned tasks use their serialized `point` coordinates and optional `mapClusterId`. Official proposals use display-only `mapPoint` at the source boundary centroid when geometry exists; source-report `point` stays exact. Missing geometry does not create a pin, and no road access is inferred.
+- Photos load only after a task is opened, through the authenticated report and image endpoints. If an incident image is absent or fails, the UI labels its reference fallback. No per-task photo fanout occurs on initial map load.
+- Zoom and pan are bounded to the Singapore map extent. Normal page scrolling outside the map remains available. Polling updates preserve zoom and the selected task when its ID remains visible; filtering it away closes the callout.
+- Local validation passed: 1,152 tests / 58 SQL skips, typecheck, build and clean package extraction smoke. Browser interaction and deployment checks remain pending.
+
 The updated runner and live rehearsal passed. Dispatch checks atomically compare card metadata with the latest real horizon response consumed by the UI so a background refresh cannot create a stale-element or old-day assertion. Evidence is recorded in scratchpad/unified-ops-20261029/DEPLOYMENT.md.
 
 ## Evidence limits

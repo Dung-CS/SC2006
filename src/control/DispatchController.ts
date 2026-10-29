@@ -55,6 +55,8 @@ export interface DispatchProposal {
   clusterId: Uuid;
   sourceReportId?: Uuid;
   point?: GeoPoint;
+  /** Display-only boundary target; route inputs must retain their existing area-access semantics. */
+  mapPoint?: GeoPoint;
   mapClusterId?: string;
   referralAuthority?: string;
   priorityBasis?: 'LocalityScore' | 'ReportTriage';
@@ -183,6 +185,7 @@ export class DispatchController {
           p.suggestedTaskType === suggestedTaskType)) continue;
       candidates.push({ clusterId: cluster.id, pestType, priorityBasis: 'LocalityScore',
         mapClusterId: pestType === PestType.Mosquito ? cluster.id : `inat-${score.clusterId}-${pestType}`,
+        mapPoint: cluster.boundary?.rings[0]?.length ? cluster.boundary.centroid() : undefined,
         allowedCapabilities: coveringSpecialisations(suggestedTaskType, pestClassOf(pestType, profile), pestType, profile),
         locality: cluster.locality, score: score.score, tier: score.tier, suggestedTaskType, scheduledDate: date });
     }

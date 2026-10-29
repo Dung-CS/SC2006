@@ -2,7 +2,7 @@
  * D-Fence — Dispatch Proposal & Multi-Team Routing (REQUIREMENTS.md 11.2.16).
  * Stereotype: <<boundary>>. Traces: 11.2.16, 8.1.7, 8.1.8, 8.1.11, 8.1.12, 11.4.2.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
@@ -11,10 +11,10 @@ import { label } from '../../lib/labels';
 import { Pagination, usePagination } from '../../components/Pagination';
 import { specialisationLabel } from '../../lib/dispatchRouting';
 import { TaskType } from '../../../../src/entity/enums';
-import { SingaporeMap, MapCluster, MapRoute } from '../../components/SingaporeMap';
+import { SingaporeMap, MapRoute, MapTask } from '../../components/SingaporeMap';
 import { ScreenProps } from '../ScreenProps';
 import { reportPhotoUrl } from '../../lib/reportVisuals';
-import { cleanTitle, displayTaskName } from '../../../../src/presentation/DisplayNames';
+import { cleanTitle } from '../../../../src/presentation/DisplayNames';
 import { isUsableDrivingRoute } from '../../../../src/boundary/gateways/OneMapGateway';
 import { GeoPoint } from '../../../../src/entity/valueTypes';
 
@@ -25,6 +25,7 @@ interface DispatchPayload {
     mapClusterId?: string;
     sourceReportId?: string;
     point?: { latitude: number; longitude: number };
+    mapPoint?: { latitude: number; longitude: number };
     referralAuthority?: string;
     priorityBasis?: string;
     pestType?: string;
@@ -127,16 +128,13 @@ interface PlannedRoutesPayload {
   }>;
 }
 
-interface MapLayersPayload {
-  clusters: MapCluster[];
-}
-
 interface WalkingLegPayload { coordinates: Array<{ latitude: number; longitude: number }>; durationSeconds: number; distanceMetres: number; source: string; mode: string }
 interface WalkingVisitPayload { stopIndex: number; targetPoint: { latitude: number; longitude: number }; accessPoint: { latitude: number; longitude: number }; outbound: WalkingLegPayload; return: WalkingLegPayload }
 interface UnassignedPayload {
   workOrderId: string; locality?: string; priority?: string; taskType?: string; pestType?: string; requiredStaff?: number; reason: string;
   scheduledDate?: string; date?: string; disposition?: 'unassigned' | 'committed'; status?: string; isDemo?: boolean;
   sourceReportId?: string; reportIds?: string[];
+  point?: { latitude: number; longitude: number }; teamId?: string;
 }
 interface HorizonPayload {
   startDate: string; days: number; planStatus: 'pending' | 'refreshing' | 'ready' | 'failed';
@@ -150,10 +148,6 @@ function proposalFormPath(proposal: DispatchPayload['proposals'][number]): strin
   return `/ops/work-orders/new?${query}`;
 }
 
-function proposalMapId(proposal: DispatchPayload['proposals'][number]): string {
-  return proposal.mapClusterId ?? (proposal.sourceReportId ? `pest-${proposal.sourceReportId}` : proposal.clusterId);
-}
-
 function existingOrderPath(id?: string): string | undefined {
   return id && !id.startsWith('report-') && !id.startsWith('prop-') ? `/ops/work-orders/${id}` : undefined;
 }
@@ -164,8 +158,14 @@ function taskReferenceImage(taskType?: string, pestType?: string): string {
 }
 
 function stopDisplayName(waypoint: WaypointPayload): string {
-  const locality = waypoint.locality ?? waypoint.label.replace(/^Stop\s+\d+:\s*/, '');
-  return displayTaskName(waypoint.taskType, waypoint.pestType, cleanTitle(locality, 'Task stop'));
+  return waypoint.isHq ? cleanTitle(waypoint.label, 'HQ') : taskLocation(waypoint.locality, waypoint.targetPoint ?? waypoint.point);
+}
+
+function taskLocation(locality?: string, point?: { latitude: number; longitude: number }): string {
+  const fallback = point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
+    ? `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}` : 'Location not recorded';
+  const title = cleanTitle(locality, fallback);
+  return /^(unknown locality|unknown location|reported location|location not recorded|unknown)$/i.test(title) ? fallback : title;
 }
 
 function dateOffset(date: string, offset: number): string {
@@ -193,40 +193,52 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
     refreshMs: 3000,
   });
 
-  const layersLoad = useLoad<MapLayersPayload>(props.api, '/api/map/layers');
-
   const [view, setView] = useState<'proposals' | 'routes' | 'unassigned'>('routes');
-  const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
-  const [selectedTeam, setSelectedTeam] = useState('');
+  // null means All, while [] deliberately selects nothing. New polling options join All only.
+  const [selectedTeams, setSelectedTeams] = useState<string[] | null>(null);
+  const [selectedTypes, setSelectedTypes] = useState<string[] | null>(null);
   const [activePackingLists, setActivePackingLists] = useState<Record<string, boolean>>({});
   const [checkedGear, setCheckedGear] = useState<Record<string, boolean>>({});
   // Local stop status overrides for interactive progress tracking
   const [stopOverrides, setStopOverrides] = useState<Record<string, 'Completed' | 'InProgress' | 'Pending'>>({});
 
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const visibleProposals = (value?.proposals ?? []).filter((proposal) => priorityFilter === '' || proposal.tier === priorityFilter);
-  const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(
-    visibleProposals,
-    10,
-  );
-
   const horizon = routesLoad.value;
-  const plan = horizon?.plans.find((item) => item.date === selectedDay) ?? horizon?.plans[0];
+  const plan = horizon?.plans.find((item) => item.date === selectedDay);
   const routes = plan?.routes ?? [];
-  const horizonUnassigned = horizon?.unassigned ?? [];
+  const proposalTeam = (proposal: DispatchPayload['proposals'][number]) => {
+    const mapId = proposal.mapClusterId ?? (proposal.sourceReportId ? `pest-${proposal.sourceReportId}` : proposal.clusterId);
+    const teams = routes.filter((route) => route.waypointOrder.some((wp) => !wp.isHq && wp.taskType === proposal.suggestedTaskType &&
+      (proposal.sourceReportId && wp.sourceReportId === proposal.sourceReportId ||
+        (wp.mapClusterId ?? wp.clusterId) === mapId))).map((route) => route.teamId);
+    // Only an unambiguous recorded plan match supplies a preview team.
+    return new Set(teams).size === 1 ? teams[0] : undefined;
+  };
+  const teamKey = (teamId?: string) => teamId || '__unassigned';
+  const typeKey = (taskType?: string) => taskType || '__unknown';
+  const accepts = (teamId?: string, taskType?: string) =>
+    (selectedTeams === null || selectedTeams.includes(teamKey(teamId))) &&
+    (selectedTypes === null || selectedTypes.includes(typeKey(taskType)));
+  const teamOptions = [...new Set([
+    ...(horizon?.plans ?? []).flatMap((item) => item.routes.map((route) => route.teamId)),
+    ...(horizon?.unassigned ?? []).map((job) => teamKey(job.teamId)),
+    ...(value?.proposals ?? []).map((proposal) => teamKey(proposalTeam(proposal))),
+  ])].sort();
+  const typeOptions = [...new Set([
+    ...(horizon?.plans ?? []).flatMap((item) => item.routes.flatMap((route) => route.waypointOrder.filter((wp) => !wp.isHq).map((wp) => typeKey(wp.taskType)))),
+    ...(horizon?.unassigned ?? []).map((job) => typeKey(job.taskType)),
+    ...(value?.proposals ?? []).map((proposal) => typeKey(proposal.suggestedTaskType)),
+  ])].sort();
+  const visibleProposals = (value?.proposals ?? []).filter((proposal) => accepts(proposalTeam(proposal), proposal.suggestedTaskType));
+  const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(visibleProposals, 10);
+  const horizonUnassigned = (horizon?.unassigned ?? []).filter((job) => accepts(job.teamId, job.taskType));
   const horizonOnlyUnassigned = horizonUnassigned.filter((job) => job.disposition !== 'committed');
   const horizonCommitted = horizonUnassigned.filter((job) => job.disposition === 'committed');
   const dailyUnplanned = plan?.unplanned ?? [];
-  const allClusters = layersLoad.value?.clusters ?? [];
   // A proposal alone is not evidence of road access. Only validated road-plan stops belong here.
   const roadRoutes = routes.filter((r) => r.route.source === 'onemap' && isUsableDrivingRoute({
     ...r.route, coordinates: r.route.coordinates.map((p) => new GeoPoint(p.latitude, p.longitude)),
   }, (r.route.drivingStops ?? r.waypointOrder.map((wp) => wp.point)).map((p) => new GeoPoint(p.latitude, p.longitude))));
-  const displayedRoutes = roadRoutes.filter((r) => selectedTeam === '' || r.teamId === selectedTeam);
-  const roadClusterIds = new Set(displayedRoutes.flatMap((r) => r.waypointOrder
-    .flatMap((wp, idx) => !wp.isHq && (stopOverrides[`${selectedDay}:${r.teamId}-${idx}`] ?? wp.status) !== 'Completed'
-      ? [wp.mapClusterId ?? wp.clusterId] : [])));
-  const displayedClusters = allClusters.filter((c) => roadClusterIds.has(c.clusterId));
+  const displayedRoutes = roadRoutes.filter((r) => r.waypointOrder.some((wp) => !wp.isHq && accepts(r.teamId, wp.taskType)));
 
   const mapRoutes: MapRoute[] = displayedRoutes.map((r) => ({
     teamId: r.teamId,
@@ -238,7 +250,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
     waypoints: r.waypointOrder.flatMap((wp, idx) => {
       const overrideKey = `${selectedDay}:${r.teamId}-${idx}`;
       const effectiveStatus = stopOverrides[overrideKey] ?? wp.status;
-      if (!wp.isHq && effectiveStatus === 'Completed') return [];
+      if (!wp.isHq && (effectiveStatus === 'Completed' || !accepts(r.teamId, wp.taskType))) return [];
       return [{
         label: stopDisplayName(wp),
         point: wp.point,
@@ -251,6 +263,64 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
       }];
     }),
   }));
+
+  const routeTasks: MapTask[] = displayedRoutes.flatMap((route) => route.waypointOrder.flatMap((wp, index) => {
+    if (wp.isHq || !accepts(route.teamId, wp.taskType) || (stopOverrides[`${selectedDay}:${route.teamId}-${index}`] ?? wp.status) === 'Completed') return [];
+    return [{ id: wp.workOrderId ?? `${selectedDay}:${route.teamId}:${index}`, point: wp.targetPoint ?? wp.point,
+      pestType: label(wp.pestType ?? 'Unknown'), taskType: label(wp.taskType ?? 'Unknown'), priority: wp.priority,
+      location: stopDisplayName(wp), photoUrl: taskReferenceImage(wp.taskType, wp.pestType), photoIsReference: true,
+      sourceReportId: wp.sourceReportId, teamId: route.teamId, teamLabel: cleanTitle(route.teamId, 'Field team'), assignmentState: 'planned' }];
+  }));
+  const dispositionTasks = horizonUnassigned.map((job) => ({
+    id: job.workOrderId, point: job.point, pestType: label(job.pestType ?? 'Unknown'), taskType: label(job.taskType ?? 'Unknown'),
+    priority: job.priority, location: taskLocation(job.locality, job.point),
+    photoUrl: taskReferenceImage(job.taskType, job.pestType), photoIsReference: true,
+    sourceReportId: job.sourceReportId ?? job.reportIds?.[0], teamId: job.teamId,
+    teamLabel: job.teamId ? cleanTitle(job.teamId, 'Field team') : undefined,
+    assignmentState: (job.disposition === 'committed' ? (job.teamId ? 'assigned' : 'unknown') : 'unassigned') as MapTask['assignmentState'],
+  }));
+  const proposalTasks = visibleProposals.map((proposal) => ({
+    id: `proposal:${proposal.sourceReportId ?? proposal.clusterId}:${proposal.pestType ?? 'Mosquito'}`, point: proposal.point ?? proposal.mapPoint,
+    pestType: label(proposal.pestType ?? 'Mosquito'), taskType: label(proposal.suggestedTaskType), priority: proposal.tier,
+    location: taskLocation(proposal.locality, proposal.point ?? proposal.mapPoint), photoUrl: taskReferenceImage(proposal.suggestedTaskType, proposal.pestType),
+    photoIsReference: true, sourceReportId: proposal.sourceReportId,
+    teamId: proposalTeam(proposal), teamLabel: proposalTeam(proposal) ? cleanTitle(proposalTeam(proposal), 'Field team') : undefined,
+    assignmentState: (proposalTeam(proposal) ? 'planned' : 'unassigned') as MapTask['assignmentState'],
+  }));
+  const candidates = view === 'routes' ? routeTasks : view === 'unassigned' ? dispositionTasks : proposalTasks;
+  const locatedTasks = candidates.filter((task): task is MapTask => Boolean(task.point &&
+    Number.isFinite(task.point.latitude) && Number.isFinite(task.point.longitude)));
+  const unavailableTasks = candidates.filter((task) => !locatedTasks.some((located) => located.id === task.id));
+  const [photos, setPhotos] = useState<Record<string, { url: string; expiresAt: number }>>({});
+  const photoSequence = useRef(0);
+  const photoScope = `${view}:${selectedDay}:${date}:${days}:${JSON.stringify(selectedTeams)}:${JSON.stringify(selectedTypes)}`;
+  useEffect(() => { photoSequence.current += 1; }, [photoScope]);
+  useEffect(() => {
+    setPhotos({});
+    return () => { photoSequence.current += 1; };
+  }, [props.api, props.principal?.accountId]);
+  useEffect(() => {
+    const expiries = Object.values(photos).map((photo) => photo.expiresAt);
+    if (!expiries.length) return;
+    const timeout = window.setTimeout(() => setPhotos((previous) => Object.fromEntries(
+      Object.entries(previous).filter(([, photo]) => photo.expiresAt > Date.now()))), Math.max(0, Math.min(...expiries) - Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [photos]);
+  const openTask = async (task: MapTask) => {
+    const sequence = ++photoSequence.current;
+    if (!task.sourceReportId || (photos[task.id]?.expiresAt ?? 0) > Date.now()) return;
+    try {
+      const report = await props.api.get<{ photos?: Array<{ storageKey?: string }> }>(`/api/reports/${encodeURIComponent(task.sourceReportId)}`);
+      const key = report.photos?.[0]?.storageKey;
+      if (!key || sequence !== photoSequence.current) return;
+      const image = await props.api.get<{ url?: string; expiresInSeconds?: number }>(`/api/images/report/${encodeURIComponent(task.sourceReportId)}/${encodeURIComponent(key)}`);
+      if (sequence !== photoSequence.current || !image.url || !/^(https?:\/\/|\/[^/])/.test(image.url)) return;
+      const ttlSeconds = Number.isFinite(image.expiresInSeconds) && image.expiresInSeconds! > 0 ? Math.min(image.expiresInSeconds!, 240) : 60;
+      setPhotos((previous) => ({ ...previous, [task.id]: { url: image.url!, expiresAt: Date.now() + Math.max(0, ttlSeconds - 1) * 1000 } }));
+    } catch { /* A missing or withheld photo retains the labelled reference. */ }
+  };
+  const mapTasks = locatedTasks.map((task) => (photos[task.id]?.expiresAt ?? 0) > Date.now()
+    ? { ...task, photoUrl: photos[task.id]!.url, photoIsReference: false } : task);
 
   const togglePackingList = (teamId: string) => {
     setActivePackingLists((prev) => ({ ...prev, [teamId]: !prev[teamId] }));
@@ -266,7 +336,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   };
 
   return (
-    <section data-screen="DispatchProposal" data-requirement="11.2.16">
+    <section className="dispatch-screen" data-screen="DispatchProposal" data-requirement="11.2.16">
       <h1>Dispatch <span data-part="selected-day">{selectedDay}</span></h1>
       <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div>
@@ -298,71 +368,36 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
         </div>
 
         <nav aria-label="Dispatch views" data-part="dispatch-tabs">
-          <button
-            type="button"
-            aria-pressed={view === 'routes'}
-            onClick={() => setView('routes')}
-            style={{ fontWeight: view === 'routes' ? 'bold' : 'normal', padding: '6px 14px' }}
-          >
-            🗺️ Planned Multi-Team Routes ({routes.length} Teams)
-          </button>
-          <button type="button" aria-pressed={view === 'unassigned'} onClick={() => setView('unassigned')}
-            style={{ fontWeight: view === 'unassigned' ? 'bold' : 'normal', padding: '6px 14px' }}>
-            Horizon unassigned / committed ({horizonOnlyUnassigned.length} / {horizonCommitted.length})
-          </button>
-          <button
-            type="button"
-            aria-pressed={view === 'proposals'}
-            onClick={() => setView('proposals')}
-            style={{ fontWeight: view === 'proposals' ? 'bold' : 'normal', padding: '6px 14px' }}
-          >
-            📋 Daily Proposals List ({value?.proposals.length ?? 0})
-          </button>
+          <button type="button" aria-pressed={view === 'routes'} onClick={() => setView('routes')}>Routes ({roadRoutes.length})</button>
+          <button type="button" aria-pressed={view === 'unassigned'} onClick={() => setView('unassigned')}>Unassigned / committed ({horizonOnlyUnassigned.length} / {horizonCommitted.length})</button>
+          <button type="button" aria-pressed={view === 'proposals'} onClick={() => setView('proposals')}>Proposals ({visibleProposals.length})</button>
         </nav>
       </div>
-
-      {/* Interactive Singapore Map with Multi-Team Routes and Clusters */}
-      <section style={{ marginBottom: '24px' }} aria-label="Dispatch Route Map">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-          <h2 style={{ fontSize: '1.2rem', margin: 0 }}>Routes</h2>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <label htmlFor="dispatch-map-team">Map team:</label>
-            <select id="dispatch-map-team" value={selectedTeam} onChange={(event) => {
-              setSelectedTeam(event.target.value);
-              setSelectedClusterId(null);
-            }}>
-              <option value="">All road-accessible teams</option>
-              {roadRoutes.map((r) => <option key={r.teamId} value={r.teamId}>{cleanTitle(r.teamId, 'Field team')}</option>)}
-            </select>
-            {selectedClusterId ? (
-              <button
-                type="button"
-                onClick={() => setSelectedClusterId(null)}
-                style={{
-                  padding: '4px 8px',
-                  fontSize: '0.82rem',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#f1f5f9',
-                  color: '#475569',
-                  cursor: 'pointer',
-                }}
-              >
-                Reset Map Focus
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <SingaporeMap
-          label="dispatch-routes-map"
-          viewKey={`${selectedDay}:${selectedTeam}`}
-          showClusterBadges={false}
-          clusters={displayedClusters}
-          routes={mapRoutes}
-          selectedClusterId={selectedClusterId}
-          onSelectCluster={(id) => setSelectedClusterId((prev) => (prev === id ? null : id))}
-          size="tall"
-        />
+      <div className="dispatch-filters">
+        {([
+          ['Team', teamOptions, selectedTeams, setSelectedTeams],
+          ['Job Type', typeOptions, selectedTypes, setSelectedTypes],
+        ] as const).map(([title, options, selection, setSelection]) => (
+          <fieldset key={title} data-filter={title === 'Team' ? 'team' : 'job-type'}>
+            <legend>{title}</legend>
+            <label><input type="checkbox" checked={selection === null || (options.length > 0 && options.every((option) => selection.includes(option)))}
+              onChange={(event) => { setSelection(event.target.checked ? null : []); setCurrentPage(1); }} /> All</label>
+            {options.map((option) => <label key={option}><input type="checkbox" value={option}
+              checked={selection === null || selection.includes(option)}
+              onChange={(event) => { setSelection(event.target.checked ? [...(selection ?? options), option] : (selection ?? options).filter((item) => item !== option)); setCurrentPage(1); }} />
+              {option === '__unassigned' ? 'Unassigned / team not recorded' : option === '__unknown' ? 'Type not recorded' : title === 'Team' ? cleanTitle(option, 'Field team') : label(option)}
+            </label>)}
+          </fieldset>
+        ))}
+      </div>
+      <section className="dispatch-map" aria-label="Dispatch map">
+        <h2 title={view === 'routes' ? 'Full planned route' : undefined}>{view === 'routes' ? 'Routes' : view === 'unassigned' ? 'Horizon tasks' : 'Daily proposals'} <small>{mapTasks.length} locations</small></h2>
+        {view !== 'routes' ? <p className="dispatch-map-note">{view === 'proposals' ? 'Candidate locations' : 'Recorded task locations'} · Road access not verified</p> : null}
+        <SingaporeMap label="dispatch-routes-map" viewKey={photoScope} showClusterBadges={false}
+          clusters={[]} routes={view === 'routes' ? mapRoutes : []} tasks={mapTasks} onTaskOpen={openTask} size="tall" />
+        {unavailableTasks.length > 0 ? <details className="dispatch-location-unavailable"><summary>{unavailableTasks.length} locations unavailable</summary>
+          <ul>{unavailableTasks.map((task) => <li key={task.id} data-task-id={task.id}>{task.location}</li>)}</ul>
+        </details> : null}
       </section>
             <div data-part="dispatch-status" aria-live="polite">
         {horizon?.planStatus === 'pending' || plan?.planStatus === 'pending' ? <span className="dispatch-status-chip" role="status" title="Routes are being prepared">Pending</span> : null}
@@ -374,6 +409,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
       <p><a href="/ops/vehicles" onClick={link(props, '/ops/vehicles')}>Vehicles &amp; load limits</a></p>
 
 
+      <details className="dispatch-details" key={view}><summary>Task details and actions</summary>
       {view === 'routes' ? (
         <StateView state={plan?.computedAt && routes.length > 0 ? { kind: 'ready' } : routesLoad.state} onRetry={routesLoad.retry}>
           <section aria-label="Planned inspection routes" data-part="planned-routes">
@@ -381,17 +417,8 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
             {plan && !['pending', 'refreshing', 'failed'].includes(plan.planStatus ?? 'ready') &&
               routes.length === 0 && dailyUnplanned.length === 0 ?
               <p>No eligible tasks are waiting for this date.</p> : null}
-            {dailyUnplanned.length > 0 ? (
-              <section aria-label="Unplanned tasks">
-                <h2>Tasks without a route on {selectedDay} ({dailyUnplanned.length})</h2>
-                <ul data-cards className="dispatch-task-cards">{dailyUnplanned.map((job) => (
-                  <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority}><img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority}: {cleanTitle(job.locality, 'Unknown locality')}</strong>
-                    {' '}{job.requiredStaff ?? '?'} staff required. <details><summary>Why unassigned</summary><p>{job.reason}</p></details></li>
-                ))}</ul>
-              </section>
-            ) : null}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
-              {routes.map((planned) => {
+              {displayedRoutes.map((planned) => {
                 const totalStops = planned.waypointOrder.filter((wp) => !wp.isHq).length;
                 let completedStops = 0;
                 planned.waypointOrder.forEach((wp, idx) => {
@@ -579,6 +606,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                         }}
                       >
                         {planned.waypointOrder.map((waypoint, index) => {
+                          if (!waypoint.isHq && (!accepts(planned.teamId, waypoint.taskType) || (stopOverrides[`${selectedDay}:${planned.teamId}-${index}`] ?? waypoint.status) === 'Completed')) return null;
                           const overrideKey = `${selectedDay}:${planned.teamId}-${index}`;
                           const currentStatus = stopOverrides[overrideKey] ?? waypoint.status;
                           const isDone = currentStatus === 'Completed';
@@ -632,6 +660,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                                   <img src={taskReferenceImage(waypoint.taskType, waypoint.pestType)} alt="Reference image; not incident evidence" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
                                   <strong style={{ color: isDone ? '#166534' : '#0f172a' }}>{stopDisplayName(waypoint)}
                                   </strong>
+                                  {!waypoint.isHq ? <small style={{ display: 'block' }}>Reference · {label(waypoint.pestType ?? 'Unknown')} · {label(waypoint.taskType ?? 'Unknown')}</small> : null}
                                   {waypoint.isAreaAccess ? <small style={{ display: 'block', color: '#475569', marginTop: '2px' }} title="Provider-verified road entry inside the authorised service area.">Area access point</small> : null}
                                   {waypoint.priority ? (
                                     <span
@@ -830,7 +859,8 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
             {horizonOnlyUnassigned.length === 0 ? <p>No tasks remain unassigned across this horizon.</p> : null}
             <ul data-cards className="dispatch-task-cards">{horizonOnlyUnassigned.map((job) => (
               <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority} data-disposition="unassigned">
-                <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {cleanTitle(job.locality, 'Unknown locality')}</strong>
+                <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {taskLocation(job.locality, job.point)}</strong>
+                <small>Reference · {label(job.pestType ?? 'Unknown')} · {label(job.taskType ?? 'Unknown')}</small>
                 {job.isDemo ? <> <Pill tone="warn">DEMO</Pill></> : null}
                 {' '}Unassigned{job.scheduledDate ? ` · eligible ${job.scheduledDate}` : ''}.
                 {' '}{job.requiredStaff ?? '?'} staff required. <details><summary>Why unassigned</summary><p>{job.reason}</p></details>
@@ -841,7 +871,8 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
             {horizonCommitted.length === 0 ? <p>No committed items are reported for this horizon.</p> : null}
             <ul data-cards className="dispatch-task-cards">{horizonCommitted.map((job) => (
               <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority} data-disposition="committed">
-                <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {cleanTitle(job.locality, 'Unknown locality')}</strong>
+                <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {taskLocation(job.locality, job.point)}</strong>
+                <small>Reference · {label(job.pestType ?? 'Unknown')} · {label(job.taskType ?? 'Unknown')} · {job.teamId ? cleanTitle(job.teamId, 'Field team') : 'Team not recorded'}</small>
                 {job.isDemo ? <> <Pill tone="warn">DEMO</Pill></> : null}
                 {' '}Committed ({job.status ?? 'existing status'}){job.scheduledDate ? ` · ${job.scheduledDate}` : ''}. <details><summary>Task details</summary><p>{job.reason}</p></details>
                 {' '}<a href={`/ops/work-orders/${job.workOrderId}`} onClick={link(props, `/ops/work-orders/${job.workOrderId}`)}>Review work order</a>
@@ -852,16 +883,13 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
       ) : (
         <StateView state={state} onRetry={retry}>
           <p aria-live="polite">{totalItems} proposals match this filter.</p>
-          <label htmlFor="proposal-priority">Priority filter: </label>
-          <select id="proposal-priority" value={priorityFilter} onChange={(event) => { setPriorityFilter(event.target.value); setCurrentPage(1); }}>
-            <option value="">All priorities</option><option value="Critical">Critical</option><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option>
-          </select>
           <ol data-part="proposals" data-cards className="dispatch-task-cards">
             {pagedItems.map((proposal) => (
               <li key={`${proposal.sourceReportId ?? proposal.clusterId}-${proposal.pestType ?? 'Mosquito'}`} data-tier={proposal.tier} data-priority={proposal.tier} data-task-id={proposal.sourceReportId ?? proposal.clusterId}>
                 <img src={taskReferenceImage(proposal.suggestedTaskType, proposal.pestType)} alt="Reference image; not incident evidence" />
+                <small>Reference · {label(proposal.pestType ?? 'Mosquito')} · {proposalTeam(proposal) ? `${cleanTitle(proposalTeam(proposal), 'Field team')} (planned)` : 'Unassigned'}</small>
                 <div data-part="card-head">
-                  <h2>{displayTaskName(proposal.suggestedTaskType, proposal.pestType, cleanTitle(proposal.locality, 'Unknown locality'))}</h2>
+                  <h2>{taskLocation(proposal.locality, proposal.point ?? proposal.mapPoint)}</h2>
                   <Pill tone={tierTone(proposal.tier)} tier={proposal.tier}>
                     {proposal.tier} priority
                   </Pill>
@@ -876,25 +904,6 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                   </span>
                 </div>
                 <div data-part="card-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  {roadClusterIds.has(proposalMapId(proposal)) ? <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedClusterId(proposalMapId(proposal));
-                      window.scrollTo({ top: 160, behavior: 'smooth' });
-                    }}
-                    style={{
-                      background: selectedClusterId === proposalMapId(proposal) ? '#2563eb' : '#f8fafc',
-                      color: selectedClusterId === proposalMapId(proposal) ? '#ffffff' : '#1e293b',
-                      border: `1px solid ${selectedClusterId === proposalMapId(proposal) ? '#1d4ed8' : '#cbd5e1'}`,
-                      borderRadius: '4px',
-                      padding: '4px 10px',
-                      fontSize: '0.82rem',
-                      cursor: 'pointer',
-                      fontWeight: 600,
-                    }}
-                  >
-                    📍 Show on map
-                  </button> : <span>Not on the current road-route map</span>}
                   <a href={proposalFormPath(proposal)} onClick={link(props, proposalFormPath(proposal))}>Raise a work order</a>
                   <a href={proposal.sourceReportId ? `/reports/${proposal.sourceReportId}` : `/ops/clusters/${proposal.clusterId}`}
                     onClick={link(props, proposal.sourceReportId ? `/reports/${proposal.sourceReportId}` : `/ops/clusters/${proposal.clusterId}`)}>
@@ -914,6 +923,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
           />
         </StateView>
       )}
+      </details>
     </section>
   );
 }

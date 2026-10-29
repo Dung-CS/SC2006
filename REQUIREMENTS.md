@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.18 · drafted 2026-09-02, revised 2026-10-29 · status: DRAFT for team review; deployment evidence recorded separately
+Version 0.19 · drafted 2026-09-02, revised 2026-10-29 · status: DRAFT for team review; deployment evidence recorded separately
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -13,7 +13,14 @@ and entity titles omit fixture tokens and identifiers while metadata retains ide
 This amendment supersedes earlier authority-only exclusions. Historical referral records and frozen
 submissions remain intact. Final full-suite, deployment and live verification evidence is pending.
 
-Definition audit for v0.18: 758 anchored numbered definitions, 758 unique IDs, zero duplicates.
+Definition audit for v0.19: 759 anchored numbered definitions, 759 unique IDs, zero duplicates.
+
+**v0.19 adds dispatch map task metadata.** Unplanned task responses carry their recorded target
+coordinates and optional map-cluster identity. Official cluster proposals expose a display-only
+boundary centroid while route-input area-access semantics remain unchanged; report proposals retain
+their exact source-report coordinates. Dispatch views change map content, Team and Job Type use
+checkboxes, and task callouts show pest, task, priority, location, photo and team. Singapore zoom and
+pan bounds apply. Local checks pass; deployment and live browser verification remain pending.
 
 **v0.9 widens the product from dengue to all common household pests and all wild animals requiring
 NEA or AVS intervention**, on the TA's suggestion and Yen Kit's decision of 2026-09-16. The scoring
@@ -1295,20 +1302,22 @@ vehicle on its registry row and on any route that uses it.)*
 - **11.11.15** Operations and Dispatch shall present routine status and planning information as concise labels, values or image cards rather than persistent explanatory prose blocks.
 - **11.11.16** Generic reference images on operational cards shall be distinguishable from photographs of the reported incident.
 - **11.11.17** The Dispatch screen shall retain the horizon, day selector, unassigned reasons and map viewport controls when replacing task lists with cards.
+- **11.11.18** An unassigned or committed dispatch task returned for map display shall include its recorded target latitude and longitude and, when available, its map-cluster identity; an official cluster proposal shall expose the source-boundary centroid for display without changing route-input area semantics, and a report proposal shall retain the exact source-report point.
 
 ---
 
 # 12. Traceability
 
-**v0.18 verification checkpoint (2026-10-29).** Local backend checks passed 223 tests across
-11 files; typecheck passed. Final full-suite, fresh-build, deployment and live browser/API checks
-remain pending. Requirements describe the intended contract, not proof of a deployed release.
+**v0.19 verification checkpoint (2026-10-29).** The full suite passed 1,152 tests with 58 SQL tests
+skipped; typecheck, fresh build and clean release extraction smoke checks passed. Deployment and
+live browser checks remain pending. Requirements describe the contract, not proof of a deployed release.
 
 | Requirement group | Implementation reference | Acceptance evidence required |
 |---|---|---|
 | 2.5.19; 8.1.14-8.1.15; 8.7.3; 8.8.3; 8.8.19-8.8.21 | `StaffRoutingPolicy`, `DispatchController`, `DispatchRouteInputs`, migration 015 | Explicit AuthorityResponse recording; ordinary authority creation and assignment; generic-crew refusal; exact-point proposal-to-planner flow; unchanged staffing, access and fleet constraints |
 | 8.6; 8.9.25-8.9.26; 11.3.21 | Historical referral stores/screens; ordinary report-review creation | Retained historical referral records and outcomes; no required new handoff or authority-only refusal |
 | 8.11.7; 11.6.12-11.6.16; 11.11.6; 11.11.15-11.11.17 | Shared display names, Operations/Dispatch cards and entity screens | Removed urgent/referral sections; clean titles with retained identity/provenance; image-card actions, day selection, unassigned reasons and stable map viewport |
+| 11.11.18 | `DispatchPlanService`, `DispatchController` | Serialized unplanned coordinates and map identity; display-only official cluster centroid; exact report-source point; confirm route-input area semantics remain intact |
 
 Historical frozen submissions remain unchanged. Current downstream diagrams, use cases and test-plan
 traceability require a separate reconciliation; this master revision does not certify those artefacts.
@@ -1464,6 +1473,8 @@ Requirements are written against these sources. Verification status is from
 ---
 
 # 14. Revision history and review dispositions
+
+**v0.19 (2026-10-29)** - expose map-ready coordinates and identities for dispatch dispositions and proposals. Local focused metadata tests passed; full-suite, typecheck, map integration and live checks remain pending.
 
 **v0.18 (2026-10-29)** - unify authority operations and replace text-heavy lists with concise cards.
 

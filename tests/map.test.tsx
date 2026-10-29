@@ -20,14 +20,86 @@
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { SingaporeMap, MapCluster, MapMarker, ONEMAP_ATTRIBUTION, getMapPestIcon, getMapPriorityClass } from '../client/src/components/SingaporeMap';
+import { SingaporeMap, MapCluster, MapMarker, MapTask, createTaskCallout, ONEMAP_ATTRIBUTION, getMapPestIcon, getMapPriorityClass } from '../client/src/components/SingaporeMap';
 import { ApiClient, Fetcher } from '../client/src/lib/ApiClient';
 import { ScreenProps } from '../client/src/screens/ScreenProps';
 import { ResidentMapScreen } from '../client/src/screens/resident/ResidentMapScreen';
 import { OperationsDashboardScreen } from '../client/src/screens/operations/OperationsDashboardScreen';
 import { Role } from '../src/entity/enums';
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+const TASK: MapTask = {
+  id: 'source-task', point: { latitude: 1.375, longitude: 103.848 },
+  pestType: 'Rat', taskType: 'Inspection', priority: 'High', location: 'Ang Mo Kio',
+  photoUrl: '/images/reference-rat.jpg', photoIsReference: true,
+  teamId: 'A', assignmentState: 'planned',
+};
+
+describe('Dispatch task callouts', () => {
+  it('uses safe text and photo URLs, and records assignment uncertainty', () => {
+    const card = createTaskCallout({ ...TASK, location: '<img src=x onerror=alert(1)>', photoUrl: 'javascript:alert(1)', assignmentState: 'unknown' });
+    expect(card.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(card.textContent).toContain('Team not recorded');
+    expect(card.querySelector('img')).toBeNull();
+    expect(card.textContent).toContain('Photo unavailable');
+    const reference = createTaskCallout(TASK);
+    expect(reference.textContent).toContain('Reference photo');
+    expect(reference.textContent).toContain('Team A (planned)');
+    expect(reference.querySelector('img')?.getAttribute('alt')).toBe('Rat reference');
+    expect(createTaskCallout({ ...TASK, assignmentState: 'unassigned' }).textContent).toContain('Unassigned');
+    const incident = createTaskCallout({ ...TASK, photoIsReference: false });
+    fireEvent.error(incident.querySelector('img')!);
+    expect(incident.textContent).toContain('Reference photo');
+    expect(incident.querySelector('img')?.getAttribute('src')).toBe('/visuals/pests/rattus-norvegicus-brown-rat.jpg');
+    fireEvent.error(incident.querySelector('img')!);
+    expect(incident.querySelector('img')).toBeNull();
+    expect(incident.textContent).toContain('Reference photo unavailable');
+  });
+
+  it('keeps task selection and zoom across polls, updates its photo, and closes when filtered out', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
+    const opened = vi.fn();
+    const { rerender } = render(<SingaporeMap label="tasks" clusters={[]} tasks={[TASK]} onTaskOpen={opened} />);
+    expect(screen.getByRole('application').getAttribute('aria-label')).toContain('Dispatch tasks map. 1 task(s).');
+    expect(screen.queryByText('No cluster boundaries to draw.')).toBeNull();
+    const pin = await waitFor(() => {
+      const found = document.querySelector('[data-task-id="source-task"]');
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    fireEvent.click(pin);
+    await waitFor(() => expect(document.querySelector('[data-part="task-callout"]')).toBeTruthy());
+    expect(opened).toHaveBeenCalledWith(TASK);
+    const canvas = screen.getByRole('application');
+    const zoom = canvas.getAttribute('data-map-zoom');
+    expect(Number(zoom)).toBeGreaterThanOrEqual(Number(canvas.getAttribute('data-map-min-zoom')));
+    rerender(<SingaporeMap label="tasks" clusters={[]} tasks={[{ ...TASK, photoUrl: '/incident.jpg', photoIsReference: false }]} onTaskOpen={opened} />);
+    await waitFor(() => expect(document.querySelector('[data-part="task-callout"]')?.textContent).toContain('Report photo'));
+    expect(canvas.getAttribute('data-map-zoom')).toBe(zoom);
+    expect(opened).toHaveBeenCalledTimes(1);
+    rerender(<SingaporeMap label="tasks" clusters={[]} tasks={[]} onTaskOpen={opened} />);
+    await waitFor(() => expect(document.querySelector('[data-part="task-callout"]')).toBeNull());
+    expect(document.querySelector('[data-task-id="source-task"]')).toBeNull();
+  });
+
+  it('replaces route stop pins with tasks while preserving HQ and legacy map consumers', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
+    const routes = [{ teamId: 'A', label: 'Preview', color: '#123456', coordinates: [], waypoints: [
+      { label: 'HQ', point: TASK.point, isHq: true },
+      { label: 'Legacy stop', point: TASK.point },
+    ] }];
+    const { rerender } = render(<SingaporeMap label="tasks" clusters={[]} routes={routes} tasks={[TASK]} />);
+    await waitFor(() => expect(document.querySelectorAll('.custom-route-marker')).toHaveLength(2));
+    expect(document.querySelector('.is-hq')).toBeTruthy();
+    expect(document.querySelector('[title="Legacy stop: Low priority"]')).toBeNull();
+    rerender(<SingaporeMap label="tasks" clusters={[]} routes={routes} />);
+    await waitFor(() => expect(document.querySelector('[title="Legacy stop: Low priority"]')).toBeTruthy());
+    expect(document.querySelector('[data-task-id="source-task"]')).toBeNull();
+  });
+});
 
 function router(table: Record<string, { status?: number; body: unknown }>): Fetcher {
   return async (url) => {

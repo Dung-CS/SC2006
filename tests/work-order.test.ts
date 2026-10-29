@@ -403,6 +403,8 @@ describe('The daily dispatch list — §8.1.7, 8.1.8', () => {
     expect(routing).toHaveLength(12);
     expect(displayed[0]?.tier).toBe('High');
     expect(routing[0]?.tier).toBe('High');
+    // Missing source geometry must retain the candidate without inventing a map location.
+    expect(routing.every((proposal) => proposal.mapPoint === undefined)).toBe(true);
     expect(perClusterReads).not.toHaveBeenCalled();
     expect(queueReads).toHaveBeenCalledTimes(2);
   });

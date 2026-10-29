@@ -3822,3 +3822,22 @@ ul[data-part='list'] > li.cluster-card [data-part='cases'],
 .dispatch-task-cards details summary { cursor: pointer; font-weight: 600; }
 .dispatch-task-cards details p { margin: 4px 0 0; }
 .priority-card-reference-image { width: 100%; height: 132px; object-fit: cover; outline: 1px solid oklch(0 0 0 / .1); outline-offset: -1px; }
+
+/* Dispatch map controls and collapsed operational detail. */
+.dispatch-screen .dispatch-filters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.dispatch-screen .dispatch-filters fieldset { display: flex; flex-wrap: wrap; gap: 8px 16px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; margin: 0; }
+.dispatch-screen .dispatch-filters legend { font-weight: 600; padding: 0 4px; }
+.dispatch-screen .dispatch-filters label { display: inline-flex; align-items: center; gap: 6px; font-size: .875rem; }
+.dispatch-screen .dispatch-filters input { margin: 0; }
+.dispatch-screen [data-part="dispatch-tabs"] { display: flex; flex-wrap: wrap; gap: 6px; }
+.dispatch-screen [data-part="dispatch-tabs"] button { border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 12px; background: #fff; color: #334155; }
+.dispatch-screen [data-part="dispatch-tabs"] button[aria-pressed="true"] { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.dispatch-screen .dispatch-map { margin-bottom: 12px; }
+.dispatch-screen .dispatch-map h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.dispatch-screen .dispatch-map h2 small { color: #64748b; font-size: .8rem; font-weight: 400; margin-left: 8px; }
+.dispatch-screen .dispatch-map-note { color: #64748b; font-size: .85rem; margin: 0 0 8px; }
+.dispatch-screen .dispatch-details > summary, .dispatch-screen .dispatch-location-unavailable > summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
+.dispatch-screen .dispatch-details { border-top: 1px solid #e2e8f0; margin-top: 12px; }
+
+.dispatch-screen [data-assignment-state="unassigned"] { border-style: dashed !important; }
+.dispatch-screen [data-assignment-state="unknown"] { border-style: double !important; border-width: 4px !important; }

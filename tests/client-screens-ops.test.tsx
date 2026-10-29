@@ -208,7 +208,7 @@ describe('Moderation and review — §11.2.14, §11.2.15, §5.2.4, §5.3.1', () 
 });
 
 describe('Dispatch, clusters and work orders — §11.2.16, §11.2.13, §11.2.17, §8.1.8, §8.1.12', () => {
-  it('shows unplanned work as an ordinary task card when no crew route is feasible', async () => {
+  it('does not duplicate a day unplanned queue outside the horizon task view', async () => {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     const { fetcher } = router({
       [`/api/ops/dispatch?date=${today}`]: { body: { date: today, proposals: [] } },
@@ -219,11 +219,10 @@ describe('Dispatch, clusters and work orders — §11.2.16, §11.2.13, §11.2.17
       ] }] } },
     });
     render(<DispatchProposalScreen {...props({}, fetcher)} />);
-    fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect(await screen.findByRole('heading', { name: /Tasks without a route on .* \(1\)/ })).toBeTruthy();
-    expect(screen.getByText('High: Urgent site')).toBeTruthy();
-    expect(document.querySelector('[data-work-order-id="urgent"][data-priority="High"]')).toBeTruthy();
-    expect(screen.getByText(/3 staff required/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Routes/ }));
+    expect(await screen.findByText('Task details and actions')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /Tasks without a route/ })).toBeNull();
+    expect(document.querySelector('[data-work-order-id="urgent"]')).toBeNull();
   });
 
   it('W1 — the dispatch list proposes and creates nothing (8.1.8)', async () => {
@@ -241,7 +240,9 @@ describe('Dispatch, clusters and work orders — §11.2.16, §11.2.13, §11.2.17
 
     fireEvent.change(screen.getByLabelText('Horizon start:'), { target: { value: '2026-09-04' } });
     await waitFor(() => expect(screen.getByText('2026-09-04', { selector: '[data-part="selected-day"]' })).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: /Daily Proposals List/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Proposals/ }));
+    const details = document.querySelector<HTMLDetailsElement>('.dispatch-details');
+    if (details) details.open = true;
     // Every row is a link to the form, never a create. There is no "accept all".
     expect(await screen.findByRole('link', { name: /Raise a work order/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /accept all/i })).toBeNull();

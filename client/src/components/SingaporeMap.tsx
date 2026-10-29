@@ -34,6 +34,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 // time, so the cost of importing it on a screen that never draws is a few kilobytes.
 import * as L from 'leaflet';
 import type { Map as LeafletMap, LayerGroup, PathOptions } from 'leaflet';
+import { reportPhotoUrl } from '../lib/reportVisuals';
 
 /** Roughly the Republic, with enough margin that a cluster on the coast is not against the edge. */
 const SINGAPORE_BOUNDS: [[number, number], [number, number]] = [
@@ -97,10 +98,27 @@ export interface MapRoute {
   waypoints?: MapRouteWaypoint[];
 }
 
+export interface MapTask {
+  id: string;
+  point: { latitude: number; longitude: number };
+  pestType?: string;
+  taskType?: string;
+  priority?: string;
+  location: string;
+  photoUrl: string;
+  photoIsReference: boolean;
+  sourceReportId?: string;
+  teamId?: string;
+  teamLabel?: string;
+  assignmentState?: 'planned' | 'assigned' | 'unassigned' | 'unknown';
+}
+
 export interface SingaporeMapProps {
   clusters: MapCluster[];
   markers?: MapMarker[];
   routes?: MapRoute[];
+  tasks?: MapTask[];
+  onTaskOpen?: (task: MapTask) => void;
   basemap?: Basemap;
   /** Deliberate caller view changes may refit; data refreshes must not. */
   viewKey?: string;
@@ -241,11 +259,73 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** DOM text and URL properties keep source fields out of the HTML parser. */
+export function createTaskCallout(task: MapTask): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'map-popup-card';
+  card.dataset.taskId = task.id;
+  card.dataset.part = 'task-callout';
+  const add = (label: string, value: string) => {
+    const row = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = `${label}: `;
+    row.append(name, document.createTextNode(value));
+    card.append(row);
+  };
+  add('Pest', task.pestType ?? 'Not recorded');
+  add('Task', task.taskType ?? 'Not recorded');
+  add('Priority', task.priority ?? 'Not recorded');
+  add('Location', task.location);
+  const team = task.teamLabel ?? (task.teamId ? `Team ${task.teamId}` : 'Team not recorded');
+  add('Team', task.assignmentState === 'unassigned' ? 'Unassigned'
+    : task.assignmentState === 'planned' ? `${team} (planned)`
+    : task.assignmentState === 'unknown' ? 'Team not recorded' : team);
+  const figure = document.createElement('figure');
+  figure.className = 'report-reference-photo-card';
+  const caption = document.createElement('figcaption');
+  caption.className = 'report-reference-caption';
+  caption.textContent = task.photoIsReference ? 'Reference photo' : 'Report photo';
+  try {
+    const url = new URL(task.photoUrl, window.location.href);
+    if (!['http:', 'https:', 'blob:'].includes(url.protocol) || !task.photoUrl.trim()) throw new Error('Invalid photo URL');
+    const image = document.createElement('img');
+    image.className = 'report-reference-img';
+    image.src = url.href;
+    image.alt = task.photoIsReference ? `${task.pestType ?? 'Pest'} reference` : 'Reported site';
+    image.width = 240;
+    image.height = 140;
+    let isReference = task.photoIsReference;
+    image.addEventListener('error', () => {
+      if (!isReference) {
+        isReference = true;
+        image.src = reportPhotoUrl(task.taskType ?? 'StandingWater', task.pestType);
+        image.alt = `${task.pestType ?? 'Pest'} reference`;
+        caption.textContent = 'Reference photo';
+      } else {
+        image.remove();
+        caption.textContent = 'Reference photo unavailable';
+      }
+    });
+    const visual = document.createElement('div');
+    visual.className = 'report-reference-visual';
+    visual.append(image);
+    figure.append(visual);
+  } catch {
+    caption.textContent = 'Photo unavailable';
+  }
+  figure.append(caption);
+  card.append(figure);
+  return card;
+}
+
 export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<LeafletMap | null>(null);
   const clusterLayer = useRef<LayerGroup | null>(null);
   const routeLayer = useRef<LayerGroup | null>(null);
+  const taskLayer = useRef<LayerGroup | null>(null);
+  const taskPopup = useRef<L.Popup | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const markerLayers = useRef<Partial<Record<MapMarker['kind'], LayerGroup>>>({});
   const [drawn, setDrawn] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -296,7 +376,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           // A map that can be dragged into the South China Sea is a map a user has to recover
           // from. `maxBounds` plus viscosity lets it stretch and pull back.
           maxBounds: SINGAPORE_BOUNDS,
-          maxBoundsViscosity: 0.7,
+          maxBoundsViscosity: 1,
           // Two fingers to pan the map, so a phone scrolls the page past it (11.8.x). Without this
           // the map traps the scroll and the screen below becomes unreachable.
           dragging: true,
@@ -313,10 +393,27 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         instance.attributionControl.setPrefix('');
         clusterLayer.current = L.layerGroup().addTo(instance);
         routeLayer.current = L.layerGroup().addTo(instance);
+        taskLayer.current = L.layerGroup().addTo(instance);
         for (const kind of ['report', 'workOrder', 'savedLocation'] as const) {
           markerLayers.current[kind] = L.layerGroup().addTo(instance);
         }
         map.current = instance;
+        const syncMapState = () => {
+          const centre = instance.getCenter();
+          element.dataset.mapZoom = String(instance.getZoom());
+          element.dataset.mapMinZoom = String(instance.getMinZoom());
+          element.dataset.mapLatitude = String(centre.lat);
+          element.dataset.mapLongitude = String(centre.lng);
+        };
+        const constrainViewport = () => {
+          // Keep the viewport within the Singapore envelope, including after a resize.
+          instance.setMinZoom(Math.min(18, instance.getBoundsZoom(L.latLngBounds(SINGAPORE_BOUNDS), true)));
+          instance.panInsideBounds(SINGAPORE_BOUNDS, { animate: false });
+          syncMapState();
+        };
+        instance.on('moveend zoomend', syncMapState);
+        instance.on('resize', constrainViewport);
+        constrainViewport();
         instance.on('dragstart', () => { userMoved.current = true; });
         if (!cancelled) {
           setDrawn(true);
@@ -371,6 +468,8 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       map.current = null;
       clusterLayer.current = null;
       routeLayer.current = null;
+      taskLayer.current = null;
+      taskPopup.current = null;
       markerLayers.current = {};
     };
     // Constructed once. The basemap is a per-screen constant, not a control.
@@ -490,6 +589,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         if (r.waypoints) {
           r.waypoints.forEach((wp, idx) => {
             const isHq = wp.isHq;
+            if (props.tasks !== undefined && !isHq) return;
             const isDone = wp.isCompleted;
 
             const icon = L.divIcon({
@@ -519,7 +619,46 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
     } catch {
       // Degrades gracefully
     }
-  }, [drawn, props.routes, props.clusters.length, props.selectedClusterId]);
+  }, [drawn, props.routes, props.tasks !== undefined, props.clusters.length, props.selectedClusterId]);
+
+  /** Task markers may refresh; their standalone popup remains open by stable source ID. */
+  useEffect(() => {
+    const layer = taskLayer.current;
+    if (!drawn || layer === null) return;
+    layer.clearLayers();
+    for (const task of props.tasks ?? []) {
+      if (!Number.isFinite(task.point.latitude) || !Number.isFinite(task.point.longitude)) continue;
+      const icon = L.divIcon({
+        className: 'custom-route-marker',
+        html: `<div class="route-stop-pin ${getMapPriorityClass(task.priority)}" data-task-id="${escapeHtml(task.id)}" data-assignment-state="${escapeHtml(task.assignmentState ?? 'unknown')}"><span aria-hidden="true">${getMapPestIcon(task.pestType)}</span></div>`,
+        iconSize: [36, 36], iconAnchor: [18, 18],
+      });
+      L.marker([task.point.latitude, task.point.longitude], {
+        icon, title: `${task.pestType ?? 'Pest'}: ${task.location}`, keyboard: true,
+      }).on('click', () => {
+        setActiveTaskId(task.id);
+        props.onTaskOpen?.(task);
+      }).addTo(layer);
+    }
+  }, [drawn, props.tasks, props.onTaskOpen]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!drawn || instance === null) return;
+    const task = props.tasks?.find((candidate) => candidate.id === activeTaskId);
+    if (!task) {
+      taskPopup.current?.remove();
+      taskPopup.current = null;
+      if (activeTaskId !== null) setActiveTaskId(null);
+      return;
+    }
+    if (taskPopup.current === null) {
+      taskPopup.current = L.popup({ autoPan: false, maxWidth: 300 })
+        .on('remove', () => { taskPopup.current = null; setActiveTaskId(null); });
+    }
+    taskPopup.current.setLatLng([task.point.latitude, task.point.longitude]).setContent(createTaskCallout(task));
+    if (!instance.hasLayer(taskPopup.current)) taskPopup.current.openOn(instance);
+  }, [drawn, activeTaskId, props.tasks]);
 
   // Frame once after data arrives, or after an explicit focus/team change. Polls only redraw.
   useEffect(() => {
@@ -549,11 +688,12 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         r.coordinates.forEach((p) => bounds.extend([p.latitude, p.longitude]));
         r.waypoints?.forEach((p) => bounds.extend([p.point.latitude, p.point.longitude]));
       });
+      (props.tasks ?? []).forEach((task) => bounds.extend([task.point.latitude, task.point.longitude]));
     }
     if (!bounds.isValid()) return; // The first async payload has not arrived yet.
     instance.fitBounds(bounds, { padding: [24, 24], maxZoom: selected || props.focus?.length ? 15 : 14 });
     framedView.current = viewKey;
-  }, [drawn, props.clusters, props.routes, props.selectedClusterId, props.focus, props.viewKey]);
+  }, [drawn, props.clusters, props.routes, props.tasks, props.selectedClusterId, props.focus, props.viewKey]);
 
   /** Redraw the markers. Separate from the shapes so toggling a layer does not refit the view. */
   useEffect(() => {
@@ -649,6 +789,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       return;
     }
     const bounds = L.latLngBounds([]);
+    for (const task of props.tasks ?? []) bounds.extend([task.point.latitude, task.point.longitude]);
     for (const route of props.routes ?? []) {
       for (const point of route.coordinates) bounds.extend([point.latitude, point.longitude]);
       for (const waypoint of route.waypoints ?? []) bounds.extend([waypoint.point.latitude, waypoint.point.longitude]);
@@ -699,13 +840,13 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         className="map-canvas"
         data-size={props.size ?? 'tall'}
         role="application"
-        aria-label={`Map of active dengue clusters. ${props.clusters.length} cluster(s). Arrow keys pan, plus and minus zoom.`}
+        aria-label={`${props.tasks !== undefined ? `Dispatch tasks map. ${props.tasks.length} task(s).` : `Map of active dengue clusters. ${props.clusters.length} cluster(s).`} Arrow keys pan, plus and minus zoom.`}
         aria-describedby={legendId}
       />
 
       <p id={legendId} className="map-legend">
         {/* 9.1.11, 11.7.5 — the key, in words. A colour-blind reader and a printout both get this. */}
-        {tiersPresent.length === 0 ? 'No cluster boundaries to draw.' : null}
+        {tiersPresent.length === 0 && props.tasks === undefined ? 'No cluster boundaries to draw.' : null}
         {tiersPresent.map((tier) => (
           <span key={tier} className="map-key" data-tier={tier}>
             <span className="map-swatch" data-tier={tier} aria-hidden="true" />
@@ -718,7 +859,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       {failed ? (
         // 10.5.3 — a cause and a remedy, and never a blank rectangle.
         <p role="status" data-part="map-unavailable">
-          The map could not be drawn on this device. Every cluster is listed below.
+          {props.tasks !== undefined ? 'The map could not be drawn on this device. Open task details below.' : 'The map could not be drawn on this device. Every cluster is listed below.'}
         </p>
       ) : null}
     </div>

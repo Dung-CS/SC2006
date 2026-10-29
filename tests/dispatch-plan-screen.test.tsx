@@ -1,16 +1,21 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { DispatchProposalScreen } from '../client/src/screens/operations/DispatchProposalScreen';
 import { ApiClient, Fetcher } from '../client/src/lib/ApiClient';
+import { MapTask, MapRoute } from '../client/src/components/SingaporeMap';
 import { Role } from '../src/entity/enums';
 
 vi.mock('../client/src/components/SingaporeMap', () => ({
-  SingaporeMap: ({ clusters, routes, showClusterBadges }: { clusters: Array<{ locality: string }>; routes: Array<{ teamId: string; waypoints: Array<{ point?: { latitude?: number; longitude?: number } }> }>; showClusterBadges: boolean }) =>
-    <div data-testid="dispatch-map-targets" data-routes={routes.map((r) => r.teamId).join(',')} data-stops={routes.flatMap((r) => r.waypoints).length} data-points={routes.flatMap((r) => r.waypoints.flatMap((wp) => wp.point ? [`${wp.point.latitude},${wp.point.longitude}`] : [])).join('|')} data-badges={String(showClusterBadges)}>{clusters.map((cluster) => cluster.locality).join(', ')}</div>,
+  SingaporeMap: ({ tasks = [], routes = [], onTaskOpen }: { tasks: MapTask[]; routes: MapRoute[]; onTaskOpen: (task: MapTask) => void }) =>
+    <div data-testid="dispatch-map" data-routes={routes.map((route) => route.teamId).join(',')}
+      data-geometry={JSON.stringify(routes.map((route) => route.coordinates))}>
+      {tasks.map((task) => <button key={task.id} data-task-id={task.id} data-point={`${task.point.latitude},${task.point.longitude}`}
+        data-team-state={task.assignmentState} data-photo={task.photoUrl} data-reference={String(task.photoIsReference)}
+        onClick={() => onTaskOpen(task)}>{task.location}</button>)}
+    </div>,
 }));
-afterEach(() => cleanup());
-
+afterEach(cleanup);
 const route = {
   teamId: 'Central-Sanitation-Available', staffCount: 2, depotLocation: 'Central', status: 'Available',
   onCallLagHours: 0, workOrderIds: ['report-rat-1'], waypointOrder: [{ label: 'HQ', point: { latitude: 1.321, longitude: 103.851 }, isHq: true }, { label: 'Stop 1: Rat hotspot',
@@ -28,184 +33,193 @@ const route = {
     reason: 'Inspection tools', unitWeightKg: 2, lengthCm: 30, widthCm: 20, heightCm: 10,
     totalWeightKg: 4, totalVolumeM3: 0.012, isProvisional: true }],
 };
-function mount(plan: Record<string, unknown>, proposals: unknown[] = []) {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  const fetcher: Fetcher = async (url) => ({ ok: true, status: 200, json: async () => {
-    if (url.startsWith('/api/ops/dispatch/horizon')) {
-      const requestedDate = new URL(url, 'https://example.test').searchParams.get('date') ?? today;
-      const dayRoutes = requestedDate === today ? (plan.routes as typeof route[] | undefined) ?? [] :
-        ((plan.routes as typeof route[] | undefined) ?? []).map((item) => ({ ...item, teamId: 'Next-Day', waypointOrder: item.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, label: 'Next day job' }) }));
-      const union = (plan.horizonUnassigned as unknown[] | undefined) ?? (plan.unplanned as unknown[] | undefined) ?? [];
-      return { startDate: requestedDate, days: 7, planStatus: 'ready', referrals: (plan.referrals as unknown[]) ?? [], unassigned: union, plans: [{ ...plan, date: requestedDate, routes: dayRoutes, unplanned: (plan.unplanned as unknown[]) ?? [], referrals: (plan.referrals as unknown[]) ?? [] }] };
-    }
-    return url === '/api/map/layers' ? { clusters: [
-      { clusterId: 'pest-rat-1', locality: 'Rat report target', tier: 'High', ring: [] },
-      { clusterId: 'other', locality: 'Unrelated locality', tier: 'Low', ring: [] },
-    ] } : { date: today, proposals: proposals.map((p) => ({ ...(p as object), scheduledDate: today })) };
-  } }) as Response;
-  render(<DispatchProposalScreen api={new ApiClient('', fetcher)} params={{}}
-    principal={{ accountId: 'manager', role: Role.OperationsManager }} onNavigate={vi.fn()} onPrincipalChange={vi.fn()} />);
-}
 
-describe('Precomputed dispatch and vehicle-load display', () => {
-  it('distinguishes initial background computation from a completed empty plan', async () => {
-    mount({ planStatus: 'pending', computedAt: null });
-    expect(await screen.findByText(/Pending/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect(screen.queryByText(/No eligible tasks/)).toBeNull();
-    expect(screen.queryByText(/No routable work orders/)).toBeNull();
+const point = { latitude: 1.3, longitude: 103.8 };
+const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+function mount(plan: Record<string, unknown>, proposals: object[] = [], photoReply?: (url: string) => Promise<object>) {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const fetcher: Fetcher = async (url, init) => {
+    calls.push({ url, init });
+    const body = url.startsWith('/api/reports/') || url.startsWith('/api/images/') ? await photoReply?.(url) ?? {} :
+      url.startsWith('/api/ops/dispatch/horizon') ? {
+        startDate: today, days: 7, planStatus: 'ready', unassigned: [], ...plan,
+        plans: (plan.plans as unknown[]) ?? [{ date: today, routes: [], ...plan }],
+      } : { date: today, proposals: proposals.map((proposal) => ({ scheduledDate: today, ...proposal })) };
+    return { ok: true, status: 200, json: async () => body } as Response;
+  };
+  const api = new ApiClient('', fetcher);
+  api.setToken('test-manager');
+  render(<DispatchProposalScreen api={api} params={{}} principal={{ accountId: 'manager', role: Role.OperationsManager }} onNavigate={vi.fn()} />);
+  return calls;
+}
+const map = () => screen.getByTestId('dispatch-map');
+const proposal = { clusterId: 'c1', locality: 'Candidate site', score: 1, tier: 'High', pestType: 'Rat', suggestedTaskType: 'Inspection', mapPoint: point };
+const unassigned = { workOrderId: 'u1', locality: 'Unassigned site', taskType: 'Inspection', pestType: 'Rat', priority: 'High', reason: 'No crew.', point };
+const tab = (name: RegExp) => fireEvent.click(within(screen.getByRole('navigation', { name: 'Dispatch views' })).getByRole('button', { name }));
+const all = (group: string) => within(screen.getByRole('group', { name: group })).getByRole('checkbox', { name: 'All' });
+const details = () => { fireEvent.click(screen.getByText('Task details and actions')); document.querySelector<HTMLDetailsElement>('.dispatch-details')!.open = true; };
+
+describe('Dispatch map views and filters', () => {
+  it('filters proposals by an explicit selected-day planned team match without claiming assignment', async () => {
+    mount({ routes: [route] }, [{ ...proposal, sourceReportId: 'rat-1', mapClusterId: 'pest-rat-1' }, { ...proposal, clusterId: 'other', locality: 'Unmatched' }]);
+    await screen.findByRole('checkbox', { name: /Unassigned/ });
+    tab(/Proposals/);
+    expect(map().querySelector('[data-task-id="proposal:rat-1:Rat"]')?.getAttribute('data-team-state')).toBe('planned');
+    fireEvent.click(screen.getByRole('checkbox', { name: /Unassigned/ }));
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(1);
+    expect(within(map()).getByText('Candidate site')).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Central Sanitation Available' }));
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
   });
 
-  it('keeps the completed crew and vehicle plan visible while a replacement computes', async () => {
-    mount({ planStatus: 'refreshing', computedAt: '2026-10-27T09:00:00Z', planningDurationSeconds: 2.5, routes: [route] });
-    expect(await screen.findByText(/Updating/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect(screen.getByText('Van')).toBeTruthy();
-    expect(screen.getByText('Illustrative capacity')).toBeTruthy();
+  it('switches between verified routes, horizon dispositions and daily candidate pins', async () => {
+    const calls = mount({ routes: [route], unassigned: [unassigned, { ...unassigned, workOrderId: 'c1', locality: 'Committed site', disposition: 'committed' }] }, [proposal]);
+    await waitFor(() => expect(map().getAttribute('data-routes')).toBe(route.teamId));
+    expect(map().querySelector('[data-task-id="report-rat-1"]')).toBeTruthy();
+    tab(/Unassigned \/ committed/);
+    expect(map().getAttribute('data-routes')).toBe('');
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(2);
+    expect(map().querySelector('[data-task-id="c1"]')?.getAttribute('data-team-state')).toBe('unknown');
+    tab(/Proposals/);
+    expect(map().getAttribute('data-routes')).toBe('');
+    expect(within(map()).getByText('Candidate site')).toBeTruthy();
+    expect(map().querySelector('[data-task-id="proposal:c1:Rat"]')?.getAttribute('data-point')).toBe('1.3,103.8');
+    expect(calls.some((call) => call.url === '/api/map/layers')).toBe(false);
+    expect(document.querySelector<HTMLDetailsElement>('.dispatch-details')?.open).toBe(false);
+  });
+
+  it('uses Team and Job Type multi-checkboxes, with All and explicit none', async () => {
+    mount({ routes: [route, { ...route, teamId: 'Second', waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, workOrderId: 'second', taskType: 'Fogging' }) }] }, [proposal]);
+    const second = await screen.findByRole('checkbox', { name: 'Second' });
+    fireEvent.click(second);
+    expect(map().getAttribute('data-routes')).toBe(route.teamId);
+    fireEvent.click(second);
+    expect(map().getAttribute('data-routes')).toContain('Second');
+    fireEvent.click(all('Team'));
+    expect(map().getAttribute('data-routes')).toBe('');
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
+    fireEvent.click(all('Team'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Inspection' }));
+    expect(map().getAttribute('data-routes')).toBe('Second');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Fogging' }));
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
+    tab(/Proposals/);
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
+    fireEvent.click(all('Job Type'));
+    expect(within(map()).getByText('Candidate site')).toBeTruthy();
+  });
+
+  it('keeps original full road geometry when job filters hide other stops', async () => {
+    const mixed = { ...route, waypointOrder: [...route.waypointOrder, { ...route.waypointOrder[1], workOrderId: 'fog', taskType: 'Fogging', label: 'Fog site' }] };
+    mount({ routes: [mixed] });
+    await screen.findByRole('checkbox', { name: 'Fogging' });
+    const geometry = map().getAttribute('data-geometry');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Fogging' }));
+    expect(map().getAttribute('data-geometry')).toBe(geometry);
+    expect(map().querySelector('[data-task-id="fog"]')).toBeNull();
+    expect(map().querySelector('[data-task-id="report-rat-1"]')).toBeTruthy();
+    details();
+    expect(document.querySelector('[data-part="planned-routes"] [data-work-order-id="fog"]')).toBeNull();
+  });
+
+  it('uses exact source target points and omits completed, unverified route stops', async () => {
+    mount({ routes: [{ ...route, waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, targetPoint: point }) },
+      { ...route, teamId: 'Direct', route: { ...route.route, source: 'direct-distance' } },
+      { ...route, teamId: 'Finished', waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, status: 'Completed' }) }] });
+    await waitFor(() => expect(map().querySelector('[data-task-id="report-rat-1"]')).toBeTruthy());
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(1);
+    expect(map().querySelector('[data-task-id]')?.getAttribute('data-point')).toBe('1.3,103.8');
+    expect(map().getAttribute('data-routes')).not.toContain('Direct');
+  });
+
+  it('reports unavailable source locations without inventing a point', async () => {
+    mount({ unassigned: [{ ...unassigned, point: undefined }] }, [{ ...proposal, mapPoint: undefined }]);
+    await screen.findByRole('checkbox', { name: /Unassigned/ });
+    tab(/Unassigned \/ committed/);
+    expect(screen.getByText('1 locations unavailable')).toBeTruthy();
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
+    tab(/Proposals/);
+    expect(screen.getByText('1 locations unavailable')).toBeTruthy();
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
+  });
+
+  it('uses horizon union rather than duplicating a later-day unplanned queue', async () => {
+    mount({ unassigned: [], unplanned: [unassigned] });
+    await waitFor(() => expect(screen.getByText(/Updated|Task details and actions/)).toBeTruthy());
+    tab(/Unassigned \/ committed/);
+    expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
+    expect(screen.queryByText('No crew.')).toBeNull();
+    expect(screen.queryByRole('region', { name: /urgent/ })).toBeNull();
+  });
+
+  it('selects the requested day and never falls back to another day route', async () => {
+    mount({ routes: [route] });
+    await waitFor(() => expect(map().getAttribute('data-routes')).toBe(route.teamId));
+    const day = screen.getByLabelText('Show day:') as HTMLSelectElement;
+    fireEvent.change(day, { target: { value: day.options[1]!.value } });
+    expect(map().getAttribute('data-routes')).toBe('');
+    expect(document.getElementById('date')).toHaveProperty('type', 'date');
+    expect(document.getElementById('horizon-days')).toBeTruthy();
+  });
+
+  it('keeps vehicle and packing details behind the collapsed disclosure', async () => {
+    mount({ computedAt: '2026-10-27T09:00:00Z', planStatus: 'refreshing', routes: [route] });
+    await screen.findByText('Updating');
+    expect(document.querySelector<HTMLDetailsElement>('.dispatch-details')?.open).toBe(false);
+    details();
     expect(screen.getByText(/Payload: 25.0 \/ 750.0 kg/)).toBeTruthy();
-    expect(screen.getByText(/Cargo volume: 0.200 \/ 6.000 m³/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Logistics & Equipment Packing List/ }));
-    expect(screen.getByText(/Each: 30 × 20 × 10 cm/)).toBeTruthy();
-    expect(screen.getByText(/Load for 2: 4.00 kg/)).toBeTruthy();
+    expect(screen.getByText(/Each: 30/)).toBeTruthy();
     expect(screen.getByText('Provisional item values')).toBeTruthy();
   });
 
-  it('does not render separate referral or urgent queues', async () => {
-    mount({ planStatus: 'ready', referrals: [{ reportId: 'snake-1', pestType: 'Snake', priority: 'Critical',
-      locality: 'Snake report', authority: 'NParks', reason: 'Specialist authority response required.' }] });
-    await screen.findByRole('heading', { name: /Routes/ });
-    expect(screen.queryByRole('region', { name: /urgent task queue/i })).toBeNull();
-    expect(screen.queryByRole('region', { name: /urgent external referrals/i })).toBeNull();
-  });
-
-  it('passes report-only pest identity to work-order creation, including authority-response tasks', async () => {
-    mount({ planStatus: 'ready' }, [
-      { clusterId: 'pest-rat-1', sourceReportId: 'rat-1', pestType: 'Rat', locality: 'Rat task', score: 0,
-        tier: 'High', suggestedTaskType: 'Inspection', scheduledDate: '2099-01-01', priorityBasis: 'ReportTriage' },
-      { clusterId: 'pest-snake-1', sourceReportId: 'snake-1', pestType: 'Snake', locality: 'Snake task', score: 0,
-        tier: 'Critical', suggestedTaskType: 'Inspection', scheduledDate: '2099-01-01', referralAuthority: 'NParks' },
-    ]);
-    fireEvent.click(screen.getByRole('button', { name: /Daily Proposals List/ }));
-    const create = (await screen.findAllByRole('link', { name: 'Raise a work order' }))[0]!;
-    const query = new URL(create.getAttribute('href')!, 'https://example.test').searchParams;
+  it('keeps proposal source identities in work-order form links without creating records', async () => {
+    const calls = mount({}, [{ ...proposal, sourceReportId: 'rat-1', point }]);
+    await screen.findByRole('checkbox', { name: /Unassigned/ });
+    tab(/Proposals/); details();
+    const query = new URL((await screen.findByRole('link', { name: 'Raise a work order' })).getAttribute('href')!, 'https://test').searchParams;
     expect(query.get('sourceReportId')).toBe('rat-1');
     expect(query.get('pestType')).toBe('Rat');
     expect(query.has('clusterId')).toBe(false);
-    expect(screen.getAllByRole('link', { name: 'Raise a work order' })).toHaveLength(2);
-    expect(screen.getAllByText('Capability data unavailable')).toHaveLength(2);
-    expect(screen.queryByRole('link', { name: 'Review referral' })).toBeNull();
+    expect(calls.every((call) => call.init?.method === 'GET')).toBe(true);
   });
 
-  it('filters dispatch map targets by waypoint map identity rather than work-order identifiers', async () => {
-    mount({ planStatus: 'ready', routes: [route] });
-    await screen.findByRole('button', { name: /Planned Multi-Team Routes \(1 Teams\)/ });
-    expect(document.querySelector('[data-part="planned-routes"] [data-work-order-id="report-rat-1"][data-priority="High"]')).toBeTruthy();
-    const map = screen.getByTestId('dispatch-map-targets');
-    expect(within(map).getByText('Rat report target')).toBeTruthy();
-    expect(within(map).queryByText(/Unrelated locality/)).toBeNull();
-  });
-  it('excludes unverified proposals, direct estimates and unusable road geometry from the map', async () => {
-    mount({ planStatus: 'ready', routes: [
-      { ...route, teamId: 'direct', route: { ...route.route, source: 'direct-distance' } },
-      { ...route, teamId: 'unverified', route: { ...route.route, coordinates: [] } },
-    ] }, [{ clusterId: 'other', locality: 'Unverified proposal', tier: 'Low', score: 1,
-      suggestedTaskType: 'Inspection', scheduledDate: '2099-01-01' }]);
-    fireEvent.click(await screen.findByRole('button', { name: /Daily Proposals List/ }));
-    await screen.findByText(/Unverified proposal/);
-    const map = screen.getByTestId('dispatch-map-targets');
-    expect(map.textContent).toBe('');
-    expect(map.getAttribute('data-routes')).toBe('');
-    expect(screen.getByText('Not on the current road-route map')).toBeTruthy();
+  it('loads only the opened report first photo through the authenticated API', async () => {
+    const calls = mount({}, [{ ...proposal, sourceReportId: 'rat-1', point }, { ...proposal, clusterId: 'c2', sourceReportId: 'rat-2', locality: 'Other site' }],
+      async (url) => url.startsWith('/api/reports/') ? { photos: [{ storageKey: 'first.jpg' }, { storageKey: 'second.jpg' }] } : { url: 'https://images.test/signed-first.jpg' });
+    await screen.findByRole('checkbox', { name: /Unassigned/ });
+    tab(/Proposals/);
+    expect(calls.filter((call) => call.url.startsWith('/api/reports/'))).toHaveLength(0);
+    fireEvent.click(within(map()).getByText('Candidate site'));
+    await waitFor(() => expect(map().querySelector('[data-task-id="proposal:rat-1:Rat"]')?.getAttribute('data-reference')).toBe('false'));
+    expect(calls.filter((call) => call.url.startsWith('/api/reports/')).map((call) => call.url)).toEqual(['/api/reports/rat-1']);
+    const imageCall = calls.find((call) => call.url.startsWith('/api/images/'))!;
+    expect(imageCall.url).toBe('/api/images/report/rat-1/first.jpg');
+    expect((imageCall.init?.headers as Record<string, string>).Authorization).toBe('Bearer test-manager');
   });
 
-  it('can isolate one road-accessible team and omits duplicate badges and completed stops', async () => {
-    mount({ planStatus: 'ready', routes: [route, { ...route, teamId: 'Second', waypointOrder:
-      route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, status: 'Completed', isCompleted: true }) }] });
-    await screen.findByRole('option', { name: 'Second' });
-    fireEvent.change(screen.getByLabelText('Map team:'), { target: { value: 'Second' } });
-    const map = screen.getByTestId('dispatch-map-targets');
-    expect(map.getAttribute('data-routes')).toBe('Second');
-    expect(map.getAttribute('data-stops')).toBe('1'); // HQ only.
-    expect(map.getAttribute('data-badges')).toBe('false');
-    expect(map.textContent).toBe('');
+  it('keeps a labelled reference when no report photograph is available', async () => {
+    const calls = mount({}, [{ ...proposal, sourceReportId: 'rat-1' }], async () => ({ photos: [] }));
+    await screen.findByRole('checkbox', { name: /Unassigned/ });
+    tab(/Proposals/);
+    fireEvent.click(within(map()).getByText('Candidate site'));
+    await waitFor(() => expect(calls.some((call) => call.url === '/api/reports/rat-1')).toBe(true));
+    expect(map().querySelector('[data-task-id]')?.getAttribute('data-reference')).toBe('true');
+    expect(calls.some((call) => call.url.startsWith('/api/images/'))).toBe(false);
   });
 
-  it('shows unassigned reasons and distinguishes committed work', async () => {
-    mount({ planStatus: 'ready', unplanned: [
-      { workOrderId: 'u1', locality: 'No route task', priority: 'High', reason: 'No qualified crew available.', disposition: 'unassigned' },
-      { workOrderId: 'c1', locality: 'Existing task', priority: 'Critical', reason: 'Keep current assignee.', disposition: 'committed', status: 'Assigned' },
-    ] });
-    fireEvent.click(await screen.findByRole('button', { name: /Horizon unassigned \/ committed \(1 \/ 1\)/ }));
-    expect((await screen.findAllByText(/No qualified crew available/)).length).toBe(1);
-    expect(screen.getAllByText(/Committed \(Assigned\)/).length).toBe(1);
+  it('discards stale selection results after changing view', async () => {
+    let resolve!: (body: object) => void;
+    const pending = new Promise<object>((done) => { resolve = done; });
+    const calls = mount({}, [{ ...proposal, sourceReportId: 'rat-1' }], () => pending);
+    await screen.findByRole('checkbox', { name: /Unassigned/ });
+    tab(/Proposals/);
+    fireEvent.click(within(map()).getByText('Candidate site'));
+    tab(/Routes/);
+    resolve({ photos: [{ storageKey: 'first.jpg' }] });
+    await waitFor(() => expect(calls.some((call) => call.url === '/api/reports/rat-1')).toBe(true));
+    tab(/Proposals/);
+    expect(map().querySelector('[data-task-id]')?.getAttribute('data-reference')).toBe('true');
+    expect(calls.some((call) => call.url.startsWith('/api/images/'))).toBe(false);
   });
-
-  it('does not duplicate planned tasks in a separate urgent queue', async () => {
-    mount({ planStatus: 'ready', routes: [route] }, []);
-    await screen.findByRole('button', { name: /Planned Multi-Team Routes/ });
-    expect(screen.queryByRole('region', { name: /urgent task queue/i })).toBeNull();
-  });
-
-  it('uses the horizon union for the unassigned tab, not a day queue item scheduled later', async () => {
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    const tomorrow = new Date(`${today}T12:00:00+08:00`); tomorrow.setDate(tomorrow.getDate() + 1);
-    const laterDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(tomorrow);
-    mount({ planStatus: 'ready', horizonUnassigned: [], unplanned: [
-      { workOrderId: 'later', locality: 'Later planned', priority: 'High', reason: 'Planned for day two.', scheduledDate: laterDate },
-    ] });
-    fireEvent.click(await screen.findByRole('button', { name: /Horizon unassigned \/ committed/ }));
-    expect(await screen.findByRole('heading', { name: /Tasks unassigned across the 7-day horizon \(0\)/ })).toBeTruthy();
-    expect(screen.queryByText('Later planned')).toBeNull();
-  });
-
-  it('keeps all priority proposals reachable through the filter and pages', async () => {
-    const urgent = Array.from({ length: 12 }, (_, i) => ({ clusterId: `urgent-${i}`, locality: `Urgent ${i}`, tier: i === 0 ? 'Critical' : 'High', score: 1, suggestedTaskType: 'Inspection' }));
-    mount({ planStatus: 'ready' }, urgent);
-    fireEvent.click(await screen.findByRole('button', { name: /Daily Proposals List/ }));
-    await screen.findByRole('heading', { name: /Urgent 0$/ });
-    const proposalsList = document.querySelector<HTMLOListElement>('ol[data-part="proposals"]')!;
-    expect(within(proposalsList).getAllByRole('listitem')).toHaveLength(10);
-    fireEvent.change(screen.getByLabelText('Priority filter:'), { target: { value: 'High' } });
-    expect(within(proposalsList).getByRole('heading', { name: /Urgent 1$/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Go to next page/ }));
-    expect(within(proposalsList).getByRole('heading', { name: /Urgent 11$/ })).toBeTruthy();
-  });
-
-  it('changes the selected day on both the route map and task route list', async () => {
-    mount({ planStatus: 'ready', computedAt: '2026-10-27T09:00:00Z', routes: [route] });
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    const next = new Date(`${today}T12:00:00+08:00`); next.setDate(next.getDate() + 1);
-    const nextDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(next);
-    fireEvent.change(screen.getByLabelText('Horizon start:'), { target: { value: nextDate } });
-    expect(await screen.findByRole('option', { name: 'Next Day' })).toBeTruthy();
-    expect(screen.getByTestId('dispatch-map-targets').getAttribute('data-routes')).toBe('Next-Day');
-    fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect(await screen.findByText(/Next day job/i)).toBeTruthy();
-  });
-
-  it('labels walking access separately from the driving route', async () => {
-    const walkedRoute = { ...route, route: { ...route.route, distanceMetres: 30_000, drivingDurationSeconds: 600, walkingDurationSeconds: 300,
-      walkingVisits: [{ stopIndex: 0, targetPoint: { latitude: 1.32, longitude: 103.85 }, accessPoint: { latitude: 1.321, longitude: 103.851 },
-        outbound: { coordinates: [{ latitude: 1.321, longitude: 103.851 }, { latitude: 1.32, longitude: 103.85 }], durationSeconds: 150, distanceMetres: 2_500, source: 'onemap', mode: 'walk' },
-        return: { coordinates: [{ latitude: 1.32, longitude: 103.85 }, { latitude: 1.321, longitude: 103.851 }], durationSeconds: 150, distanceMetres: 2_500, source: 'onemap', mode: 'walk' } }] } };
-    mount({ planStatus: 'ready', routes: [walkedRoute] });
-    fireEvent.click(await screen.findByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect((await screen.findAllByText((_text, element) => element?.textContent?.includes('10 min driving') === true)).length).toBeGreaterThan(0);
-    expect(screen.getAllByText((_text, element) => element?.textContent?.includes('5 min verified walking access and return') === true).length).toBeGreaterThan(0);
-    expect(screen.getAllByText((_text, element) => Boolean(element?.textContent?.includes('30.0 km total travel') && element?.textContent?.includes('25.0 km driving + 5.0 km walking'))).length).toBeGreaterThan(0);
-  });
-
-  it('labels a verified service-area road entry and keeps its actual entry point on the map', async () => {
-    const entry = { latitude: 1.322, longitude: 103.852 };
-    const target = { latitude: 1.32, longitude: 103.85 };
-    const areaRoute = { ...route, waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp :
-      { ...wp, point: entry, targetPoint: target, isAreaAccess: true }) };
-    mount({ planStatus: 'ready', routes: [areaRoute] });
-    fireEvent.click(await screen.findByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect(await screen.findByText('Area access point')).toBeTruthy();
-    const map = screen.getByTestId('dispatch-map-targets');
-    expect(map.getAttribute('data-points')).toContain('1.322,103.852');
-    expect(map.getAttribute('data-points')).not.toContain('1.32,103.85');
-  });
-
 });

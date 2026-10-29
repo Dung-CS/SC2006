@@ -21,6 +21,7 @@ export interface DispatchPlanInputs {
 export type DispatchJob = RouteJob & { scheduledDate?: string };
 export interface UnplannedTask {
   workOrderId: string; locality?: string; priority?: string; pestType?: string;
+  point: { latitude: number; longitude: number }; mapClusterId?: string;
   taskType?: string; requiredStaff?: number; reportIds?: string[]; reportCount?: number;
   sourceReportId?: string; scheduledDate?: string; status?: string;
   isDemo?: boolean;
@@ -341,7 +342,8 @@ export class DispatchPlanService {
   }
 
   private unplannedTask(job: DispatchJob, roadUnverified: Set<string>, date: string, pendingReason?: string): UnplannedTask {
-    return { workOrderId: job.workOrderId, locality: job.locality, priority: job.priority,
+    return { workOrderId: job.workOrderId, point: { latitude: job.point.latitude, longitude: job.point.longitude },
+      mapClusterId: job.mapClusterId, locality: job.locality, priority: job.priority,
       pestType: job.pestType, taskType: job.taskType, requiredStaff: job.requiredStaff,
       reportIds: job.reportIds, reportCount: job.reportCount, individualCounts: job.individualCounts,
       sourceReportId: job.sourceReportId, scheduledDate: job.scheduledDate ?? date, status: job.status, isDemo: job.isDemo,

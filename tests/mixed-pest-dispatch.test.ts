@@ -50,6 +50,27 @@ async function cluster(f: ReturnType<typeof fixture>): Promise<Cluster> {
 }
 
 describe('Daily dispatch combines report triage and locality scores', () => {
+  it('serialises official cluster map points from the boundary centroid and preserves exact report points', async () => {
+    const f = fixture();
+    const c = await cluster(f);
+    c.boundary = new Polygon([[new GeoPoint(1.31, 103.84), new GeoPoint(1.33, 103.86), new GeoPoint(1.35, 103.88)]]);
+    await f.clusters.upsertFromFeed({ records: [c], retrievedAt: new Date() });
+    await f.scores.saveAll([Object.assign(new PriorityScore(), { clusterId: c.id, localityId: c.id,
+      pestType: PestType.Mosquito, tier: PriorityTier.High, score: 80, rank: 1 })]);
+    const official = (await f.dispatch.proposeDailyList(date, manager)).find((proposal) => !proposal.sourceReportId);
+    expect(official?.mapPoint).toEqual({ latitude: 1.33, longitude: 103.86 });
+    expect(official?.point).toBeUndefined();
+    const inputs = buildDispatchRouteInputs({ date, crew: [], reports: [], orders: [], clusters: [c],
+      proposals: official ? [official] : [], profiles: ConfigLoader.load().pestProfiles });
+    expect(inputs.jobs[0]?.serviceArea).toBe(c.boundary);
+    expect(inputs.jobs[0]?.point).toEqual(c.boundary.centroid());
+
+    const source = report('exact-report', PestType.Rat, { point: new GeoPoint(1.37, 103.91), clusterId: c.id });
+    await f.reports.save(source);
+    const reportProposal = (await f.dispatch.proposeDailyList(date, manager)).find((proposal) => proposal.sourceReportId === source.id);
+    expect(reportProposal?.point).toBe(source.point);
+  });
+
   it.each([PestType.Snake, PestType.WildBoar, PestType.BeeWasp, PestType.HouseCrow, PestType.Pigeon, PestType.JavanMyna])(
     'carries verified %s through proposal, exact-point inputs and qualified road planning', async (pestType) => {
       const f = fixture();
