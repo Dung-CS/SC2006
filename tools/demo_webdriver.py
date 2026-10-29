@@ -209,10 +209,11 @@ class DemoRun:
                 ready_days = sum(plan.get("planStatus") == "ready" for plan in payload.get("plans", []))
                 print(f"Waiting for horizon: {payload.get('planStatus')}; {ready_days}/7 days ready", flush=True)
                 next_progress = time.monotonic() + 30
-            if payload.get("planStatus") == "ready" and len(payload.get("plans", [])) == 7:
+            complete = len(payload.get("plans", [])) == 7 and all(plan.get("planStatus") == "ready" for plan in payload["plans"])
+            if payload.get("planStatus") in {"ready", "refreshing"} and payload.get("computedAt") and complete:
                 break
             time.sleep(2)
-        if not payload or payload.get("planStatus") != "ready" or len(payload.get("plans", [])) != 7:
+        if not payload or payload.get("planStatus") not in {"ready", "refreshing"} or not payload.get("computedAt") or len(payload.get("plans", [])) != 7 or not all(plan.get("planStatus") == "ready" for plan in payload["plans"]):
             raise AssertionError("seven-day horizon did not reach ready state")
 
         plans = payload["plans"]
@@ -336,7 +337,7 @@ class DemoRun:
             if (item.get("locality") or order_id) not in unassigned_text or item["reason"] not in unassigned_text:
                 raise AssertionError("the unassigned DOM view did not show a DEMO task and its reason")
         self.screenshot("dispatch-unassigned")
-        self.record("manager-seven-day-dispatch", "PASS", f"7 dates; {len(task_ids)} owned orders visible as planned or explained")
+        self.record("manager-seven-day-dispatch", "PASS", f"7 completed dates; {len(task_ids)} owned orders visible as planned or explained; snapshot state {payload['planStatus']}")
 
     def staff_and_vehicle_views(self) -> None:
         from selenium.webdriver.common.by import By
