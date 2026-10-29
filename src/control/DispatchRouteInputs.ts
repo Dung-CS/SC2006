@@ -8,9 +8,10 @@ import { HqLocation, PestType, PriorityTier, Role, StaffStatus, TaskType, WorkOr
 import { GeoPoint } from '../entity/valueTypes';
 import { DispatchProposal } from './DispatchController';
 import { taskForReport, triageForReport } from './ReportTriagePolicy';
-import { RouteJob, RouteTeam, estimateRequiredStaff } from './RouteOptimizationService';
+import { RouteTeam, estimateRequiredStaff } from './RouteOptimizationService';
 import { coveringSpecialisations, externalAuthority, pestClassOf, permittedTasksFor, primarySpecialisation } from './StaffRoutingPolicy';
 import { ReportGroupProvenance, groupNearbyReports, isPendingOrder, ordersForReportGroup, reportGroupProvenance } from './ReportSpatialClustering';
+import type { DispatchJob } from './DispatchPlanService';
 
 export const HQ_COORDINATES: Record<HqLocation, GeoPoint> = {
   Central: new GeoPoint(1.318, 103.847),
@@ -36,7 +37,7 @@ export interface DispatchReferral {
 
 export interface DispatchInputs {
   teams: RouteTeam[];
-  jobs: RouteJob[];
+  jobs: DispatchJob[];
   referrals: DispatchReferral[];
 }
 
@@ -46,6 +47,11 @@ const higherPriority = (...tiers: Array<string | undefined>): PriorityTier =>
     .sort((a, b) => (tierRank[a] ?? 3) - (tierRank[b] ?? 3))[0] as PriorityTier || PriorityTier.Medium;
 const validPoint = (point?: GeoPoint | null): point is GeoPoint => Boolean(point &&
   Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+const demoEvidence = (text?: string): boolean => /^\[DEMO(?:\s|\])/.test(text ?? '');
+const demoLocality = (locality: string | undefined, ...evidence: Array<string | undefined>): string | undefined => {
+  const tag = evidence.map((text) => text?.match(/^\[DEMO(?:\s[^\]\r\n]*)?\]/)?.[0]).find(Boolean);
+  return tag ? `${tag} · ${locality || 'Unassigned'}`.slice(0, 80) : locality;
+};
 
 /** Build planning inputs from real records; missing staff or locations create no synthetic work. */
 export function buildDispatchRouteInputs(input: {
@@ -89,11 +95,11 @@ export function buildDispatchRouteInputs(input: {
   const scoreFor = (clusterId: string | null | undefined, pest: PestType) =>
     (input.scores ?? []).find((score) => (score.clusterId === clusterId || score.localityId === clusterId) &&
       (score.pestType ?? PestType.Mosquito) === pest);
-  const jobs: RouteJob[] = [];
+  const jobs: DispatchJob[] = [];
   const referrals: DispatchReferral[] = [];
   const referralIds = new Set<string>();
   const reportTargets = new Set<string>();
-  const addJob = (job: Omit<RouteJob, 'requiredCapability'>, pest: PestType): void => {
+  const addJob = (job: Omit<DispatchJob, 'requiredCapability'>, pest: PestType): void => {
     const profile = input.profiles.get(pest) ?? null;
     const authority = externalAuthority(profile);
     if (authority !== null) {
@@ -130,12 +136,16 @@ export function buildDispatchRouteInputs(input: {
     if (!validPoint(point)) continue;
     const score = scoreFor(order.clusterId, order.pestType);
     addJob({ workOrderId: order.id, point, taskType: order.taskType, pestType: order.pestType,
+      ...(!order.sourceReportId && !targetReport && !order.targetPoint && cluster?.boundary?.rings[0]?.length
+        ? { serviceArea: cluster.boundary } : {}),
+      isDemo: demoEvidence(order.instructions) || demoEvidence(source?.description ?? targetReport?.description),
       clusterId: order.clusterId, sourceReportId: order.sourceReportId ?? undefined,
       ...(group ? reportGroupProvenance(group) : {}),
       mapClusterId: group?.id ?? (targetReport ? `pest-${targetReport.id}` : order.pestType !== PestType.Mosquito && score ?
         `inat-${score.clusterId}-${order.pestType}` : order.clusterId ?? undefined),
       priority: higherPriority(order.priority, score?.tier, group?.priority, ...linkedReports.map((r) => triageForReport(r).priority)),
-      locality: order.location ?? source?.localityBinding ?? cluster?.locality, status: order.currentStatus(),
+      locality: demoLocality(order.location ?? source?.localityBinding ?? cluster?.locality,
+        order.instructions, source?.description ?? targetReport?.description), status: order.currentStatus(), scheduledDate: order.scheduledDate,
       score: score?.score }, order.pestType);
   }
 
@@ -146,8 +156,9 @@ export function buildDispatchRouteInputs(input: {
     const taskType = taskForReport(report);
     const priority = group.priority;
     addJob({ workOrderId: `report-${report.id}`, sourceReportId: report.id, clusterId: report.clusterId,
+      isDemo: demoEvidence(report.description),
       ...reportGroupProvenance(group), mapClusterId: group.id, point: report.point, taskType, pestType: report.pestType,
-      priority, locality: report.localityBinding || 'Unassigned', status: 'Pending' }, report.pestType);
+      priority, locality: demoLocality(report.localityBinding || 'Unassigned', report.description), status: 'Pending', scheduledDate: input.date }, report.pestType);
     for (const member of group.reports) if (member.clusterId) reportTargets.add(`${member.clusterId}:${member.pestType}:${taskType}`);
   }
 
@@ -178,11 +189,14 @@ export function buildDispatchRouteInputs(input: {
     if (!validPoint(point)) continue;
     const workOrderId = proposal.sourceReportId ? `report-${proposal.sourceReportId}` : `prop-${proposal.clusterId}-${pest}`;
     addJob({ workOrderId, sourceReportId: proposal.sourceReportId, clusterId: cluster?.id ?? null,
+      isDemo: demoEvidence(source?.description),
       reportIds: proposal.reportIds, reportCount: proposal.reportCount, individualCounts: proposal.individualCounts,
       mapClusterId: proposal.mapClusterId ?? (proposal.sourceReportId ? `pest-${proposal.sourceReportId}` :
         pest === PestType.Mosquito ? proposal.clusterId : `inat-${proposal.clusterId}-${pest}`),
       point, taskType: proposal.suggestedTaskType, pestType: pest,
-      priority: proposal.tier, locality: proposal.locality, score: proposal.score, status: 'Pending' }, pest);
+      ...(pest === PestType.Mosquito && !proposal.sourceReportId && !proposal.point && cluster?.isActive && cluster.boundary?.rings[0]?.length
+        ? { serviceArea: cluster.boundary } : {}),
+      priority: proposal.tier, locality: demoLocality(proposal.locality, source?.description), score: proposal.score, status: 'Pending', scheduledDate: proposal.scheduledDate }, pest);
   }
   jobs.sort((a, b) => (tierRank[a.priority ?? 'Medium'] ?? 2) - (tierRank[b.priority ?? 'Medium'] ?? 2));
   referrals.sort((a, b) => (tierRank[a.priority] ?? 2) - (tierRank[b.priority] ?? 2));

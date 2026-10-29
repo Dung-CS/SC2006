@@ -880,7 +880,9 @@ async function main(): Promise<void> {
   const routePlanner = new RouteOptimizationService(RouteStrategyFactory.create(oneMap));
   const vehicleStore = createVehicleStore(database);
   await seedDemoVehicles(vehicleStore);
-  const routeInputs = async (date: string): Promise<DispatchPlanInputs> => {
+  const routeInputs = async (date: string, signal?: AbortSignal): Promise<DispatchPlanInputs> => {
+    const checkCancelled = (): void => { if (signal?.aborted) throw new Error('Dispatch input loading was cancelled'); };
+    checkCancelled();
     const [crew, orders, activeClusters, proposals, verified, actioned, latestScores, vehicles] = await Promise.all([
       accounts.findByRole(Role.CleaningCrew),
       workOrders.findAllOpen(),
@@ -891,18 +893,33 @@ async function main(): Promise<void> {
       scores.latest(),
       vehicleStore.list(),
     ]);
+    checkCancelled();
     const knownClusters = new Map(activeClusters.map((cluster) => [cluster.id, cluster]));
+    const checkedClusters = new Set(knownClusters.keys());
+    const knownReports = new Map([...verified, ...actioned].map((report) => [report.id, report]));
+    const checkedReports = new Set(knownReports.keys());
     for (const order of orders.filter((order) => order.scheduledDate <= date)) {
-      if (order.clusterId && !knownClusters.has(order.clusterId)) {
+      checkCancelled();
+      if (order.clusterId && !checkedClusters.has(order.clusterId)) {
+        checkedClusters.add(order.clusterId);
         const cluster = await clusters.findById(order.clusterId);
+        checkCancelled();
         if (cluster) knownClusters.set(cluster.id, cluster);
       }
       if (!order.targetPoint && order.sourceReportId) {
-        const report = await reports.findById(order.sourceReportId);
+        if (!checkedReports.has(order.sourceReportId)) {
+          checkedReports.add(order.sourceReportId);
+          const report = await reports.findById(order.sourceReportId);
+          checkCancelled();
+          if (report) knownReports.set(report.id, report);
+        }
+        const report = knownReports.get(order.sourceReportId);
         if (report) order.targetPoint = report.point;
       }
     }
+    checkCancelled();
     const reportOrders = await withLinkedReportOrders([...verified, ...actioned], orders, workOrders);
+    checkCancelled();
     return { ...buildDispatchRouteInputs({ date, crew, orders: reportOrders, clusters: [...knownClusters.values()], proposals,
       profiles: config.pestProfiles, reports: [...verified, ...actioned], scores: latestScores, reportClusterDistanceMetres }), vehicles };
   };

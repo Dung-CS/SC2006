@@ -28,6 +28,8 @@ interface TokenResponse {
 }
 
 interface DrivingRouteResponse {
+  status?: number;
+  route_instructions?: unknown;
   route_geometry?: unknown;
   route_summary?: { total_distance?: number; total_time?: number };
 }
@@ -36,6 +38,11 @@ export interface DrivingRouteLeg {
   coordinates: GeoPoint[];
   distanceMetres: number;
   durationSeconds: number;
+}
+
+export interface WalkingRouteLeg extends DrivingRouteLeg {
+  source: 'onemap';
+  mode: 'walk';
 }
 
 /** Conservative access tolerance: a road snapped farther away does not serve this task. */
@@ -47,7 +54,8 @@ export function isUsableDrivingRoute(route: DrivingRouteLeg, stops: GeoPoint[]):
       !Array.isArray(route.coordinates) || route.coordinates.length < 2 || stops.length < 2 ||
       route.coordinates.some((point) => !point || !Number.isFinite(point.latitude) || Math.abs(point.latitude) > 90 ||
         !Number.isFinite(point.longitude) || Math.abs(point.longitude) > 180)) return false;
-  const near = (a: GeoPoint, b: GeoPoint): boolean => a.distanceTo(b) <= MAX_ROAD_SNAP_METRES;
+  const near = (a: GeoPoint, b: GeoPoint): boolean => !!a && !!b &&
+    new GeoPoint(a.latitude, a.longitude).distanceTo(new GeoPoint(b.latitude, b.longitude)) <= MAX_ROAD_SNAP_METRES;
   if (!near(stops[0]!, route.coordinates[0]!) || !near(stops.at(-1)!, route.coordinates.at(-1)!)) return false;
   let index = 0;
   for (const stop of stops) {
@@ -195,21 +203,51 @@ export class OneMapGateway implements GeocodingSource {
 
   /** Fetch verified driving geometry; failure must never become a straight-line dispatch. */
   async drivingRoute(start: GeoPoint, end: GeoPoint, refreshed = false): Promise<DrivingRouteLeg> {
+    const route = await this.profileRoute(start, end, 'drive', refreshed);
+    if (!isUsableDrivingRoute(route, [start, end])) throw new Error('OneMap driving route did not verify road access to both endpoints');
+    return route;
+  }
+
+  /** A snapped endpoint is a candidate access point, never proof of access to the task. */
+  async rawDrivingRoute(start: GeoPoint, end: GeoPoint): Promise<DrivingRouteLeg> {
+    return this.profileRoute(start, end, 'drive', false, true);
+  }
+
+  async walkingRoute(start: GeoPoint, end: GeoPoint): Promise<WalkingRouteLeg> {
+    const route = await this.profileRoute(start, end, 'walk', false, true);
+    if (route.durationSeconds > 600 || start.distanceTo(route.coordinates[0]!) > 25 ||
+        end.distanceTo(route.coordinates.at(-1)!) > 25) throw new Error('OneMap walking route did not verify ten-minute access');
+    return { ...route, source: 'onemap', mode: 'walk' };
+  }
+
+  // OneMap documents drive/walk profiles and route_summary time in seconds; no traffic-time claim.
+  // https://www.onemap.gov.sg/apidocs/routing
+  private async profileRoute(start: GeoPoint, end: GeoPoint, profile: 'drive' | 'walk', refreshed = false, strictMode = false): Promise<DrivingRouteLeg> {
     await this.ensureToken();
     const query = new URLSearchParams({
       start: `${start.latitude},${start.longitude}`,
       end: `${end.latitude},${end.longitude}`,
-      routeType: 'drive',
+      routeType: profile,
     });
     const res = await this.http.get(`${this.baseUrl}/api/public/routingsvc/route?${query}`, {
       headers: { Authorization: this.token as string }, attempts: 2,
     });
     if (res.status === 401 && !refreshed) {
       await this.requestToken();
-      return this.drivingRoute(start, end, true);
+      return this.profileRoute(start, end, profile, true, strictMode);
     }
     if (!res.ok) throw new Error(`OneMap driving route failed: ${res.status}`);
     const body = (await res.json()) as DrivingRouteResponse;
+    if (body.status !== undefined && body.status !== 0) throw new Error('OneMap found no supported route');
+    if (strictMode && body.route_instructions === undefined) throw new Error('OneMap omitted route transport evidence');
+    // Instructions expose the transport mode. Reject ferry or mixed/unknown modes when present.
+    if (body.route_instructions !== undefined) {
+      if (!Array.isArray(body.route_instructions) || body.route_instructions.length === 0 ||
+          body.route_instructions.some((instruction: unknown) => !Array.isArray(instruction) ||
+            instruction[8] !== (profile === 'walk' ? 'walking' : 'driving'))) {
+        throw new Error('OneMap returned an unsupported transport mode');
+      }
+    }
     const raw = body.route_geometry;
     let coordinates: GeoPoint[] = [];
     const point = (pair: unknown): GeoPoint => {
@@ -244,7 +282,7 @@ export class OneMapGateway implements GeocodingSource {
     const durationSeconds = body.route_summary?.total_time;
     if (typeof distanceMetres !== 'number' || typeof durationSeconds !== 'number') throw new Error('OneMap driving route omitted distance or duration');
     const route = { coordinates, distanceMetres, durationSeconds };
-    if (!isUsableDrivingRoute(route, [start, end])) throw new Error('OneMap driving route did not verify road access to both endpoints');
+    if (!isUsableDrivingRoute(route, [coordinates[0]!, coordinates.at(-1)!])) throw new Error('OneMap returned invalid route metrics');
     return route;
   }
 

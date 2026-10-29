@@ -32,6 +32,43 @@ const build = (overrides: Partial<Parameters<typeof buildDispatchRouteInputs>[0]
   buildDispatchRouteInputs({ date, profiles, crew: [], orders: [], clusters: [], proposals: [], ...overrides });
 
 describe('Real dispatch candidate admission and staffing', () => {
+  it('attaches official area bounds only to cluster-only work without a recorded target point', () => {
+    const official = cluster('official');
+    const exact = new GeoPoint(1.32, 103.85);
+    const areaOrder = order('area-order', official.id);
+    const exactOrder = Object.assign(order('exact-order', 'exact-cluster'), { targetPoint: exact });
+    const area = build({ clusters: [official, cluster('exact-cluster')], orders: [areaOrder, exactOrder] });
+    expect(area.jobs.find((job) => job.workOrderId === areaOrder.id)).toMatchObject({ serviceArea: official.boundary,
+      point: official.boundary.centroid() });
+    expect(area.jobs.find((job) => job.workOrderId === exactOrder.id)).not.toHaveProperty('serviceArea');
+    expect(area.jobs.find((job) => job.workOrderId === exactOrder.id)?.point).toBe(exact);
+    const proposal = { clusterId: official.id, locality: official.locality, score: 90, tier: PriorityTier.High,
+      pestType: PestType.Mosquito, suggestedTaskType: TaskType.Inspection, scheduledDate: date };
+    expect(build({ clusters: [official], proposals: [proposal] }).jobs[0]).toMatchObject({ serviceArea: official.boundary });
+    expect(build({ clusters: [official], proposals: [{ ...proposal, point: exact }] }).jobs[0]).not.toHaveProperty('serviceArea');
+    expect(build({ clusters: [Object.assign(cluster('official'), { isActive: false })], proposals: [proposal] }).jobs[0])
+      .not.toHaveProperty('serviceArea');
+    expect(build({ clusters: [official], proposals: [{ ...proposal, pestType: PestType.Rat }] }).jobs).toEqual([]);
+  });
+
+  it('keeps report-backed and linked-report work as exact points even inside an official area', () => {
+    const official = cluster('official');
+    const source = report('source-area', PestType.Mosquito, { clusterId: official.id, point: new GeoPoint(1.3201, 103.8501) });
+    const linked = Object.assign(order('linked', official.id), { sourceReportId: source.id });
+    const direct = build({ clusters: [official], reports: [source], orders: [linked] });
+    expect(direct.jobs[0]?.point).toBe(source.point);
+    expect(direct.jobs[0]).not.toHaveProperty('serviceArea');
+    const implicit = build({ clusters: [official], reports: [source], orders: [order('implicit', official.id)] });
+    expect(implicit.jobs[0]?.point).toBe(source.point);
+    expect(implicit.jobs[0]).not.toHaveProperty('serviceArea');
+    const standalone = build({ clusters: [official], reports: [source], proposals: [{ clusterId: official.id,
+      sourceReportId: source.id, locality: official.locality, score: 99, tier: PriorityTier.High,
+      pestType: PestType.Mosquito, suggestedTaskType: TaskType.Inspection, scheduledDate: date }] });
+    expect(standalone.jobs).toHaveLength(1);
+    expect(standalone.jobs[0]?.point).toBe(source.point);
+    expect(standalone.jobs[0]).not.toHaveProperty('serviceArea');
+  });
+
   it('retains urgent proposals alongside eight existing lower-priority jobs and routes urgent work first', async () => {
     const orders = Array.from({ length: 8 }, (_, i) => order(`low-${i}`));
     const input = build({ crew: [crew('one'), crew('two'), crew('three')], orders,
@@ -133,6 +170,27 @@ function report(id: string, pestType: PestType, overrides: Partial<Report> = {})
 }
 
 describe('Mixed-pest dispatch admission', () => {
+  it('labels explicitly tagged demo reports and orders separately while preserving ordinary locality and exact points', () => {
+    const demoReport = report('demo-report', PestType.Rat, { description: '[DEMO 20261029 SW-INSPECT] Illustrative task',
+      point: new GeoPoint(1.3, 103.8), localityBinding: 'Unassigned' });
+    const ordinary = report('ordinary', PestType.Rat, { description: 'A resident mentioned a demo nearby',
+      point: new GeoPoint(1.35, 103.8), localityBinding: 'Real locality' });
+    const demoOrder = Object.assign(order('demo-order'), { clusterId: null, pestType: PestType.Rat,
+      instructions: '[DEMO 20261029 SW-DRAIN] Illustrative task', location: 'Unassigned', targetPoint: new GeoPoint(1.32, 103.8) });
+    const input = build({ reports: [demoReport, ordinary], orders: [demoOrder] });
+    expect(input.jobs.find((job) => job.sourceReportId === demoReport.id)).toMatchObject({
+      locality: '[DEMO 20261029 SW-INSPECT] · Unassigned', isDemo: true, point: demoReport.point,
+    });
+    expect(input.jobs.find((job) => job.workOrderId === demoOrder.id)).toMatchObject({
+      locality: '[DEMO 20261029 SW-DRAIN] · Unassigned', isDemo: true, point: demoOrder.targetPoint,
+    });
+    expect(input.jobs.find((job) => job.sourceReportId === ordinary.id)).toMatchObject({
+      locality: 'Real locality', isDemo: false, point: ordinary.point,
+    });
+    expect(demoReport.localityBinding).toBe('Unassigned');
+    expect(demoOrder.location).toBe('Unassigned');
+  });
+
   it('routes verified rat, cockroach and termite reports before a low dengue task, and exposes snake referral', async () => {
     const reports = [report('rat', PestType.Rat), report('roach', PestType.Cockroach), report('termite', PestType.Termite),
       report('snake', PestType.Snake, { locationContext: LocationContext.Indoor })];

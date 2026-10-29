@@ -554,6 +554,39 @@ describe('HTTP — the boundary refuses what the screen would not offer', () => 
     await running;
   });
 
+  it('returns every urgent proposal through HTTP even when more than ten reports qualify', async () => {
+    for (let index = 0; index < 15; index++) {
+      const report = await verifiedReport(f, `urgent-${index}`, PestType.Termite);
+      report.point = new GeoPoint(1.3 + index * 0.005, 103.8);
+      await f.reports.save(report);
+    }
+    const proposals = vi.spyOn(f.dispatch, 'proposeDailyList');
+    const res = response();
+    await routes.handle(req('/api/ops/dispatch', { date: FUTURE }), res);
+    expect(res.code).toBe(200);
+    expect(proposals).toHaveBeenCalledWith(FUTURE, MANAGER, Infinity);
+    expect((res.body as { proposals: Array<{ tier: string }> }).proposals).toHaveLength(15);
+    expect((res.body as { proposals: Array<{ tier: string }> }).proposals.every((proposal) => proposal.tier === 'High')).toBe(true);
+  });
+
+  it('registers a nonblocking horizon endpoint and strictly validates date and day count', async () => {
+    const precomputed = new DispatchPlanService(async () => ({ teams: [], jobs: [], vehicles: [] }), { plan: async () => [] });
+    const handler = new WorkOrderRoutes(f.ac, f.dispatch, f.lifecycle, f.staff, null, null, null, precomputed);
+    handler.useResolver({ resolve: async () => MANAGER });
+    expect(handler.routes()).toContain('/api/ops/dispatch/horizon');
+    for (const params of [{ date: '2099-02-30', days: '7' }, { date: FUTURE, days: '0' },
+      { date: FUTURE, days: '8' }, { date: FUTURE, days: '1.5' }]) {
+      const invalid = response();
+      await handler.handle(req('/api/ops/dispatch/horizon', params), invalid);
+      expect(invalid.code).toBe(400);
+    }
+    const res = response();
+    await handler.handle(req('/api/ops/dispatch/horizon', { date: FUTURE, days: '7' }), res);
+    expect(res.code).toBe(200);
+    expect(res.body).toMatchObject({ startDate: FUTURE, days: 7, planStatus: 'pending', plans: expect.any(Array) });
+    expect((res.body as { plans: unknown[] }).plans).toHaveLength(7);
+  });
+
   it('H3 — the detail carries the ranked routing, and the workload carries each capability', async () => {
     const wo = await order(f, T.Fogging);
     const detail = response();

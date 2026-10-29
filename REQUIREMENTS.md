@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.16 · drafted 2026-09-02, revised 2026-10-29 · status: DRAFT for team review; routing correction locally verified (typecheck, build and full test suite)
+Version 0.17 · drafted 2026-09-02, revised 2026-10-29 · status: DRAFT for team review; deployment evidence recorded separately
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -951,6 +951,27 @@ can be packed together in three dimensions. The planner makes no exact packing g
 - **8.10.25** The planner shall describe its load check as aggregate volume and individual-item fit rather than proof of an exact three-dimensional packing solution.
 
 ---
+
+## 8.11 Seven-day dispatch and verified task access
+
+*(Added in v0.17. These access rules extend the earlier road-only task admission rules. Route previews are planning proposals, not staff bookings.)*
+
+- **8.11.1** The operator shall select a planning horizon of one to seven consecutive calendar days.
+- **8.11.2** The operator shall select a day within that horizon to display that day's tasks and routes.
+- **8.11.3** The planner shall schedule each work-order or source-report identity at most once across the horizon.
+- **8.11.4** The planner shall not schedule a task before its scheduled date.
+- **8.11.5** Daily crew and fleet capacity shall reset between days, with reuse of the current roster labelled as a future-availability assumption.
+- **8.11.6** Dispatch shall show all horizon-unassigned tasks with a reason, separately from work already committed to an assignee.
+- **8.11.7** Dispatch shall show selected-day High and Critical dispositions without a display-count cutoff.
+- **8.11.8** Exact task points shall require road coverage within 25 metres or provider-verified outbound and return walking paths, each at most 600 seconds.
+- **8.11.9** Driving, both walking directions, service and mobilisation shall count towards the four-hour route cap.
+- **8.11.10** Only an authorised official cluster-area task shall permit a verified road entry inside its source polygon instead of access to its representative centre.
+- **8.11.11** Report-backed exact targets shall not receive the cluster-area exemption.
+- **8.11.12** The map shall distinguish walking paths and area access points from driving paths and exact task points.
+- **8.11.13** Polling shall preserve map zoom and centre; explicit day or team selection may focus its routes.
+- **8.11.14** Demo tasks, staff and vehicles shall remain identifiable without changing existing operational staff availability.
+- **8.11.15** Automated WebDriver demonstrations shall restrict mutations to explicitly owned demo records and record actual browser results separately from deterministic access tests.
+- **8.11.16** Horizon computation shall use a shared 30-second planning/wait budget and retain accepted plans while incomplete days retry; this is not a network-completion guarantee.
 
 # 9. Map, Trend and History
 

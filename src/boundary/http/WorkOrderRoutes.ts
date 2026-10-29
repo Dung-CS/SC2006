@@ -38,7 +38,7 @@ import { WorkOrder } from '../../entity/WorkOrder';
 import { Account } from '../../entity/Account';
 import { RouteJob, RouteOptimizationService, RouteTeam } from '../../control/RouteOptimizationService';
 import { WorkOrderSubject } from '../../control/observer/WorkOrderObserver';
-import { DispatchPlanService } from '../../control/DispatchPlanService';
+import { DispatchPlanService, validDispatchDate } from '../../control/DispatchPlanService';
 
 interface CreateBody {
   clusterId?: string;
@@ -67,6 +67,7 @@ export class WorkOrderRoutes extends RouteHandler {
     return [
       '/api/ops/dispatch',
       '/api/ops/dispatch/routes',
+      '/api/ops/dispatch/horizon',
       '/api/ops/work-orders',
       '/api/ops/work-orders/crew-workload',
       '/api/ops/work-orders/:id',
@@ -92,14 +93,31 @@ export class WorkOrderRoutes extends RouteHandler {
           // 8.1.7 — today in Singapore, not in UTC. At 08:00 SGT the two disagree, and the list
           // would be yesterday's for the whole morning.
           const date = req.params.date ?? singaporeDate(new Date());
-          res.json({ date, proposals: await this.dispatch.proposeDailyList(date, principal) });
+          res.json({ date, proposals: await this.dispatch.proposeDailyList(date, principal, Infinity) });
+          return;
+        }
+
+        case '/api/ops/dispatch/horizon': {
+          await this.ac.authorise(principal, 'workOrder:write', { kind: 'workOrder' });
+          const date = req.params.date ?? singaporeDate(new Date());
+          const daysText = req.params.days ?? '1';
+          const days = Number(daysText);
+          if (!validDispatchDate(date) || !/^[1-7]$/.test(daysText)) {
+            res.status(400).json({ error: 'Choose a valid calendar date and one to seven days.', remedy: 'Use date=YYYY-MM-DD and days=1..7.' });
+            return;
+          }
+          if (this.precomputedPlans === null) {
+            res.status(503).json({ error: 'background route planning is unavailable' });
+            return;
+          }
+          res.json(this.precomputedPlans.snapshotRange(date, days));
           return;
         }
 
         case '/api/ops/dispatch/routes': {
           await this.ac.authorise(principal, 'workOrder:write', { kind: 'workOrder' });
           const date = req.params.date ?? singaporeDate(new Date());
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) {
+          if (!validDispatchDate(date)) {
             res.status(400).json({ error: 'Choose a valid calendar date.', remedy: 'Use YYYY-MM-DD.' });
             return;
           }

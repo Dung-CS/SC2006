@@ -93,6 +93,7 @@ export interface MapRoute {
   color: string;
   label: string;
   coordinates: Array<{ latitude: number; longitude: number }>;
+  walkingSegments?: Array<{ coordinates: Array<{ latitude: number; longitude: number }> }>;
   waypoints?: MapRouteWaypoint[];
 }
 
@@ -477,6 +478,14 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           polyline.bindTooltip(`Team ${r.teamId}: ${r.label}`, { sticky: true });
           polyline.addTo(layer);
         }
+        (r.walkingSegments ?? []).forEach((segment) => {
+          if (segment.coordinates.length < 2) return;
+          const walking = L.polyline(segment.coordinates.map((c) => [c.latitude, c.longitude] as [number, number]), {
+            color: r.color, weight: 4, opacity: 0.9, dashArray: '7 7', lineJoin: 'round',
+          });
+          walking.bindTooltip(`Team ${r.teamId}: walking access`, { sticky: true });
+          walking.addTo(layer);
+        });
 
         if (r.waypoints) {
           r.waypoints.forEach((wp, idx) => {
