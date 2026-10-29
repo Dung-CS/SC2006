@@ -653,7 +653,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       return;
     }
     if (taskPopup.current === null) {
-      taskPopup.current = L.popup({ autoPan: false, maxWidth: 300 })
+      taskPopup.current = L.popup({ autoPan: true, autoPanPadding: L.point(12, 12), maxHeight: 320, maxWidth: 300 })
         .on('remove', () => { taskPopup.current = null; setActiveTaskId(null); });
     }
     taskPopup.current.setLatLng([task.point.latitude, task.point.longitude]).setContent(createTaskCallout(task));
