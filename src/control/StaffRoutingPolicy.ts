@@ -140,10 +140,21 @@ export function coveringSpecialisations(
   );
 }
 
+/** Canonical authority species: catalogue wildlife, AVS birds and BeeWasp. Safe for client-shared code. */
+export const AUTHORITY_PEST_TYPES: readonly PestType[] = [
+  PestType.Snake, PestType.WildBoar, PestType.Macaque, PestType.MonitorLizard, PestType.Otter,
+  PestType.Civet, PestType.Bat, PestType.Pangolin, PestType.Crocodile,
+  PestType.HouseCrow, PestType.Pigeon, PestType.JavanMyna, PestType.BeeWasp,
+];
+
+/** Pure species check, with no catalogue lookup. */
+export function isAuthorityPestType(pestType: PestType | string | null | undefined): boolean {
+  return AUTHORITY_PEST_TYPES.includes(pestType as PestType);
+}
+
 /** Authority cases enter the same dispatch workflow with an explicitly recorded capability. */
 function requiresAuthorityResponse(pestClass: PestClass | null, pestType?: PestType, profile: PestProfile | null = null): boolean {
-  return pestClass === PestClass.Wildlife || externalAuthority(profile) !== null ||
-    [PestType.HouseCrow, PestType.Pigeon, PestType.JavanMyna, PestType.BeeWasp].includes(pestType as PestType);
+  return pestClass === PestClass.Wildlife || externalAuthority(profile) !== null || isAuthorityPestType(pestType);
 }
 
 /** The first-choice specialisation: the one whose equipment the task is. */

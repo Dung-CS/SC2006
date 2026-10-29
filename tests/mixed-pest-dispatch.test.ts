@@ -14,6 +14,7 @@ import { GeoPoint, Polygon, PremisesMix } from '../src/entity/valueTypes';
 import { HqLocation, LocationContext, PestType, PriorityTier, ReportStatus, ReportType, Role, StaffSpecialisation, StaffStatus, TaskType, WorkOrderStatus } from '../src/entity/enums';
 import { Account } from '../src/entity/Account';
 import { buildDispatchRouteInputs } from '../src/control/DispatchRouteInputs';
+import { taskForReport } from '../src/control/ReportTriagePolicy';
 import { RouteOptimizationService } from '../src/control/RouteOptimizationService';
 import { MockRoadRoutingStrategy } from './helpers/MockRoadRoutingStrategy';
 import { DirectDistanceRoutingStrategy } from '../src/control/routing/DirectDistanceRoutingStrategy';
@@ -84,6 +85,48 @@ describe('Daily dispatch combines report triage and locality scores', () => {
         expect(await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(insufficient.teams, insufficient.jobs)).toEqual([]);
       }
     });
+
+  it.each([
+    [PestType.Snake, ReportType.BlockedDrain],
+    [PestType.Macaque, ReportType.UnclearedRefuse],
+    [PestType.HouseCrow, ReportType.UnclearedRefuse],
+    [PestType.Pigeon, ReportType.UnclearedRefuse],
+  ])('keeps %s with %s as authority Inspection through proposal, exact-point inputs and planner', async (pestType, type) => {
+    const f = fixture();
+    const source = report(`condition-${pestType}`, pestType, { type, point: new GeoPoint(1.33, 103.86) });
+    await f.reports.save(source);
+    expect(taskForReport(source)).toBe(TaskType.Inspection);
+    const proposals = await f.dispatch.proposeDailyList(date, manager);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]).toMatchObject({ sourceReportId: source.id, point: source.point,
+      suggestedTaskType: TaskType.Inspection, allowedCapabilities: [StaffSpecialisation.AuthorityResponse] });
+    expect(proposals[0]?.referralAuthority).toBeUndefined();
+    const crew = Array.from({ length: 4 }, (_, index) => Object.assign(new Account(), {
+      id: `authority-${index}`, role: Role.CleaningCrew, isActive: true,
+      specialisation: StaffSpecialisation.AuthorityResponse, staffStatus: StaffStatus.Available,
+      hqLocation: HqLocation.Central,
+    }));
+    const inputs = buildDispatchRouteInputs({ date, crew, reports: [source], orders: [], clusters: [],
+      proposals, profiles: ConfigLoader.load().pestProfiles });
+    expect(inputs.referrals).toEqual([]);
+    expect(inputs.jobs).toHaveLength(1);
+    expect(inputs.jobs[0]).toMatchObject({ point: source.point, allowedCapabilities: [StaffSpecialisation.AuthorityResponse] });
+    expect(inputs.jobs[0]!.requiredStaff).toBeGreaterThanOrEqual(1);
+    const routes = await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(inputs.teams, inputs.jobs);
+    expect(routes.flatMap((route) => route.workOrderIds)).toEqual([`report-${source.id}`]);
+    expect(routes[0]?.staffCount).toBeGreaterThanOrEqual(inputs.jobs[0]!.requiredStaff!);
+    // Generic crew stays ineligible for authority work.
+    const generic = crew.map((c) => Object.assign(new Account(), c, { specialisation: StaffSpecialisation.GeneralInspection }));
+    const refused = buildDispatchRouteInputs({ date, crew: generic, reports: [source], orders: [], clusters: [],
+      proposals, profiles: ConfigLoader.load().pestProfiles });
+    expect(await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(refused.teams, refused.jobs)).toEqual([]);
+  });
+
+  it('keeps condition-based clearance for non-authority pests', () => {
+    expect(taskForReport({ pestType: PestType.Rat, type: ReportType.BlockedDrain })).toBe(TaskType.DrainClearance);
+    expect(taskForReport({ pestType: PestType.Cockroach, type: ReportType.UnclearedRefuse })).toBe(TaskType.RefuseClearance);
+    expect(taskForReport({ pestType: PestType.BeeWasp, type: ReportType.BlockedDrain })).toBe(TaskType.Inspection);
+  });
 
   it('retains unscored non-dengue and authority tasks before the display limit', async () => {
     const f = fixture(1);

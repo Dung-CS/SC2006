@@ -1,5 +1,6 @@
 import { LocationContext, PestType, ReportType, TaskType } from '../entity/enums';
 import type { Report } from '../entity/Report';
+import { isAuthorityPestType } from './StaffRoutingPolicy';
 
 export type TriagePriority = 'Critical' | 'High' | 'Medium' | 'Low';
 export interface TriageResult { priority: TriagePriority; rationale: string }
@@ -33,8 +34,9 @@ export function triageForReport(report: Pick<Report, 'pestType' | 'estimatedCoun
   return computeTriagePriority(report.pestType, report.estimatedCount, report.locationContext ?? undefined, report.injuryReported);
 }
 
-/** A recorded condition determines clearance work; other reports start with inspection. */
-export function taskForReport(report: Pick<Report, 'type'>): TaskType {
+/** A recorded condition determines clearance work, except authority species, which are inspected first. */
+export function taskForReport(report: Pick<Report, 'type' | 'pestType'>): TaskType {
+  if (isAuthorityPestType(report.pestType)) return TaskType.Inspection;
   if (report.type === ReportType.BlockedDrain) return TaskType.DrainClearance;
   if (report.type === ReportType.UnclearedRefuse) return TaskType.RefuseClearance;
   return TaskType.Inspection;
