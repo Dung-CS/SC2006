@@ -202,6 +202,23 @@ describe('Background dispatch horizon', () => {
     expect(load).toHaveBeenCalledTimes(7);
   });
 
+  it('publishes accepted daily routes before the outer range deadline', async () => {
+    const planner = { plan: vi.fn(async (_teams: unknown, jobs: RouteJob[], _vehicles: unknown, _unverified: unknown,
+      options?: { deadline?: number }) => {
+      if (!jobs.length) return [];
+      await new Promise<void>((resolve) => setTimeout(resolve, options!.deadline! - Date.now()));
+      return [route(jobs)];
+    }) };
+    const service = new DispatchPlanService(async () => input([job('accepted')]), planner);
+    service.snapshotRange(date, 2);
+    await complete();
+    await vi.advanceTimersByTimeAsync(29_999);
+    const result = service.snapshotRange(date, 2);
+    expect(result.planStatus).toBe('ready');
+    expect(result.plans[0]!.routes[0]!.workOrderIds).toEqual(['accepted']);
+    expect(result.unassigned).toEqual([]);
+  });
+
   it('aborts the input loader when the shared range deadline expires', async () => {
     let signal: AbortSignal | undefined;
     const service = new DispatchPlanService(async (_date, cancellation) => {

@@ -286,7 +286,9 @@ export class DispatchPlanService {
               return Promise.resolve(structuredClone(previousPlans[index]!.routes));
             }
             recomputed = true;
-            return bounded(() => this.planner.plan(teams, jobs, vehicles, roadUnverified, { deadline }));
+            // Leave time to publish the planner's accepted routes before the outer
+            // horizon timer fires. Equal deadlines can discard a valid partial day.
+            return bounded(() => this.planner.plan(teams, jobs, vehicles, roadUnverified, { deadline: deadline - 1000 }));
           } });
           await daily.refresh(date);
           const result = daily.snapshot(date);

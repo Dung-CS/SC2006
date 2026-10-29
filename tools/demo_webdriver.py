@@ -196,9 +196,14 @@ class DemoRun:
 
         end = date.fromisoformat(start) + timedelta(days=6)
         payload = None
-        deadline = time.monotonic() + 150
+        deadline = time.monotonic() + 480
+        next_progress = time.monotonic()
         while time.monotonic() < deadline:
             payload = self.get_json(f"/api/ops/dispatch/horizon?date={start}&days=7")
+            if time.monotonic() >= next_progress:
+                ready_days = sum(plan.get("planStatus") == "ready" for plan in payload.get("plans", []))
+                print(f"Waiting for horizon: {payload.get('planStatus')}; {ready_days}/7 days ready", flush=True)
+                next_progress = time.monotonic() + 30
             if payload.get("planStatus") == "ready" and len(payload.get("plans", [])) == 7:
                 break
             time.sleep(2)
