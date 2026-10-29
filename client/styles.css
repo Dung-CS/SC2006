@@ -3811,12 +3811,14 @@ ul[data-part='list'] > li.cluster-card [data-part='cases'],
   }
 }
 
-.dispatch-task-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; padding: 0; list-style: none; }
-.dispatch-task-cards > li { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-content: start; gap: 8px 12px; padding: 12px; border-radius: 10px; background: var(--surface, #fff); box-shadow: 0 2px 8px rgb(15 23 42 / 8%); }
-.dispatch-task-cards > li > img { grid-row: span 4; width: 96px; height: 96px; object-fit: cover; border-radius: 6px; outline: 1px solid oklch(0 0 0 / .1); outline-offset: -1px; }
+.dispatch-task-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 12px; align-items: start; padding: 0; list-style: none; }
+.dispatch-task-cards > li { display: flex; flex-direction: column; align-items: stretch; min-width: 0; gap: 10px; padding: 12px; border-radius: 10px; background: var(--surface, #fff); box-shadow: 0 2px 8px rgb(15 23 42 / 8%); overflow-wrap: anywhere; }
+.dispatch-task-cards > li > img { display: block; width: 100%; height: 128px; object-fit: cover; border-radius: 6px; outline: 1px solid oklch(0 0 0 / .1); outline-offset: -1px; }
+.dispatch-task-cards > li > strong, .dispatch-task-cards > li > h2, .dispatch-task-cards [data-part="card-head"] h2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; margin: 0; overflow: hidden; line-height: 1.3; }
+.dispatch-task-cards > li > .dispatch-status-chip, .dispatch-task-cards > li > [data-component="pill"] { align-self: flex-start; margin: 0; }
 @media (max-width: 420px) { .dispatch-task-cards { grid-template-columns: 1fr; } }
 .dispatch-status-chip { display: inline-flex; align-items: center; gap: 6px; margin: 4px 6px 4px 0; padding: 4px 9px; border-radius: 999px; background: var(--surface-muted, #f1f5f9); color: var(--text-muted, #475569); font-size: .82rem; }
-.dispatch-task-cards details { grid-column: 2; font-size: .82rem; color: var(--text-muted, #475569); }
+.dispatch-task-cards details { font-size: .82rem; color: var(--text-muted, #475569); }
 .dispatch-task-cards details summary { cursor: pointer; font-weight: 600; }
 .dispatch-task-cards details p { margin: 4px 0 0; }
 .priority-card-reference-image { width: 100%; height: 132px; object-fit: cover; outline: 1px solid oklch(0 0 0 / .1); outline-offset: -1px; }

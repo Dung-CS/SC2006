@@ -29,6 +29,9 @@ AUTH_CAPTURE = r"""
     if (authorization && authorization.startsWith('Bearer ')) window.__demoToken = authorization.slice(7);
     const response = await nativeFetch(input, init);
     const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('/api/ops/dispatch/horizon') && response.ok) {
+      window.__demoUiHorizon = await response.clone().json();
+    }
     if (url.includes('/api/auth/signin') && response.ok) {
       const session = await response.clone().json();
       window.__demoToken = session.token;
@@ -124,6 +127,7 @@ class DemoRun:
 
     def record(self, name: str, status: str, detail: str = "") -> None:
         self.outcomes.append({"flow": name, "status": status, **({"detail": detail} if detail else {})})
+        (self.args.out / "results.json").write_text(json.dumps({"base": self.args.base, "startedAt": self.started_at, "outcomes": self.outcomes}, indent=2) + "\n", encoding="utf-8")
 
     def screenshot(self, name: str) -> None:
         # Never take or retain a screenshot while a credential form is visible.
@@ -306,7 +310,18 @@ class DemoRun:
                 raise AssertionError("removed selected-day urgent text block is still present")
             if "Urgent referrals requiring external authority" in self.driver.find_element(By.TAG_NAME, "body").text:
                 raise AssertionError("removed external referral text block is still present")
-            for route in plan.get("routes", []):
+            # Compare against the latest real response consumed by the UI: a live refresh
+            # may legitimately move a carried task to an earlier day while this flow runs.
+            def day_matches_live_response(driver):
+                current = driver.execute_script("return window.__demoUiHorizon?.plans.find(p=>p.date===arguments[0])||null", plan["date"])
+                if not current:
+                    return False
+                expected = {job for route in current.get("routes", []) for job in route.get("workOrderIds", [])}
+                cards = driver.find_elements(By.CSS_SELECTOR, '[data-part="planned-routes"] article[data-team] [data-work-order-id]')
+                actual = {card.get_attribute("data-work-order-id") for card in cards}
+                return current if expected == actual else False
+            current_plan = wait.until(day_matches_live_response)
+            for route in current_plan.get("routes", []):
                 for waypoint in route.get("waypointOrder", []):
                     order_id = waypoint.get("workOrderId")
                     if waypoint.get("isHq") or not order_id:
@@ -351,7 +366,8 @@ class DemoRun:
 
         self.driver.find_element(By.XPATH, "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'unassigned / committed')]").click()
         self.visible('[data-part="unassigned-tasks"]')
-        for item in payload.get("unassigned", []):
+        current_unassigned = self.driver.execute_script("return window.__demoUiHorizon?.unassigned||[]")
+        for item in current_unassigned:
             order_id = item["workOrderId"]
             card = wait.until(ec.visibility_of_element_located((By.CSS_SELECTOR,
                 f'[data-part="unassigned-tasks"] [data-work-order-id="{order_id}"]')))
@@ -403,6 +419,7 @@ class DemoRun:
             WebDriverWait(self.driver, 30).until(ec.staleness_of(first))
         if remaining:
             raise AssertionError("staff pagination exceeded the rehearsal bound")
+        self.driver.find_element(By.CSS_SELECTOR, '[data-part="staff-cards"]').screenshot(str(self.shots / "manager-staff-cards.png"))
         self.screenshot("manager-demo-staff")
 
         self.driver.get(self.args.base + "/ops/vehicles")
@@ -546,8 +563,11 @@ class DemoRun:
                     try:
                         action()
                     except Exception as error:  # Record useful failure class, never page bodies/tokens.
-                        self.screenshot(f"failure-{flow}")
                         self.record(flow, "FAIL", f"{type(error).__name__}: {str(error).splitlines()[0][:180]}")
+                        try:
+                            self.screenshot(f"failure-{flow}")
+                        except Exception:
+                            pass
             self.record("provider-walking-edge-cases", "SKIP", "not fabricated by live browser run; use deterministic local routing evidence")
         finally:
             try:
@@ -556,7 +576,10 @@ class DemoRun:
                     self.sign_out()
             except Exception:
                 pass
-            self.driver.quit()
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
         return self.finish()
 
     def finish(self) -> int:
