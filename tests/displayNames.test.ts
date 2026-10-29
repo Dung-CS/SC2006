@@ -3,6 +3,12 @@ import { cleanTitle, displayTaskName } from '../src/presentation/DisplayNames';
 import { staffDisplayName, staffRoleLocationLabel } from '../client/src/lib/staffVisuals';
 
 describe('presentation names', () => {
+  it('keeps fixture login identities out of staff names without inventing a person', () => {
+    expect(staffDisplayName('walkthrough-crew1@uat.d-fence.local', 'CleaningCrew')).toBe('Field crew');
+    expect(staffDisplayName('crew-northwest-2@example.test', 'CleaningCrew')).toBe('Field crew');
+    expect(staffDisplayName('demo-manager@example.test', 'OperationsManager')).toBe('Operations manager');
+    expect(staffDisplayName('ravi@example.test', 'CleaningCrew')).toBe('Ravi');
+  });
   it('removes demo markers and opaque identifiers while retaining readable text', () => {
     expect(cleanTitle('DEMO: Rat inspection 56cbbfcb-1c77-4224-aadd-001122334455', 'Work')).toBe('Rat inspection');
     expect(cleanTitle('[DEMO 20261029 SW-INSPECT] Mosquito Inspection', 'Work')).toBe('Mosquito Inspection');

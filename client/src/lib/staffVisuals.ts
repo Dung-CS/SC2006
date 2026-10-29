@@ -60,13 +60,13 @@ export function staffPhotoUrl(email: string, role?: string): string {
 }
 
 /** Formats an email into a friendly staff display name */
-export function staffDisplayName(email: string): string {
+export function staffDisplayName(email: string, role?: string): string {
   const clean = (email || '').split('@')[0] ?? '';
   if (clean.toLowerCase().includes('ychow')) {
     return 'Chow Yen Kit';
   }
-  if (/^demo(?:[-_.]|$)/i.test(clean) || /(?:^|[-_.])demo(?:[-_.]|$)/i.test(clean)) {
-    return 'Field crew';
+  if (!clean || /\d/.test(clean) || /^(?:demo|walkthrough|uat|test|crew|staff|manager)(?:[-_.]|$)/i.test(clean) || /(?:^|[-_.])demo(?:[-_.]|$)/i.test(clean)) {
+    return staffRoleLocationLabel(role ?? 'CleaningCrew');
   }
   return clean
     .split(/[._-]/)

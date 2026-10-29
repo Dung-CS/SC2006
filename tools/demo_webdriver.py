@@ -393,8 +393,9 @@ class DemoRun:
         for page in range(100):
             rows = self.driver.find_elements(By.CSS_SELECTOR, '[data-part="staff-cards"] > [data-entity-id]')
             for row in rows:
+                row_text = row.text
                 for email, staff in list(remaining.items()):
-                    if email not in row.text:
+                    if email not in row_text:
                         continue
                     if staff.get("hqLocation"):
                         selected = row.find_element(By.CSS_SELECTOR, "select.staff-hq-select option:checked").get_attribute("value")

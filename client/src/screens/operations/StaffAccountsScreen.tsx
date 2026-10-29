@@ -387,7 +387,7 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <img src={staffPhotoUrl(member.email, member.role)} alt="" className="staff-avatar-img" style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover' }} />
                   <div>
-                    <strong data-part="entity-title">{staffDisplayName(member.email)}</strong>
+                    <strong data-part="entity-title">{staffDisplayName(member.email, member.role)}</strong>
                     <div className="staff-email-sub">{staffRoleLocationLabel(member.role, member.hqLocation)}</div>
                     <small data-part="identity">{member.email}</small>
                   </div>
