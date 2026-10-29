@@ -23,6 +23,7 @@ import { Pill, statusTone, tierTone, Facts } from '../../components/Presentation
 import { label } from '../../lib/labels';
 import { WorkOrderStatus } from '../../../../src/entity/enums';
 import { ScreenProps } from '../ScreenProps';
+import { displayTaskName } from '../../../../src/presentation/DisplayNames';
 
 interface JobPayload {
   workOrder: {
@@ -83,9 +84,9 @@ export function JobDetailScreen(props: ScreenProps): JSX.Element {
 
       <StateView state={state} onRetry={retry}>
         {job === undefined ? null : (
-          <article>
+          <article data-entity-id={job.id}>
             <h1>
-              {label(job.taskType)}{' '}
+              <span data-part="entity-title">{displayTaskName(job.taskType, job.pestType ?? undefined, job.location ?? 'Reported location')}</span>{' '}
               <Pill tone={statusTone(job.status)}>{label(job.status)}</Pill>
             </h1>
             <p className="job-card-location" data-part="location" style={{ fontSize: '1rem', marginBottom: '1rem' }}>

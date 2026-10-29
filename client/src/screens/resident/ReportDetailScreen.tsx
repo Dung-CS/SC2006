@@ -19,6 +19,7 @@ import { Facts, PhotoGrid, Pill, statusTone } from '../../components/Presentatio
 import { label } from '../../lib/labels';
 import { reportPhotoAttribution, reportPhotoUrl } from '../../lib/reportVisuals';
 import { ScreenProps } from '../ScreenProps';
+import { cleanTitle } from '../../../../src/presentation/DisplayNames';
 
 interface ReportView {
   report: {
@@ -112,11 +113,11 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
 
       <StateView state={state} onRetry={retry}>
         {report === undefined ? null : (
-          <article>
-            <h1>
-              {report.pestType && report.pestType !== 'Mosquito'
+          <article data-entity-id={report.id}>
+            <h1 data-part="entity-title">
+              {cleanTitle(report.pestType && report.pestType !== 'Mosquito'
                 ? `${label(report.pestType)} — ${label(report.type)}`
-                : label(report.type)}{' '}
+                : label(report.type), 'Report')}{' '}
               <Pill tone={statusTone(report.status)}>
                 <span data-part="status">{label(report.status)}</span>
               </Pill>

@@ -383,7 +383,7 @@ describe('F: referral to an external authority (8.6, 8.1.14)', () => {
     return reports.save(r);
   }
 
-  it('F1 — work-order creation is refused for a wildlife pest, naming the authority (8.1.14, 8.1.15)', async () => {
+  it('F1 — wildlife inspection work can be created within unified authority operations', async () => {
     await expect(
       dispatch.createWorkOrder(
         {
@@ -394,8 +394,8 @@ describe('F: referral to an external authority (8.6, 8.1.14)', () => {
         },
         MANAGER,
       ),
-    ).rejects.toThrow(/AVS[\s\S]*refer the report instead|refer the report instead/);
-    expect(await workOrders.findOpenForCluster(clusterId())).toHaveLength(0);
+    ).resolves.toMatchObject({ pestType: PestType.WildBoar, taskType: TaskType.Inspection });
+    expect(await workOrders.findOpenForCluster(clusterId())).toHaveLength(1);
   });
 
   it('F1b — a non-wildlife pest is still dispatched, and carries its pest type (8.1.16)', async () => {

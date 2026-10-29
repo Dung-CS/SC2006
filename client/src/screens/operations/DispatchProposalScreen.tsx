@@ -10,13 +10,13 @@ import { Pill, tierTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
 import { Pagination, usePagination } from '../../components/Pagination';
 import { specialisationLabel } from '../../lib/dispatchRouting';
-import { coveringSpecialisations } from '../../../../src/control/StaffRoutingPolicy';
-import { PestClass, TaskType } from '../../../../src/entity/enums';
+import { TaskType } from '../../../../src/entity/enums';
 import { SingaporeMap, MapCluster, MapRoute } from '../../components/SingaporeMap';
 import { ScreenProps } from '../ScreenProps';
+import { reportPhotoUrl } from '../../lib/reportVisuals';
+import { cleanTitle, displayTaskName } from '../../../../src/presentation/DisplayNames';
 import { isUsableDrivingRoute } from '../../../../src/boundary/gateways/OneMapGateway';
 import { GeoPoint } from '../../../../src/entity/valueTypes';
-import type { DispatchReferral } from '../../../../src/control/DispatchRouteInputs';
 
 interface DispatchPayload {
   date: string;
@@ -83,7 +83,6 @@ interface PlannedRoutesPayload {
   computedAt?: string | null;
   planningDurationSeconds?: number | null;
   error?: string | null;
-  referrals?: DispatchReferral[];
   unplanned?: UnassignedPayload[];
   routes: Array<{
     teamId: string;
@@ -135,28 +134,15 @@ interface MapLayersPayload {
 interface WalkingLegPayload { coordinates: Array<{ latitude: number; longitude: number }>; durationSeconds: number; distanceMetres: number; source: string; mode: string }
 interface WalkingVisitPayload { stopIndex: number; targetPoint: { latitude: number; longitude: number }; accessPoint: { latitude: number; longitude: number }; outbound: WalkingLegPayload; return: WalkingLegPayload }
 interface UnassignedPayload {
-  workOrderId: string; locality?: string; priority?: string; requiredStaff?: number; reason: string;
+  workOrderId: string; locality?: string; priority?: string; taskType?: string; pestType?: string; requiredStaff?: number; reason: string;
   scheduledDate?: string; date?: string; disposition?: 'unassigned' | 'committed'; status?: string; isDemo?: boolean;
   sourceReportId?: string; reportIds?: string[];
 }
 interface HorizonPayload {
   startDate: string; days: number; planStatus: 'pending' | 'refreshing' | 'ready' | 'failed';
   computedAt?: string | null; planningDurationSeconds?: number | null; error?: string | null;
-  availabilityAssumption?: string; plans: PlannedRoutesPayload[]; unassigned: UnassignedPayload[]; referrals: DispatchReferral[];
+  availabilityAssumption?: string; plans: PlannedRoutesPayload[]; unassigned: UnassignedPayload[];
 }
-interface UrgentDispatchItem {
-  id: string;
-  priority: string;
-  locality: string;
-  disposition: string;
-  reason: string;
-  scheduledDate?: string;
-  isDemo?: boolean;
-  href?: string;
-  actionLabel?: string;
-  aliasIds?: string[];
-}
-
 function proposalFormPath(proposal: DispatchPayload['proposals'][number]): string {
   const query = new URLSearchParams({ taskType: proposal.suggestedTaskType,
     date: proposal.scheduledDate, pestType: proposal.pestType ?? 'Mosquito' });
@@ -170,6 +156,16 @@ function proposalMapId(proposal: DispatchPayload['proposals'][number]): string {
 
 function existingOrderPath(id?: string): string | undefined {
   return id && !id.startsWith('report-') && !id.startsWith('prop-') ? `/ops/work-orders/${id}` : undefined;
+}
+
+function taskReferenceImage(taskType?: string, pestType?: string): string {
+  if (pestType?.toLowerCase().replace(/[^a-z]/g, '') === 'wildboar') return '/visuals/clusters/residential-garden.jpg';
+  return reportPhotoUrl(taskType ?? 'StandingWater', pestType);
+}
+
+function stopDisplayName(waypoint: WaypointPayload): string {
+  const locality = waypoint.locality ?? waypoint.label.replace(/^Stop\s+\d+:\s*/, '');
+  return displayTaskName(waypoint.taskType, waypoint.pestType, cleanTitle(locality, 'Task stop'));
 }
 
 function dateOffset(date: string, offset: number): string {
@@ -199,7 +195,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
 
   const layersLoad = useLoad<MapLayersPayload>(props.api, '/api/map/layers');
 
-  const [view, setView] = useState<'proposals' | 'routes' | 'unassigned'>('proposals');
+  const [view, setView] = useState<'proposals' | 'routes' | 'unassigned'>('routes');
   const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
   const [selectedTeam, setSelectedTeam] = useState('');
   const [activePackingLists, setActivePackingLists] = useState<Record<string, boolean>>({});
@@ -221,50 +217,6 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   const horizonOnlyUnassigned = horizonUnassigned.filter((job) => job.disposition !== 'committed');
   const horizonCommitted = horizonUnassigned.filter((job) => job.disposition === 'committed');
   const dailyUnplanned = plan?.unplanned ?? [];
-  const urgentReferrals = (plan?.referrals ?? []).filter((item) => item.priority === 'Critical' || item.priority === 'High');
-  const urgentItemsById = new Map<string, UrgentDispatchItem>();
-  const urgentAliases = new Set<string>();
-  const addUrgent = (item: UrgentDispatchItem) => {
-    const aliases = [item.id, ...(item.aliasIds ?? [])].filter(Boolean);
-    if (aliases.some((alias) => urgentAliases.has(alias))) return;
-    aliases.forEach((alias) => urgentAliases.add(alias));
-    urgentItemsById.set(item.id, item);
-  };
-  const isUrgent = (priority?: string): boolean => priority === 'Critical' || priority === 'High';
-  routes.forEach((route) => route.waypointOrder.forEach((waypoint) => {
-    if (waypoint.isHq || !isUrgent(waypoint.priority)) return;
-    const id = waypoint.workOrderId ?? waypoint.sourceReportId ?? waypoint.mapClusterId ?? `${route.teamId}:${waypoint.label}`;
-    addUrgent({ id, aliasIds: [waypoint.workOrderId, waypoint.sourceReportId, waypoint.clusterId ?? undefined, waypoint.mapClusterId].filter((alias): alias is string => Boolean(alias)),
-      priority: waypoint.priority!, locality: waypoint.locality ?? waypoint.label.replace(/^Stop\s+\d+:\s*/, ''),
-      disposition: 'Planned route', reason: `Included on Team ${route.teamId}’s selected-day route.`, scheduledDate: selectedDay,
-      isDemo: waypoint.isDemo, href: existingOrderPath(waypoint.workOrderId),
-      actionLabel: existingOrderPath(waypoint.workOrderId) ? 'Review work order' : undefined });
-  }));
-  [...dailyUnplanned, ...horizonUnassigned].filter((job) => isUrgent(job.priority) && (!(job.scheduledDate ?? job.date) || (job.scheduledDate ?? job.date)! <= selectedDay))
-    .forEach((job) => addUrgent({ id: job.workOrderId, aliasIds: [job.sourceReportId, ...(job.reportIds ?? [])].filter((alias): alias is string => Boolean(alias)),
-      priority: job.priority!, locality: job.locality ?? job.workOrderId,
-      disposition: job.disposition === 'committed' ? `Committed${job.status ? ` (${job.status})` : ''}` : 'Unassigned',
-      reason: job.reason, scheduledDate: job.scheduledDate ?? job.date, isDemo: job.isDemo,
-      href: existingOrderPath(job.workOrderId), actionLabel: 'Review work order' }));
-  urgentReferrals.forEach((referral) => {
-    const reportId = referral.reportId ?? referral.reportIds?.[0];
-    addUrgent({ id: referral.workOrderId ?? reportId ?? referral.clusterId ?? referral.locality,
-      aliasIds: [referral.workOrderId, referral.reportId, ...(referral.reportIds ?? []), referral.clusterId].filter((alias): alias is string => Boolean(alias)), priority: referral.priority,
-      locality: referral.locality, disposition: `External referral · ${referral.authority}`, reason: referral.reason,
-      scheduledDate: selectedDay, href: reportId ? `/ops/referrals/${reportId}` : undefined,
-      actionLabel: reportId ? 'Review referral' : undefined });
-  });
-  (value?.proposals ?? []).filter((proposal) => isUrgent(proposal.tier)).forEach((proposal) => {
-    const id = proposal.sourceReportId ?? proposal.clusterId;
-    addUrgent({ id, aliasIds: [proposal.sourceReportId, proposal.clusterId].filter((alias): alias is string => Boolean(alias)),
-      priority: proposal.tier, locality: proposal.locality,
-      disposition: proposal.referralAuthority ? `External referral · ${proposal.referralAuthority}` : 'Proposal',
-      reason: proposal.priorityBasis === 'ReportTriage' ? 'High-priority report awaiting review.' : 'High-priority ranked task awaiting a work order.',
-      scheduledDate: proposal.scheduledDate, href: proposal.referralAuthority
-        ? proposal.sourceReportId ? `/ops/referrals/${proposal.sourceReportId}` : undefined : proposalFormPath(proposal),
-      actionLabel: proposal.referralAuthority ? proposal.sourceReportId ? 'Review referral' : undefined : 'Raise a work order' });
-  });
-  const urgentItems = [...urgentItemsById.values()].sort((a, b) => (a.priority === b.priority ? a.locality.localeCompare(b.locality) : a.priority === 'Critical' ? -1 : 1));
   const allClusters = layersLoad.value?.clusters ?? [];
   // A proposal alone is not evidence of road access. Only validated road-plan stops belong here.
   const roadRoutes = routes.filter((r) => r.route.source === 'onemap' && isUsableDrivingRoute({
@@ -288,7 +240,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
       const effectiveStatus = stopOverrides[overrideKey] ?? wp.status;
       if (!wp.isHq && effectiveStatus === 'Completed') return [];
       return [{
-        label: wp.label,
+        label: stopDisplayName(wp),
         point: wp.point,
         isCompleted: effectiveStatus === 'Completed',
         isBaseReturn: wp.isBaseReturn,
@@ -315,35 +267,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="DispatchProposal" data-requirement="11.2.16">
-      <h1>Dispatch for {selectedDay}</h1>
-      <p>
-        Precomputed routes cover eligible pest tasks in priority order. Each crew must fit its vehicle's seats,
-        weight and cargo limits within a four-hour shift.
-      </p>
-      <p><a href="/ops/vehicles" onClick={link(props, '/ops/vehicles')}>Manage HQ vehicles and load limits</a></p>
-      {horizon?.planStatus === 'pending' || plan?.planStatus === 'pending' ? (
-        <p role="status">Preparing the first dispatch plan in the background. Routes will appear here when ready.</p>
-      ) : null}
-      {horizon?.planStatus === 'refreshing' || plan?.planStatus === 'refreshing' ? (
-        <p role="status">Updating the dispatch plan in the background. The last completed plan remains visible.</p>
-      ) : null}
-      {horizon?.computedAt ? <p>Last horizon computed: {new Date(horizon.computedAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })} SGT
-        {horizon.planningDurationSeconds != null ? ` · calculation ${horizon.planningDurationSeconds.toFixed(1)} seconds` : ''}.</p> : null}
-      {horizon?.availabilityAssumption ? <p><strong>Planning assumption:</strong> {horizon.availabilityAssumption}</p> : null}
-      {horizon?.planStatus === 'failed' ? (
-        <div role="alert"><p>{horizon.error ?? 'The latest dispatch calculation failed.'} The last completed plan, if available, remains visible.</p>
-          <button type="button" onClick={routesLoad.retry}>Try again</button></div>
-      ) : null}
-      <section aria-label="High and Critical task queue" data-part="urgent-task-queue">
-        <h2>Selected-day urgent tasks ({urgentItems.length})</h2>
-        <p>Every High and Critical item from the selected-day routes, horizon-unassigned work, proposals and external referrals is listed here.</p>
-        {urgentItems.length === 0 && horizon && value ? <p>No High or Critical items are listed for {selectedDay}.</p> : null}
-        <ul>{urgentItems.map((item) => <li key={item.id} data-priority={item.priority} data-disposition={item.disposition}>
-          <strong>{item.priority}: {item.locality}</strong>{item.isDemo ? <> <Pill tone="warn">DEMO</Pill></> : null}
-          {' '}<span>{item.disposition}</span>{item.scheduledDate ? ` · ${item.scheduledDate}` : ''}. {item.reason}
-          {item.href ? <> <a href={item.href} onClick={link(props, item.href)}>{item.actionLabel ?? 'Review task'}</a></> : null}
-        </li>)}</ul>
-      </section>
+      <h1>Dispatch <span data-part="selected-day">{selectedDay}</span></h1>
       <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div>
           <label htmlFor="date" style={{ marginRight: '8px', fontWeight: 600 }}>
@@ -400,7 +324,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
       {/* Interactive Singapore Map with Multi-Team Routes and Clusters */}
       <section style={{ marginBottom: '24px' }} aria-label="Dispatch Route Map">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-          <h2 style={{ fontSize: '1.2rem', margin: 0 }}>Active Clusters & Multi-Team Road Routes</h2>
+          <h2 style={{ fontSize: '1.2rem', margin: 0 }}>Routes</h2>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <label htmlFor="dispatch-map-team">Map team:</label>
             <select id="dispatch-map-team" value={selectedTeam} onChange={(event) => {
@@ -408,7 +332,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
               setSelectedClusterId(null);
             }}>
               <option value="">All road-accessible teams</option>
-              {roadRoutes.map((r) => <option key={r.teamId} value={r.teamId}>Team {r.teamId}</option>)}
+              {roadRoutes.map((r) => <option key={r.teamId} value={r.teamId}>{cleanTitle(r.teamId, 'Field team')}</option>)}
             </select>
             {selectedClusterId ? (
               <button
@@ -429,8 +353,6 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
             ) : null}
           </div>
         </div>
-        <p>Only tasks on verified driving routes are shown. Completed stop markers and duplicate cluster icons are hidden.
-          {' '}Choose one team to see fewer routes. Dashed segments show verified walking access legs to task pins. Tasks without verified road access remain in the list.</p>
         <SingaporeMap
           label="dispatch-routes-map"
           viewKey={`${selectedDay}:${selectedTeam}`}
@@ -442,21 +364,29 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
           size="tall"
         />
       </section>
+            <div data-part="dispatch-status" aria-live="polite">
+        {horizon?.planStatus === 'pending' || plan?.planStatus === 'pending' ? <span className="dispatch-status-chip" role="status" title="Routes are being prepared">Pending</span> : null}
+        {horizon?.planStatus === 'refreshing' || plan?.planStatus === 'refreshing' ? <span className="dispatch-status-chip" role="status" title="The previous completed plan remains available">Updating</span> : null}
+        {horizon?.computedAt ? <span className="dispatch-status-chip" title={horizon.planningDurationSeconds != null ? `Calculation took ${horizon.planningDurationSeconds.toFixed(1)} seconds` : undefined}>Updated {new Date(horizon.computedAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })} SGT</span> : null}
+        {horizon?.availabilityAssumption ? <span className="dispatch-status-chip" title={horizon.availabilityAssumption}>Availability assumed</span> : null}
+        {horizon?.planStatus === 'failed' ? <span className="dispatch-status-chip" role="alert" title={horizon.error ?? 'Dispatch calculation failed'}>Failed <button type="button" onClick={routesLoad.retry}>Retry</button></span> : null}
+      </div>
+      <p><a href="/ops/vehicles" onClick={link(props, '/ops/vehicles')}>Vehicles &amp; load limits</a></p>
+
 
       {view === 'routes' ? (
         <StateView state={plan?.computedAt && routes.length > 0 ? { kind: 'ready' } : routesLoad.state} onRetry={routesLoad.retry}>
           <section aria-label="Planned inspection routes" data-part="planned-routes">
-            <p>Allocate Critical, High, Medium, then Low tasks using qualified staff and remaining shift time. Route plans do not assign work orders.</p>
-            <p>Provisional crew sizes: Inspection 1; Larviciding 2; Fogging 3; Drain clearance 2; Refuse clearance 2.</p>
+
             {plan && !['pending', 'refreshing', 'failed'].includes(plan.planStatus ?? 'ready') &&
-              routes.length === 0 && dailyUnplanned.length === 0 && (plan.referrals?.length ?? 0) === 0 ?
+              routes.length === 0 && dailyUnplanned.length === 0 ?
               <p>No eligible tasks are waiting for this date.</p> : null}
             {dailyUnplanned.length > 0 ? (
               <section aria-label="Unplanned tasks">
                 <h2>Tasks without a route on {selectedDay} ({dailyUnplanned.length})</h2>
-                <ul>{dailyUnplanned.map((job) => (
-                  <li key={job.workOrderId}><strong>{job.priority}: {job.locality ?? job.workOrderId}</strong>
-                    {' '}{job.requiredStaff ?? '?'} staff required. {job.reason}</li>
+                <ul data-cards className="dispatch-task-cards">{dailyUnplanned.map((job) => (
+                  <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority}><img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority}: {cleanTitle(job.locality, 'Unknown locality')}</strong>
+                    {' '}{job.requiredStaff ?? '?'} staff required. <details><summary>Why unassigned</summary><p>{job.reason}</p></details></li>
                 ))}</ul>
               </section>
             ) : null}
@@ -514,7 +444,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                             display: 'inline-block',
                           }}
                         />
-                        <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Team {planned.teamId}</h2>
+                        <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{cleanTitle(planned.teamId, 'Field team')}</h2>
                         <span
                           style={{
                             background: '#f1f5f9',
@@ -525,7 +455,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                             fontWeight: 600,
                           }}
                         >
-                          🏢 {planned.depotLocation} Depot
+                          🏢 {cleanTitle(planned.depotLocation, 'Depot')} Depot
                         </span>
                       </div>
 
@@ -559,19 +489,19 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                     </div>
 
                     {/* Operational Summary */}
-                    <p><strong>{planned.staffCount ?? 1} staff</strong> reserved for this route.</p>
+                    <span>{planned.staffCount ?? '?'} staff</span>
                     {planned.vehicleId ? (
                       <section aria-label="Assigned vehicle and cargo load">
-                        <p><strong>{planned.vehicleName} · {planned.vehicleRegistration}</strong>{' '}
-                          {planned.isDemoVehicle ? <Pill tone="warn">Demo vehicle — illustrative capacity</Pill> : null}</p>
+                        <p><strong title={planned.vehicleRegistration}>{cleanTitle(planned.vehicleName, 'Assigned vehicle')}</strong>{' '}
+                          {planned.isDemoVehicle ? <Pill tone="warn">Illustrative capacity</Pill> : null}</p>
                         <p>Payload: {planned.loadWeightKg?.toFixed(1)} / {planned.maxPayloadKg?.toFixed(1)} kg
                           {planned.loadWeightPercentage != null ? ` (${planned.loadWeightPercentage.toFixed(1)}%)` : ''}.
                           {' '}Cargo volume: {planned.loadVolumeM3?.toFixed(3)} / {planned.maxCargoVolumeM3?.toFixed(3)} m³
                           {planned.loadVolumePercentage != null ? ` (${planned.loadVolumePercentage.toFixed(1)}%)` : ''}.</p>
-                        {planned.loadBasis ? <p>{planned.loadBasis}</p> : null}
+                        {planned.loadBasis ? <span title={planned.loadBasis}>Load basis</span> : null}
                       </section>
                     ) : null}
-                    <p>Travel source: {planned.route.source === 'onemap' ? 'OneMap road route' : 'Direct-distance estimate'}.</p>
+                    <span title={planned.route.source === 'onemap' ? 'Provider-verified road route' : 'Direct-distance estimate'}>{planned.route.source === 'onemap' ? 'Verified route' : 'Estimated route'}</span>
                     <div
                       style={{
                         display: 'flex',
@@ -594,28 +524,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                     </div>
 
                     {/* Only an explicit route instruction adds an intermediate depot return. */}
-                    {hasExplicitBaseReturn ? (
-                      <div
-                        style={{
-                          background: '#fffbeb',
-                          border: '1.5px solid #fef08a',
-                          padding: '10px 14px',
-                          borderRadius: '6px',
-                          color: '#854d0e',
-                          marginBottom: '14px',
-                          fontSize: '0.88rem',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                        }}
-                      >
-                        <span style={{ fontSize: '1.2rem' }}>⚠️</span>
-                        <span>
-                          <strong>Explicit depot-return instruction:</strong> This plan includes an instructed
-                          intermediate return. Task type alone does not mandate a return; vehicle load limits govern allocation.
-                        </span>
-                      </div>
-                    ) : null}
+                    {hasExplicitBaseReturn ? <span className="dispatch-status-chip" title="A route instruction adds the intermediate depot return; vehicle load limits otherwise guide allocation.">Depot return required</span> : null}
 
                     {/* Progress Bar */}
                     <div style={{ marginBottom: '16px' }}>
@@ -658,9 +567,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
 
                     {/* Waypoint Step Tracker */}
                     <div style={{ marginBottom: '16px' }}>
-                      <h3 style={{ fontSize: '0.95rem', marginBottom: '8px', color: '#1e293b' }}>
-                        Waypoint Route Execution
-                      </h3>
+                      <h3 style={{ fontSize: '0.95rem', marginBottom: '8px', color: '#1e293b' }}>Stops</h3>
                       <ol
                         style={{
                           listStyle: 'none',
@@ -680,6 +587,8 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                           return (
                             <li
                               key={`${waypoint.label}-${index}`}
+                              data-work-order-id={!waypoint.isHq ? waypoint.workOrderId : undefined}
+                              data-priority={!waypoint.isHq ? waypoint.priority : undefined}
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -720,8 +629,8 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                                     : '⚪'}
                                 </span>
                                 <div>
-                                  <strong style={{ color: isDone ? '#166534' : '#0f172a' }}>
-                                    {waypoint.label}
+                                  <img src={taskReferenceImage(waypoint.taskType, waypoint.pestType)} alt="Reference image; not incident evidence" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                                  <strong style={{ color: isDone ? '#166534' : '#0f172a' }}>{stopDisplayName(waypoint)}
                                   </strong>
                                   {waypoint.isAreaAccess ? <small style={{ display: 'block', color: '#475569', marginTop: '2px' }} title="Provider-verified road entry inside the authorised service area.">Area access point</small> : null}
                                   {waypoint.priority ? (
@@ -917,51 +826,42 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
         <StateView state={routesLoad.state} onRetry={routesLoad.retry}>
           <section aria-label="Horizon-wide unassigned and committed tasks" data-part="unassigned-tasks">
             <h2>Tasks unassigned across the {horizon?.days ?? days}-day horizon ({horizonOnlyUnassigned.length})</h2>
-            <p>Starting {horizon?.startDate ?? date}. This list excludes tasks planned on any day in the horizon. Committed work is shown separately and retains its current assignment.</p>
+            <p>Horizon starts {horizon?.startDate ?? date}.</p>
             {horizonOnlyUnassigned.length === 0 ? <p>No tasks remain unassigned across this horizon.</p> : null}
-            <ul>{horizonOnlyUnassigned.map((job) => (
-              <li key={job.workOrderId} data-disposition="unassigned">
-                <strong>{job.priority ?? 'Priority unknown'}: {job.locality ?? job.workOrderId}</strong>
+            <ul data-cards className="dispatch-task-cards">{horizonOnlyUnassigned.map((job) => (
+              <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority} data-disposition="unassigned">
+                <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {cleanTitle(job.locality, 'Unknown locality')}</strong>
                 {job.isDemo ? <> <Pill tone="warn">DEMO</Pill></> : null}
                 {' '}Unassigned{job.scheduledDate ? ` · eligible ${job.scheduledDate}` : ''}.
-                {' '}{job.requiredStaff ?? '?'} staff required. {job.reason}
+                {' '}{job.requiredStaff ?? '?'} staff required. <details><summary>Why unassigned</summary><p>{job.reason}</p></details>
                 {existingOrderPath(job.workOrderId) ? <> <a href={existingOrderPath(job.workOrderId)} onClick={link(props, existingOrderPath(job.workOrderId)!)}>Review work order</a></> : null}
               </li>
             ))}</ul>
             <h3>Committed work ({horizonCommitted.length})</h3>
             {horizonCommitted.length === 0 ? <p>No committed items are reported for this horizon.</p> : null}
-            <ul>{horizonCommitted.map((job) => (
-              <li key={job.workOrderId} data-disposition="committed">
-                <strong>{job.priority ?? 'Priority unknown'}: {job.locality ?? job.workOrderId}</strong>
+            <ul data-cards className="dispatch-task-cards">{horizonCommitted.map((job) => (
+              <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority} data-disposition="committed">
+                <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {cleanTitle(job.locality, 'Unknown locality')}</strong>
                 {job.isDemo ? <> <Pill tone="warn">DEMO</Pill></> : null}
-                {' '}Committed ({job.status ?? 'existing status'}){job.scheduledDate ? ` · ${job.scheduledDate}` : ''}. {job.reason}
+                {' '}Committed ({job.status ?? 'existing status'}){job.scheduledDate ? ` · ${job.scheduledDate}` : ''}. <details><summary>Task details</summary><p>{job.reason}</p></details>
                 {' '}<a href={`/ops/work-orders/${job.workOrderId}`} onClick={link(props, `/ops/work-orders/${job.workOrderId}`)}>Review work order</a>
               </li>
             ))}</ul>
-            {urgentReferrals.length > 0 ? <section aria-label="Urgent external referrals">
-              <h3>Urgent referrals requiring external authority ({urgentReferrals.length})</h3>
-              <ul>{urgentReferrals.map((referral) => {
-                const reportId = referral.reportId ?? referral.reportIds?.[0];
-                return <li key={`${reportId ?? referral.clusterId ?? referral.locality}-${referral.authority}`}>
-                  <strong>{referral.priority}: {referral.locality} · {label(referral.pestType)}</strong> — external referral to {referral.authority}. {referral.reason}
-                  {reportId ? <> <a href={`/ops/referrals/${reportId}`} onClick={link(props, `/ops/referrals/${reportId}`)}>Review referral</a></> : null}
-                </li>;
-              })}</ul>
-            </section> : null}
           </section>
         </StateView>
       ) : (
         <StateView state={state} onRetry={retry}>
-          <p aria-live="polite"><strong>{(value?.proposals ?? []).filter((item) => item.tier === 'Critical' || item.tier === 'High').length}</strong> High or Critical ranked proposals. The complete urgent task queue is listed above. {totalItems} proposals match this filter; use the filter and pages to reach every proposal.</p>
+          <p aria-live="polite">{totalItems} proposals match this filter.</p>
           <label htmlFor="proposal-priority">Priority filter: </label>
           <select id="proposal-priority" value={priorityFilter} onChange={(event) => { setPriorityFilter(event.target.value); setCurrentPage(1); }}>
             <option value="">All priorities</option><option value="Critical">Critical</option><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option>
           </select>
-          <ol data-part="proposals" data-cards>
+          <ol data-part="proposals" data-cards className="dispatch-task-cards">
             {pagedItems.map((proposal) => (
-              <li key={`${proposal.sourceReportId ?? proposal.clusterId}-${proposal.pestType ?? 'Mosquito'}`} data-tier={proposal.tier}>
+              <li key={`${proposal.sourceReportId ?? proposal.clusterId}-${proposal.pestType ?? 'Mosquito'}`} data-tier={proposal.tier} data-priority={proposal.tier} data-task-id={proposal.sourceReportId ?? proposal.clusterId}>
+                <img src={taskReferenceImage(proposal.suggestedTaskType, proposal.pestType)} alt="Reference image; not incident evidence" />
                 <div data-part="card-head">
-                  <h2>{proposal.locality}{proposal.pestType ? ` · ${label(proposal.pestType)}` : ''}</h2>
+                  <h2>{displayTaskName(proposal.suggestedTaskType, proposal.pestType, cleanTitle(proposal.locality, 'Unknown locality'))}</h2>
                   <Pill tone={tierTone(proposal.tier)} tier={proposal.tier}>
                     {proposal.tier} priority
                   </Pill>
@@ -972,10 +872,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                   </span>
                   <span data-part="task">Suggested: {label(proposal.suggestedTaskType)}</span>
                   <span className="dispatch-suggested-route">
-                    {proposal.referralAuthority ? `External authority: ${proposal.referralAuthority}` : <>Crew capability:{' '}
-                    {(proposal.allowedCapabilities ?? coveringSpecialisations(proposal.suggestedTaskType as TaskType, PestClass.VectorBorne))
-                      .map(specialisationLabel)
-                      .join(' or ') || 'none recorded covers this task'}</>}
+                    {proposal.allowedCapabilities === undefined ? 'Capability data unavailable' : `Crew capability: ${proposal.allowedCapabilities.map(specialisationLabel).join(' or ') || 'No qualified capability recorded'}`}
                   </span>
                 </div>
                 <div data-part="card-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -998,12 +895,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                   >
                     📍 Show on map
                   </button> : <span>Not on the current road-route map</span>}
-                  {proposal.referralAuthority ? (
-                    proposal.sourceReportId ? <a href={`/ops/referrals/${proposal.sourceReportId}`}
-                      onClick={link(props, `/ops/referrals/${proposal.sourceReportId}`)}>Review referral</a> : null
-                  ) : (
-                    <a href={proposalFormPath(proposal)} onClick={link(props, proposalFormPath(proposal))}>Raise a work order</a>
-                  )}
+                  <a href={proposalFormPath(proposal)} onClick={link(props, proposalFormPath(proposal))}>Raise a work order</a>
                   <a href={proposal.sourceReportId ? `/reports/${proposal.sourceReportId}` : `/ops/clusters/${proposal.clusterId}`}
                     onClick={link(props, proposal.sourceReportId ? `/reports/${proposal.sourceReportId}` : `/ops/clusters/${proposal.clusterId}`)}>
                     Why is this ranked here?

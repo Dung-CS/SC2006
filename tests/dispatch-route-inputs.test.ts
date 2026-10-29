@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as reportGrouping from '../src/control/ReportSpatialClustering';
 import { ConfigLoader } from '../src/config/ConfigLoader';
 import { buildDispatchRouteInputs } from '../src/control/DispatchRouteInputs';
 import { RouteOptimizationService } from '../src/control/RouteOptimizationService';
@@ -32,6 +33,26 @@ const build = (overrides: Partial<Parameters<typeof buildDispatchRouteInputs>[0]
   buildDispatchRouteInputs({ date, profiles, crew: [], orders: [], clusters: [], proposals: [], ...overrides });
 
 describe('Real dispatch candidate admission and staffing', () => {
+  it('uses a verified mosquito source point before a conflicting proposal point and refuses invalid source identity', () => {
+    // Isolate the proposal admission path; group admission has its own exact-point coverage below.
+    const grouping = vi.spyOn(reportGrouping, 'groupNearbyReports').mockReturnValue([]);
+    try {
+      const official = cluster('official');
+      const source = report('mosquito-source', PestType.Mosquito, { clusterId: official.id, point: new GeoPoint(1.321, 103.851) });
+      const proposal = { clusterId: official.id, sourceReportId: source.id, locality: official.locality,
+        point: new GeoPoint(1.4, 103.9), score: 90, tier: PriorityTier.High, pestType: PestType.Mosquito,
+        suggestedTaskType: TaskType.Inspection, scheduledDate: date };
+      const inputs = build({ clusters: [official], reports: [source], proposals: [proposal] });
+      expect(inputs.jobs).toHaveLength(1);
+      expect(inputs.jobs[0]?.point).toBe(source.point);
+      expect(inputs.jobs[0]).not.toHaveProperty('serviceArea');
+      expect(build({ clusters: [official], reports: [source], proposals: [{ ...proposal, sourceReportId: 'missing' }] }).jobs).toEqual([]);
+      expect(build({ clusters: [official], reports: [Object.assign(source, { pestType: PestType.Rat })], proposals: [proposal] }).jobs).toEqual([]);
+    } finally {
+      grouping.mockRestore();
+    }
+  });
+
   it('attaches official area bounds only to cluster-only work without a recorded target point', () => {
     const official = cluster('official');
     const exact = new GeoPoint(1.32, 103.85);
@@ -101,15 +122,20 @@ describe('Real dispatch candidate admission and staffing', () => {
     expect(input).toEqual({ teams: [], jobs: [], referrals: [] });
   });
 
-  it('uses the report target point and shared pest/skill rules, with referrals excluded', () => {
+  it('uses exact target points and recorded capability requirements for all authorities', () => {
     const targetPoint = new GeoPoint(1.4, 103.8);
     const rat = Object.assign(order('rat'), { pestType: PestType.Rat, targetPoint });
     const snake = Object.assign(order('snake'), { pestType: PestType.Snake, targetPoint });
     const input = build({ orders: [rat, snake], clusters: [cluster('rat'), cluster('snake')] });
-    expect(input.jobs).toHaveLength(1);
+    expect(input.jobs).toHaveLength(2);
     expect(input.jobs[0]?.point).toBe(targetPoint);
     expect(input.jobs[0]?.allowedCapabilities).toContain(StaffSpecialisation.Sanitation);
     expect(input.jobs[0]?.requiredCapability).toBe(StaffSpecialisation.Sanitation);
+    expect(input.jobs.find((job) => job.pestType === PestType.Snake)).toMatchObject({
+      point: targetPoint, requiredCapability: StaffSpecialisation.AuthorityResponse,
+      allowedCapabilities: [StaffSpecialisation.AuthorityResponse], requiredStaff: 2,
+    });
+    expect(input.referrals).toEqual([]);
   });
 
   it('does not duplicate open work with proposals or schedule completed/future work', () => {
@@ -179,10 +205,10 @@ describe('Mixed-pest dispatch admission', () => {
       instructions: '[DEMO 20261029 SW-DRAIN] Illustrative task', location: 'Unassigned', targetPoint: new GeoPoint(1.32, 103.8) });
     const input = build({ reports: [demoReport, ordinary], orders: [demoOrder] });
     expect(input.jobs.find((job) => job.sourceReportId === demoReport.id)).toMatchObject({
-      locality: '[DEMO 20261029 SW-INSPECT] · Unassigned', isDemo: true, point: demoReport.point,
+      locality: 'Unassigned', isDemo: true, point: demoReport.point,
     });
     expect(input.jobs.find((job) => job.workOrderId === demoOrder.id)).toMatchObject({
-      locality: '[DEMO 20261029 SW-DRAIN] · Unassigned', isDemo: true, point: demoOrder.targetPoint,
+      locality: 'Unassigned', isDemo: true, point: demoOrder.targetPoint,
     });
     expect(input.jobs.find((job) => job.sourceReportId === ordinary.id)).toMatchObject({
       locality: 'Real locality', isDemo: false, point: ordinary.point,
@@ -191,17 +217,18 @@ describe('Mixed-pest dispatch admission', () => {
     expect(demoOrder.location).toBe('Unassigned');
   });
 
-  it('routes verified rat, cockroach and termite reports before a low dengue task, and exposes snake referral', async () => {
+  it('admits authority work alongside ordinary pests and leaves it unallocated without qualified crew', async () => {
     const reports = [report('rat', PestType.Rat), report('roach', PestType.Cockroach), report('termite', PestType.Termite),
       report('snake', PestType.Snake, { locationContext: LocationContext.Indoor })];
     const input = build({ reports, orders: [order('low')], clusters: [cluster('low')],
       crew: [Object.assign(crew('san'), { specialisation: StaffSpecialisation.Sanitation }),
         Object.assign(crew('struct'), { specialisation: StaffSpecialisation.Structural }), crew('vector')] });
-    expect(input.jobs.map((j) => j.pestType)).toEqual([PestType.Rat, PestType.Cockroach, PestType.Termite, PestType.Mosquito]);
-    expect(input.jobs.slice(0, 3).every((j) => j.priority === PriorityTier.High)).toBe(true);
-    expect(input.referrals).toMatchObject([{ reportId: 'snake', pestType: PestType.Snake, priority: 'Critical' }]);
+    expect(input.jobs.map((j) => j.pestType)).toEqual([PestType.Snake, PestType.Rat, PestType.Cockroach, PestType.Termite, PestType.Mosquito]);
+    expect(input.jobs.slice(1, 4).every((j) => j.priority === PriorityTier.High)).toBe(true);
+    expect(input.referrals).toEqual([]);
     const routes = await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(input.teams, input.jobs);
     expect(routes.flatMap((r) => r.workOrderIds)).toEqual(expect.arrayContaining(['report-rat', 'report-roach', 'report-termite']));
+    expect(routes.flatMap((r) => r.workOrderIds)).not.toContain('report-snake');
   });
 
   it('does not let an open mosquito task suppress a different pest or task at the same locality', () => {

@@ -88,6 +88,7 @@ describe('Policy — each staff type against each task (mosquito, VectorBorne)',
     [S.Sanitation]: [T.RefuseClearance, T.DrainClearance, T.Inspection],
     [S.Structural]: [], // structural pests only: a mosquito is not its job
     [S.GeneralInspection]: [T.Inspection],
+    [S.AuthorityResponse]: [],
   };
 
   for (const spec of Object.values(S)) {
@@ -110,7 +111,7 @@ describe('Policy — each staff type against each task (mosquito, VectorBorne)',
   it('R3 — the shared table names who covers a task, used by the dispatch proposal screen', () => {
     expect(coveringSpecialisations(T.Fogging, PestClass.VectorBorne)).toEqual([S.VectorControl]);
     expect(coveringSpecialisations(T.Inspection, PestClass.VectorBorne)).toEqual([S.VectorControl, S.Sanitation, S.GeneralInspection]);
-    expect(coveringSpecialisations(T.Inspection, PestClass.Wildlife)).toEqual([]);
+    expect(coveringSpecialisations(T.Inspection, PestClass.Wildlife)).toEqual([S.AuthorityResponse]);
   });
 
   it('R4 — rat fogging is refused and sanitation leads rat/cockroach inspections', () => {
@@ -152,10 +153,13 @@ describe('Policy — inactive, unknown and non-crew accounts', () => {
 
   it('U4 — a pest with no catalogue entry matches nobody (no config, a rat)', () => {
     expect(ineligibilityReason(member('x', S.Sanitation), { taskType: T.Inspection, pestType: PestType.Rat }, null)).toMatch(/no pest catalogue entry/);
+    expect(coveringSpecialisations(T.Inspection, null, PestType.HouseCrow)).toEqual([]);
+    expect(ineligibilityReason(member('authority', S.AuthorityResponse), { taskType: T.Inspection, pestType: PestType.HouseCrow }, null))
+      .toMatch(/no pest catalogue entry/);
   });
 });
 
-describe('Policy — the wildlife catalogue, birds and bees included, never reaches the crew', () => {
+describe('Policy — authority cases require recorded authority response capability', () => {
   const referred = [...config.pestProfiles.values()]
     .filter((p) => p.pestClass === PestClass.Wildlife)
     .map((p) => p.pestType);
@@ -168,11 +172,12 @@ describe('Policy — the wildlife catalogue, birds and bees included, never reac
     }
   });
 
-  it('W2 — no staff type is eligible for any of them, for any task', () => {
+  it('W2 — only AuthorityResponse can inspect authority cases; other tasks stay refused', () => {
     for (const pest of [...referred, ...birdsAndBees]) {
       for (const spec of Object.values(S)) {
         for (const task of Object.values(T)) {
-          expect(ineligibilityReason(member('x', spec), { taskType: task, pestType: pest }, profile(pest))).toMatch(/referred to/);
+          expect(ineligibilityReason(member('x', spec), { taskType: task, pestType: pest }, profile(pest)) === null)
+            .toBe(spec === S.AuthorityResponse && task === T.Inspection);
         }
       }
     }
@@ -210,10 +215,11 @@ describe('Policy — ranking', () => {
     expect(decision.candidates).toHaveLength(1);
   });
 
-  it('K3 — a referred pest returns the authority and its number, and no candidates', () => {
-    const decision = rankStaff([withLoad(member('x', S.GeneralInspection), 0)], { taskType: T.Inspection, pestType: PestType.Pigeon }, profile(PestType.Pigeon));
-    expect(decision.referral).toEqual({ authority: 'AVS (NParks Animal Response Centre)', contactNumber: '1800 476 1600' });
-    expect(decision.candidates).toEqual([]);
+  it('K3 — an authority pest recommends qualified staff without a new referral', () => {
+    const decision = rankStaff([withLoad(member('x', S.GeneralInspection), 0), withLoad(member('authority', S.AuthorityResponse), 0)],
+      { taskType: T.Inspection, pestType: PestType.Pigeon }, profile(PestType.Pigeon));
+    expect(decision.referral).toBeNull();
+    expect(decision.candidates.map((candidate) => candidate.crewId)).toEqual(['authority']);
   });
 });
 
@@ -340,20 +346,26 @@ describe('Controller — assignment and reassignment enforce the policy', () => 
     expect((await f.workOrders.findById(wo.id))?.assigneeId).toBe('vc-2');
   });
 
-  it('D6 — a bird order planted past creation still cannot reach any crew, accounts bound or not', async () => {
+  it('D6 — a bird order cannot reach generic crew or bypass capability checks without a roster', async () => {
     for (const bound of [true, false]) {
       const g = await fixture(bound);
       const wo = await order(g, T.Inspection);
       wo.pestType = PestType.HouseCrow; // as if written straight into the store
       await g.workOrders.save(wo);
-      await expect(g.dispatch.assign(wo.id, 'insp-1', MANAGER)).rejects.toThrow(/AVS/);
+      await expect(g.dispatch.assign(wo.id, 'insp-1', MANAGER)).rejects.toThrow(/AuthorityResponse|capability validation is unavailable/);
       expect((await g.workOrders.findById(wo.id))?.assigneeId).toBeNull();
     }
   });
 
-  it('D7 — creation refuses the AVS birds and the NParks bees and offers referral; ants are still crew work', async () => {
+  it('D7 — creates and assigns AVS/NParks cases to explicitly qualified responders', async () => {
+    await f.accounts.save(member('authority', S.AuthorityResponse));
     for (const pest of [PestType.HouseCrow, PestType.Pigeon, PestType.JavanMyna, PestType.BeeWasp, PestType.Snake]) {
-      await expect(order(f, T.Inspection, pest), pest).rejects.toThrow(/(AVS|NParks)[\s\S]*refer the report instead/);
+      const work = await order(f, T.Inspection, pest);
+      await expect(f.dispatch.assign(work.id, 'insp-1', MANAGER)).rejects.toThrow(/AuthorityResponse/);
+      expect((await f.dispatch.routingFor(work.id, MANAGER)).candidates.map((candidate) => candidate.crewId)).toEqual(['authority']);
+      expect((await f.dispatch.assign(work.id, 'authority', MANAGER)).currentStatus()).toBe(WorkOrderStatus.Assigned);
+      await f.lifecycle.accept(work.id, new Principal('authority', Role.CleaningCrew, 'authority-session'));
+      expect((await f.workOrders.findById(work.id))?.currentStatus()).toBe(WorkOrderStatus.Accepted);
     }
     await expect(order(f, T.Inspection, PestType.Ant)).resolves.toBeDefined();
     await expect(order(f, T.Fogging, PestType.Rat)).rejects.toThrow(/not a permitted task for Rat/);
@@ -657,16 +669,15 @@ describe('HTTP — the boundary refuses what the screen would not offer', () => 
     expect((await f.workOrders.findAll())).toHaveLength(0);
   });
 
-  it('H6 — HTTP creation refuses snake and bird reports for referral before storing work', async () => {
+  it('H6 — HTTP creation supports snake and bird reports as ordinary work', async () => {
     for (const pestType of [PestType.Snake, PestType.HouseCrow]) {
       const source = await verifiedReport(f, `external-${pestType}`, pestType);
       const refused = response();
       await routes.handle(req('/api/ops/work-orders', {}, {
         clusterId: f.clusterId, taskType: T.Inspection, sourceReportId: source.id,
       }), refused);
-      expect(refused.code).toBe(400);
-      expect((refused.body as { error: string }).error).toMatch(/(AVS|NParks)[\s\S]*refer the report instead/);
-      expect(await f.workOrders.findAll()).toHaveLength(0);
+      expect(refused.code).toBe(201);
+      expect((await f.workOrders.findAll()).some((work) => work.sourceReportId === source.id && work.pestType === pestType)).toBe(true);
     }
   });
 });

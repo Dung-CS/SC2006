@@ -11,7 +11,12 @@ import { Cluster } from '../src/entity/Cluster';
 import { PriorityScore } from '../src/entity/PriorityScore';
 import { WorkOrder } from '../src/entity/WorkOrder';
 import { GeoPoint, Polygon, PremisesMix } from '../src/entity/valueTypes';
-import { LocationContext, PestType, PriorityTier, ReportStatus, ReportType, Role, TaskType, WorkOrderStatus } from '../src/entity/enums';
+import { HqLocation, LocationContext, PestType, PriorityTier, ReportStatus, ReportType, Role, StaffSpecialisation, StaffStatus, TaskType, WorkOrderStatus } from '../src/entity/enums';
+import { Account } from '../src/entity/Account';
+import { buildDispatchRouteInputs } from '../src/control/DispatchRouteInputs';
+import { RouteOptimizationService } from '../src/control/RouteOptimizationService';
+import { MockRoadRoutingStrategy } from './helpers/MockRoadRoutingStrategy';
+import { DirectDistanceRoutingStrategy } from '../src/control/routing/DirectDistanceRoutingStrategy';
 import { InMemoryAuditStore, InMemoryClusterStore, InMemoryPriorityScoreStore } from '../src/persistence/memory/InMemoryStores';
 import { InMemoryReportStore } from '../src/persistence/memory/InMemoryReportStores';
 import { InMemoryTreatmentRecordStore, InMemoryWorkOrderStore } from '../src/persistence/memory/InMemoryWorkOrderStores';
@@ -44,7 +49,43 @@ async function cluster(f: ReturnType<typeof fixture>): Promise<Cluster> {
 }
 
 describe('Daily dispatch combines report triage and locality scores', () => {
-  it('retains unscored non-dengue tasks and referrals before the display limit', async () => {
+  it.each([PestType.Snake, PestType.WildBoar, PestType.BeeWasp, PestType.HouseCrow, PestType.Pigeon, PestType.JavanMyna])(
+    'carries verified %s through proposal, exact-point inputs and qualified road planning', async (pestType) => {
+      const f = fixture();
+      const source = report(`authority-${pestType}`, pestType, { point: new GeoPoint(1.32, 103.85) });
+      await f.reports.save(source);
+      const proposals = await f.dispatch.proposeDailyList(date, manager);
+      expect(proposals).toHaveLength(1);
+      expect(proposals[0]).toMatchObject({ sourceReportId: source.id, point: source.point,
+        allowedCapabilities: [StaffSpecialisation.AuthorityResponse] });
+      expect(proposals[0]?.referralAuthority).toBeUndefined();
+      // Supply proposals independently of the report-group path while retaining verified source validation.
+      const crew = Array.from({ length: 4 }, (_, index) => Object.assign(new Account(), {
+        id: `authority-${index}`, role: Role.CleaningCrew, isActive: true,
+        specialisation: StaffSpecialisation.AuthorityResponse, staffStatus: StaffStatus.Available,
+        hqLocation: HqLocation.Central,
+      }));
+      const inputs = buildDispatchRouteInputs({ date, crew, reports: [source], orders: [], clusters: [],
+        proposals, profiles: ConfigLoader.load().pestProfiles });
+      expect(inputs.referrals).toEqual([]);
+      expect(inputs.jobs).toHaveLength(1);
+      expect(inputs.jobs[0]).toMatchObject({ point: source.point, allowedCapabilities: [StaffSpecialisation.AuthorityResponse] });
+      const routes = await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(inputs.teams, inputs.jobs);
+      expect(routes.flatMap((route) => route.workOrderIds)).toEqual([`report-${source.id}`]);
+      expect(routes[0]?.staffCount).toBeGreaterThanOrEqual(inputs.jobs[0]!.requiredStaff!);
+      expect(routes[0]?.isWithinFourHourCap).toBe(true);
+      // An estimate is not evidence of road access, even for an otherwise qualified response team.
+      expect(await new RouteOptimizationService(new DirectDistanceRoutingStrategy()).plan(inputs.teams, inputs.jobs)).toEqual([]);
+      // An empty operational fleet still prevents executable dispatch.
+      expect(await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(inputs.teams, inputs.jobs, [])).toEqual([]);
+      const insufficient = buildDispatchRouteInputs({ date, crew: crew.slice(0, 1), reports: [source],
+        orders: [], clusters: [], proposals, profiles: ConfigLoader.load().pestProfiles });
+      if (pestType === PestType.Snake || pestType === PestType.WildBoar) {
+        expect(await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(insufficient.teams, insufficient.jobs)).toEqual([]);
+      }
+    });
+
+  it('retains unscored non-dengue and authority tasks before the display limit', async () => {
     const f = fixture(1);
     const c = await cluster(f);
     await f.scores.saveAll([Object.assign(new PriorityScore(), { clusterId: c.id, localityId: c.id,
@@ -54,7 +95,7 @@ describe('Daily dispatch combines report triage and locality scores', () => {
     const displayed = await f.dispatch.proposeDailyList(date, manager);
     const all = await f.dispatch.proposeDailyList(date, manager, Infinity);
     expect(displayed).toHaveLength(1);
-    expect(displayed[0]).toMatchObject({ sourceReportId: 'snake', tier: 'Critical', referralAuthority: expect.stringMatching(/^AVS/) });
+    expect(displayed[0]).toMatchObject({ sourceReportId: 'snake', tier: 'Critical', allowedCapabilities: [StaffSpecialisation.AuthorityResponse] });
     expect(all).toHaveLength(4);
     expect(all.map((p) => p.tier)).toEqual(['Critical', 'High', 'High', 'Low']);
     expect(all.find((p) => p.sourceReportId === 'rat')).toMatchObject({ point: { latitude: 1.32, longitude: 103.85 }, priorityBasis: 'ReportTriage' });

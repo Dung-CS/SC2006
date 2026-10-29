@@ -19,12 +19,14 @@ describe('Vehicle registry manager screen', () => {
   it('shows demo status, capacity, dimensions and an HQ filter', async () => {
     const fetcher: Fetcher = async () => ({ ok: true, status: 200, json: async () => ({ vehicles: [demo] }) }) as Response;
     render(<VehicleRegistryScreen {...props(fetcher)} />);
-    expect(await screen.findByText('DEMO-CENTRAL-VAN')).toBeTruthy();
+    expect(await screen.findByText('Cargo van')).toBeTruthy();
+    expect(screen.getByText('CENTRAL VAN')).toBeTruthy();
     expect(screen.getByText('Demo vehicle')).toBeTruthy();
     expect(screen.getByText('750 kg')).toBeTruthy();
     expect(screen.getByText('6 m³')).toBeTruthy();
     expect(screen.getByText('300 × 160 × 140 cm')).toBeTruthy();
-    expect(screen.getByText(/illustrative capacities/)).toBeTruthy();
+    expect(screen.getByText('Fleet capacity and availability')).toBeTruthy();
+    expect(screen.getByText(/capacity after fixed fittings/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Filter by HQ'), { target: { value: 'SouthWest' } });
     expect(screen.getByText('No vehicles are recorded at this HQ.')).toBeTruthy();
   });

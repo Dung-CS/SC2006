@@ -19,6 +19,7 @@ import { link } from '../../components/Link';
 import { PestType, TaskType } from '../../../../src/entity/enums';
 import { label } from '../../lib/labels';
 import { ScreenProps } from '../ScreenProps';
+import { cleanTitle } from '../../../../src/presentation/DisplayNames';
 
 const INSTRUCTIONS_MAX = 500;
 
@@ -158,7 +159,7 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
                   href={`/ops/work-orders/${duplicate.id}`}
                   onClick={link(props, `/ops/work-orders/${duplicate.id}`)}
                 >
-                  Open the existing {duplicate.taskType} order ({duplicate.status}, scheduled{' '}
+                  Open the existing {cleanTitle(duplicate.taskType, 'work')} order ({label(duplicate.status)}, scheduled{' '}
                   {duplicate.scheduledDate})
                 </a>
               </p>

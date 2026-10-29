@@ -65,11 +65,20 @@ export function staffDisplayName(email: string): string {
   if (clean.toLowerCase().includes('ychow')) {
     return 'Chow Yen Kit';
   }
+  if (/^demo(?:[-_.]|$)/i.test(clean) || /(?:^|[-_.])demo(?:[-_.]|$)/i.test(clean)) {
+    return 'Field crew';
+  }
   return clean
     .split(/[._-]/)
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
+}
+
+export function staffRoleLocationLabel(role?: string, location?: string | null): string {
+  const roleLabel = role === 'OperationsManager' ? 'Operations manager' : role === 'CleaningCrew' ? 'Field crew' : 'Staff';
+  const locationLabel = location?.replace(/([a-z])([A-Z])/g, '$1 $2') ?? '';
+  return locationLabel ? `${roleLabel} · ${locationLabel}` : roleLabel;
 }
 
 // Capability is not derived here. It is `Account.specialisation`, recorded by a manager and

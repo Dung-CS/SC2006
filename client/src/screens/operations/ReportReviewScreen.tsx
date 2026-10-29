@@ -20,9 +20,9 @@ import { link } from '../../components/Link';
 import { Facts, PhotoGrid, Pill, statusTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
 import { reportPhotoUrl, reportPhotoAttribution } from '../../lib/reportVisuals';
-import { PestClass, PestType, ReportStatus } from '../../../../src/entity/enums';
-import { isExternalReferral } from '../../../../src/control/StaffRoutingPolicy';
+import { PestType, ReportStatus } from '../../../../src/entity/enums';
 import { ScreenProps } from '../ScreenProps';
+import { cleanTitle } from '../../../../src/presentation/DisplayNames';
 
 interface PestReference {
   pestType: PestType;
@@ -86,7 +86,6 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
 
   const report = value?.report;
   const pestReference = catalogue.value?.pests.find((pest) => pest.pestType === report?.pestType);
-  const externalReferral = pestReference !== undefined && isExternalReferral(pestReference.pestClass as PestClass, pestReference.authority);
 
   return (
     <section data-screen="ReportReview" data-requirement="11.2.15">
@@ -96,9 +95,9 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
 
       <StateView state={state} onRetry={retry}>
         {report === undefined ? null : (
-          <article>
-            <h1>
-              {label(report.type)}{' '}
+          <article data-entity-id={report.id}>
+            <h1 data-part="entity-title">
+              {cleanTitle(report.pestType && report.pestType !== PestType.Mosquito ? `${label(report.pestType)} · ${label(report.type)}` : label(report.type), 'Report')}{' '}
               <Pill tone={statusTone(report.status)} title={`Report status (5.2.3)`}>
                 {label(report.status)}
               </Pill>
@@ -140,13 +139,6 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
                 <p>Checking which team handles this pest…</p>
                 {catalogue.state.kind === 'error' ? <button type="button" onClick={catalogue.retry}>Retry check</button> : null}
               </div>
-            ) : report.status === ReportStatus.Verified && externalReferral ? (
-              <p data-part="external-referral">
-                This case is handled by {pestReference.authority}.{' '}
-                <a href={`/ops/referrals/${encodeURIComponent(report.id)}`} onClick={link(props, `/ops/referrals/${encodeURIComponent(report.id)}`)}>
-                  Refer this report
-                </a>
-              </p>
             ) : report.status === ReportStatus.Verified && pestReference !== undefined ? (
               <a
                 href={`/ops/work-orders/new?sourceReportId=${encodeURIComponent(report.id)}&pestType=${encodeURIComponent(report.pestType)}`}

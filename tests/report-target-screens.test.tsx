@@ -57,10 +57,10 @@ describe('report-only work-order targets', () => {
     expect(link.getAttribute('href')).toBe('/ops/work-orders/new?sourceReportId=r1&pestType=Rat');
   });
 
-  it('keeps external catalogue reports on the referral path', async () => {
+  it('offers ordinary work-order dispatch for external catalogue reports', async () => {
     render(<ReportReviewScreen {...screenProps(reportReview('HouseCrow'), Role.OperationsManager, { id: 'r1' })} />);
-    expect(await screen.findByRole('link', { name: 'Refer this report' })).toBeTruthy();
-    expect(screen.queryByRole('link', { name: /Create work order/ })).toBeNull();
+    const link = await screen.findByRole('link', { name: /Create work order for this verified House crow report/i });
+    expect(link.getAttribute('href')).toBe('/ops/work-orders/new?sourceReportId=r1&pestType=HouseCrow');
   });
 
   it('shows an unscored report target without a cluster-null link or Mosquito fallback', async () => {
@@ -98,7 +98,8 @@ describe('report-only work-order targets', () => {
       }] } },
     };
     render(<JobDetailScreen {...screenProps(payload, Role.CleaningCrew, { id: 'wo-r' })} />);
-    expect(await screen.findByText('Yishun Ave 1')).toBeTruthy();
+    expect(await screen.findByText('Inspection · Yishun Ave 1', { selector: '[data-part="entity-title"]' })).toBeTruthy();
+    expect(screen.getByText('1.31, 103.81')).toBeTruthy();
     expect(screen.getByText(/Verified report/)).toBeTruthy();
     expect(screen.getByText(/Unknown pest/)).toBeTruthy();
     expect(screen.queryByRole('link', { name: /clusters/i })).toBeNull();
@@ -106,6 +107,6 @@ describe('report-only work-order targets', () => {
     cleanup();
     render(<MyJobsScreen {...screenProps(payload, Role.CleaningCrew)} />);
     expect(await screen.findByText('Verified report target')).toBeTruthy();
-    expect(screen.getByText(/Yishun Ave 1/)).toBeTruthy();
+    expect(screen.getAllByText(/Yishun Ave 1/).length).toBe(2);
   });
 });

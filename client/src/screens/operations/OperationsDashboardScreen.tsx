@@ -21,6 +21,9 @@ import { SingaporeMap, MapCluster, MapMarker } from '../../components/SingaporeM
 import { Pagination, usePagination } from '../../components/Pagination';
 import { label } from '../../lib/labels';
 import { ScreenProps } from '../ScreenProps';
+import { reportPhotoUrl } from '../../lib/reportVisuals';
+import { cleanTitle, displayTaskName } from '../../../../src/presentation/DisplayNames';
+import { getClusterPhotos } from '../../lib/clusterVisuals';
 
 interface DashboardPayload {
   overview: {
@@ -106,7 +109,7 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
       id: w.workOrderId,
       latitude: w.latitude,
       longitude: w.longitude,
-      title: w.taskType,
+      title: displayTaskName(w.taskType),
       detail: `Work order — ${w.status}`,
       kind: 'workOrder' as const,
     })),
@@ -154,9 +157,10 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
               {(dashboard.value?.attention ?? []).length === 0 ? (
                 <p data-state="empty">Nothing is waiting on you.</p>
               ) : (
-                <ul data-part="attention-list">
+                <ul data-part="attention-list" data-cards className="dispatch-task-cards">
                   {(dashboard.value?.attention ?? []).map((item, index) => (
                     <li key={`${item.kind}-${index}`} data-kind={item.kind}>
+                      <img src={reportPhotoUrl('StandingWater')} alt="Standing water reference image; not incident evidence" />
                       <span data-part="detail">{item.detail}</span>{' '}
                       {/* 7.5.4 — the place it can be resolved, one click away rather than named. */}
                       <a href={item.link} onClick={link(props, item.link)}>
@@ -206,13 +210,15 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
           {priority.value?.rows && priority.value.rows.length > 0 ? (
             <div data-part="priority-cards" className="priority-clusters-cards">
               <div className="priority-cards-grid">
-                {priority.value.rows.slice(0, 3).map((row) => (
-                  <div key={row.clusterId} className="cluster-card priority-cluster-card">
+                {priority.value.rows.slice(0, 3).map((row) => {
+                  const image = getClusterPhotos({ clusterId: row.clusterId, locality: row.locality, tier: row.tier, caseSize: row.caseSize })[0];
+                  return <div key={row.clusterId} className="cluster-card priority-cluster-card">
+                    {image ? <img className="priority-card-reference-image" src={image.url} alt={`${image.alt}; reference image, not incident evidence`} /> : null}
                     <div className="cluster-card-content">
                       <div className="cluster-card-header">
                         <span className="cluster-rank-badge">Rank #{row.rank}</span>
                         <a href={`/ops/clusters/${row.clusterId}`} onClick={link(props, `/ops/clusters/${row.clusterId}`)}>
-                          {row.locality}
+                          {cleanTitle(row.locality, 'Unknown locality')}
                         </a>
                       </div>
                       <div className="cluster-card-stats">
@@ -221,8 +227,8 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
                         <span className={`cluster-tier-tag tier-${row.tier.toLowerCase()}`}>{row.tier}</span>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  </div>;
+                })}
               </div>
             </div>
           ) : null}
@@ -245,7 +251,7 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
                   <td className="num">{row.rank}</td>
                   <td>
                     <a href={`/ops/clusters/${row.clusterId}`} onClick={link(props, `/ops/clusters/${row.clusterId}`)}>
-                      {row.locality}
+                      {cleanTitle(row.locality, 'Unknown locality')}
                     </a>
                   </td>
                   <td className="num">{row.caseSize}</td>

@@ -1,9 +1,19 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.17 · drafted 2026-09-02, revised 2026-10-29 · status: DRAFT for team review; deployment evidence recorded separately
+Version 0.18 · drafted 2026-09-02, revised 2026-10-29 · status: DRAFT for team review; deployment evidence recorded separately
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
+
+**v0.18 brings the required authorities into one operations workflow.** Verified wildlife, AVS bird
+and BeeWasp cases enter ordinary work-order creation and route planning. Authority Response is an
+explicit Inspection capability; general inspection does not qualify staff for authority work.
+Dispatch removes the selected-day urgent and external-referral lists. Necessary lists use image cards,
+and entity titles omit fixture tokens and identifiers while metadata retains identity and provenance.
+This amendment supersedes earlier authority-only exclusions. Historical referral records and frozen
+submissions remain intact. Final full-suite, deployment and live verification evidence is pending.
+
+Definition audit for v0.18: 758 anchored numbered definitions, 758 unique IDs, zero duplicates.
 
 **v0.9 widens the product from dengue to all common household pests and all wild animals requiring
 NEA or AVS intervention**, on the TA's suggestion and Yen Kit's decision of 2026-09-16. The scoring
@@ -67,7 +77,7 @@ The system ingests live dengue-cluster, rainfall, forecast and wildlife-observat
 Singapore, computes a cleaning and treatment **priority score** per locality **and pest type**, lets
 residents report pest sightings and breeding sites that change that score, gives an operations
 manager a **dashboard** to see one ranking across all pests and **dispatch** cleaning crews against
-it, refers cases outside its own authority to the responsible agency, and lets crews close work
+it across the required authorities, retains historical agency referrals, and lets crews close work
 orders in the field — which lowers the treated locality's future score. The feedback loop is the
 product.
 
@@ -91,7 +101,7 @@ the system has no locality model for coastal waters.
 | A3 | Cleaning Crew Member | Field officer. Receives assigned work orders, records completion with evidence. |
 | A4 | Scheduler | Internal time-triggered actor. Drives ingestion and scoring cycles. |
 | A5 | External Data Provider | NEA dengue clusters, rainfall and forecast APIs, NEA vector control operator registry, iNaturalist observation API, OneMap, Telegram Bot API. |
-| A6 | External Dispatch Authority | An agency outside the system's own dispatch chain that receives referred cases — in this version, the NParks Animal and Veterinary Service (AVS). Receives referrals; does not use the system. |
+| A6 | Historical External Dispatch Authority | The destination agency recorded on a retained referral, including AVS or NParks. In v0.18, authority field teams use the composite manager and crew workflow; this historical actor does not impose a new handoff. |
 
 A2 and A3 were added in v0.2. The domain reason is that a priority ranking nobody acts on is not a
 system: someone must decide where crews go, and someone must do the work and report back, or the
@@ -116,11 +126,10 @@ name the extension point: A2 gains a `dispatchAuthority` attribute and 8.1.3's t
 partitioned by it. Nothing else in the model changes. The alternative — narrowing A2 and removing
 fogging and larviciding from 8.1.3 — was considered and rejected on 2026-09-03.
 
-**Extension exercised in v0.9.** The `dispatchAuthority` extension point named above is now used, as
-it was always intended to be. Widening the product to wildlife makes the authority question
-unavoidable rather than optional: the system's own Cleaning Crew must not be sent to a wild boar.
-§8.6 defines referral to A6, and 4.4 defines the override that forces it. A2 remains one composite
-role; what is partitioned is the *destination* of a case, not the manager.
+**Unified authority workflow in v0.18.** A2 and A3 represent the required authorities through the
+same dispatch and lifecycle controls. Wildlife, AVS birds and BeeWasp require recorded Authority
+Response capability for Inspection. Their authority does not exclude them from the candidate queue.
+§8.6 retains historical referral compatibility; §4.4 sets urgency rather than forcing a new referral.
 
 **Two pests have a genuinely shared authority and the system does not guess.** Bees and wasps, and
 the three nuisance bird species, appear both on the AVS wildlife list and in NEA public-health
@@ -157,7 +166,7 @@ and the team shall record the resolution there before the Lab 5 demo.
 | Observation record | A third-party wildlife or pest sighting retrieved under 1.5, distinct from a Report, which originates with a Resident. |
 | Obscured observation | An observation record whose supplier has randomised its coordinates, identified by 1.5.6. |
 | Critical override | A rule that forces a case to the top of the queue irrespective of its score, defined by 4.4. |
-| Referral | The act of routing a case to an External Dispatch Authority instead of creating an internal work order, defined by §8.6. |
+| Referral | A retained agency handoff record supported by §8.6; unified dispatch does not require a new referral. |
 | Registered operator | A vector control operator listed in the NEA registry ingested under 1.6. |
 | Staff specialisation | The recorded task and pest capability of a Cleaning Crew Member, distinct from the account role. Defined in §2.5. |
 | Outpost | One regional HQ depot from which a planned crew departs and to which it returns. |
@@ -320,7 +329,7 @@ live feed — see 1.6.7 and §13.)*
 
 *(Added in v0.10. Staff types are specialisations within Cleaning Crew, not additional account roles.)*
 
-- **2.5.1** The system shall support the staff specialisations {Vector Control, Sanitation, Structural, General Inspection}.
+- **2.5.1** The system shall support the staff specialisations {Vector Control, Sanitation, Structural, General Inspection, Authority Response}.
 - **2.5.2** The system shall require an Operations Manager to select a specialisation when creating a Cleaning Crew account through the Staff Accounts screen.
 - **2.5.3** The system shall support the outposts {Central, North East, North West, South East, South West}.
 - **2.5.4** The system shall require an Operations Manager to select an outpost when creating a staff account through the Staff Accounts screen.
@@ -338,6 +347,7 @@ live feed — see 1.6.7 and §13.)*
 - **2.5.16** The Staff Accounts screen shall show readiness bands for availability of at least 80%, 50% to below 80%, above zero to below 50%, and zero.
 - **2.5.17** The system shall treat a legacy crew account with no recorded specialisation as ineligible for dispatch.
 - **2.5.18** The system shall exclude a crew account with no recorded outpost from route-planning capacity.
+- **2.5.19** The system shall require an explicit Operations Manager capability selection before treating a staff member as qualified for Authority Response.
 
 ## 2.6 HQ vehicle registry
 
@@ -659,8 +669,8 @@ separate validation questions.)*
 - **8.1.11** The system shall refuse to create a second open work order of the same task type and pest type for the same cluster. *(Revised in v0.11: an existing mosquito task shall not suppress a distinct rat or structural-pest task.)*
 - **8.1.12** The system shall offer the existing open work order when creation is refused under 8.1.11.
 - **8.1.13** The system shall link every verified open report inside the target cluster to a newly created work order.
-- **8.1.14** The system shall refuse to create a work order against a report whose pest type is of pest class Wildlife. *(Added in v0.9. The system's Cleaning Crew is not equipped or authorised to handle wildlife; §8.6 defines what happens instead.)*
-- **8.1.15** The system shall offer the referral action defined by 8.6.1 when creation is refused under 8.1.14. *(Added in v0.9.)*
+- **8.1.14** The system shall allow an Inspection work order for a verified wildlife, AVS bird or BeeWasp report through the ordinary creation workflow, subject to source, date and duplicate validation. *(Revised in v0.18.)*
+- **8.1.15** The system shall not require a new referral before creating a work order for a case covered by the unified authority workflow. *(Revised in v0.18.)*
 - **8.1.16** The system shall require each work order to carry the pest type of the case it addresses. *(Added in v0.9.)*
 - **8.1.17** The system shall restrict the task types offered for a work order to those permitted for the work order's pest class by configuration. *(Added in v0.9. Fogging is not a response to a rat.)*
 
@@ -743,22 +753,22 @@ made it unverifiable and left the Lab 4 basis-path test with nothing to path ove
 
 ---
 
-## 8.6 Referral to an external authority
+## 8.6 Historical referral compatibility
 
-*(Added in v0.9. Serves actor A6. This is the behaviour that makes widening the product to wildlife
-honest rather than cosmetic: the system declines work it has no authority to do, and says who does.)*
+*(Added in v0.9; revised in v0.18. Existing referral records and their outcome workflow remain
+supported. These compatibility rules do not require a referral for new unified-authority work.)*
 
-- **8.6.1** The system shall allow an Operations Manager to refer a verified report to an External Dispatch Authority.
+- **8.6.1** The system shall retain the manager-only legacy referral action for compatibility without making it a prerequisite for unified-authority dispatch.
 - **8.6.2** The system shall determine the referral destination from the dispatch authority held in the pest profile of the report's pest type.
 - **8.6.3** The system shall display the referral destination's name and published contact number when a referral is offered.
 - **8.6.4** The system shall record the referring user id, the destination, the timestamp and a reason on every referral.
 - **8.6.5** The system shall set a referred report's status to Actioned.
 - **8.6.6** The system shall notify the reporting Resident that their report has been referred, naming the destination authority.
-- **8.6.7** The system shall present a referred report in the operations dashboard as referred, distinct from a report with an open work order.
+- **8.6.7** The system shall preserve a historical report's referral identity in its record details without requiring an external-referral list on the operations dashboard or Dispatch.
 - **8.6.8** The system shall allow an Operations Manager to record the outcome of a referral.
 - **8.6.9** The system shall set a referred report's status to Closed when its outcome is recorded.
-- **8.6.10** The system shall not create, assign or dispatch a work order to a Cleaning Crew Member as a consequence of a referral.
-- **8.6.11** The system shall exclude a referred report from the days since last treatment driver, and shall not write a treatment record on referral. *(Added in v0.9. The system did not treat the locality, so claiming treatment recency would corrupt 4.1.17's feedback loop.)*
+- **8.6.10** The system shall not create, assign or dispatch a work order merely because a referral is recorded; ordinary source and capability validation shall govern any separate dispatch action.
+- **8.6.11** The system shall not count a referral event as treatment or write a treatment record for that event; a separately verified work order shall follow the ordinary treatment-record rules.
 
 ## 8.7 Priority-first multi-crew route planning
 
@@ -769,7 +779,7 @@ manager creates or assigns the work orders.)*
 
 - **8.7.1** The system shall allow an Operations Manager to request route plans for a selected Singapore calendar date.
 - **8.7.2** The planner shall consider all eligible ranked proposals and verified report targets alongside eligible open work orders scheduled on or before the selected date, irrespective of the number of existing orders or the display limit in 8.1.8. Ranked proposals are eligible for site dispatch only under 8.7.55. *(Revised in v0.16; retains overdue and non-dengue work.)*
-- **8.7.3** The planner shall exclude cases requiring external referral from internal crew routes.
+- **8.7.3** The planner shall admit otherwise eligible authority cases to ordinary route planning subject to their recorded capability, staffing, access, fleet and elapsed-time limits.
 - **8.7.4** The planner shall exclude duplicate representations of the same target task from its candidate queue.
 - **8.7.5** The planner shall exclude a task whose location or pest capability cannot be established from stored evidence.
 - **8.7.6** The planner shall derive capacity from actual active staff grouped by outpost, specialisation and readiness.
@@ -822,7 +832,7 @@ manager creates or assigns the work orders.)*
 - **8.7.53** The planner shall reserve a known assignee of an Assigned, Accepted, In Progress or Rejected work order from available crew capacity for that plan date.
 - **8.7.54** An unplanned Rejected work order shall state that its existing assignment requires review; the planner shall not infer an assignee when none is recorded.
 - **8.7.55** Locality-score proposals shall create dispatch tasks only for official mosquito cluster proposals. A non-mosquito dispatch task shall require a verified source report and use that report's exact recorded point, or an explicit existing work order; a locality score alone, at any priority tier, is risk information and shall not establish a site task. *(Added in v0.16 after the Soon Lee routing review. This eligibility rule applies both when proposals are generated and when route inputs are built independently.)*
-- **8.7.56** The system shall preserve all pest locality rankings, underlying observations and their scores when applying 8.7.55. It shall preserve verified report locations and provenance, existing work orders and external-authority referral behaviour; the rule changes dispatch eligibility only.
+- **8.7.56** The system shall preserve all pest locality rankings, underlying observations, scores, verified report locations and provenance, existing work orders and historical referral records when applying 8.7.55.
 
 These route improvements are bounded local search. They do not establish a global optimum, use live GPS
 locations, prove exact three-dimensional packing, or replace the route planner with a solver. Work-order
@@ -841,6 +851,7 @@ staff requirement takes precedence over its default.)*
 | Sanitation | Refuse clearance, Drain clearance, Inspection | VectorBorne, Structural, Nuisance |
 | Structural | Inspection | Structural |
 | General Inspection | Inspection | VectorBorne, Structural, Nuisance |
+| Authority Response | Inspection | Wildlife and catalogue authority cases, including AVS birds and BeeWasp; overrides general class coverage for these species |
 
 | Task type | Default required staff | Default on-site effort |
 |---|---:|---:|
@@ -852,7 +863,7 @@ staff requirement takes precedence over its default.)*
 
 - **8.8.1** The system shall match crew eligibility against both the permitted task and permitted pest class in the specialisation table.
 - **8.8.2** The system shall prohibit fogging for Rat cases regardless of staff specialisation.
-- **8.8.3** The system shall exclude a pest assigned to an external authority from internal crew eligibility.
+- **8.8.3** The system shall require Authority Response specialisation for wildlife, AVS bird and BeeWasp inspections regardless of a general crew member's pest-class coverage.
 - **8.8.4** The planner shall use the task's stated required staff count when it is supplied as a positive integer.
 - **8.8.5** The planner shall use the default staff count in the task table when no task-specific staff count is supplied.
 - **8.8.6** The planner shall reject a supplied staff requirement that is not a positive integer.
@@ -868,6 +879,9 @@ staff requirement takes precedence over its default.)*
 - **8.8.16** The route preview shall display the completed task count and total task count.
 - **8.8.17** The route preview shall calculate progress as completed task count divided by total task count.
 - **8.8.18** A progress control in the route preview shall not bypass the work-order lifecycle or completion evidence in §8.3.
+- **8.8.19** The system shall offer only Inspection for authority-response work in this version.
+- **8.8.20** Assignment recommendations shall return qualified authority responders without requiring a new referral.
+- **8.8.21** Authority-response planning shall retain the existing provisional required-staff defaults: four for Wild Boar or Crocodile, two for Snake or Monitor Lizard, and one for other Inspection tasks.
 
 ## 8.9 Background plans and complete task coverage
 
@@ -899,8 +913,8 @@ tier so that an unscored verified report does not disappear beneath dengue-only 
 - **8.9.22** The planner shall use the highest applicable tier from the stored work order, current locality-and-pest score and linked report triage.
 - **8.9.23** The candidate queue shall avoid scheduling the same source report and task twice through report, proposal and work-order representations.
 - **8.9.24** An open task for one pest type shall not suppress a different pest type's task at the same locality.
-- **8.9.25** The dispatch snapshot shall retain externally handled cases in a referral list instead of silently dropping them.
-- **8.9.26** Each referral-list item shall state its priority and responsible external authority.
+- **8.9.25** The dispatch snapshot shall represent eligible authority work as ordinary route or unassigned tasks.
+- **8.9.26** The dispatch snapshot shall retain each unassigned authority task with its priority and the reason it could not be allocated.
 - **8.9.27** Map report hotspots and dispatch report candidates shall use the same report-triage policy.
 - **8.9.28** The system shall use a configurable report-grouping distance in metres, defaulting to 100 m and accepting values from 1 m to 1,000 m.
 - **8.9.29** A spatial report group shall contain reports with the same pest type.
@@ -962,7 +976,7 @@ can be packed together in three dimensions. The planner makes no exact packing g
 - **8.11.4** The planner shall not schedule a task before its scheduled date.
 - **8.11.5** Daily crew and fleet capacity shall reset between days, with reuse of the current roster labelled as a future-availability assumption.
 - **8.11.6** Dispatch shall show all horizon-unassigned tasks with a reason, separately from work already committed to an assignee.
-- **8.11.7** Dispatch shall show selected-day High and Critical dispositions without a display-count cutoff.
+- **8.11.7** Dispatch shall show selected-day High and Critical tasks within ordinary route or unplanned image cards without a separate selected-day urgent list.
 - **8.11.8** Exact task points shall require road coverage within 25 metres or provider-verified outbound and return walking paths, each at most 600 seconds.
 - **8.11.9** Driving, both walking directions, service and mobilisation shall count towards the four-hour route cap.
 - **8.11.10** Only an authorised official cluster-area task shall permit a verified road entry inside its source polygon instead of access to its representative centre.
@@ -1131,7 +1145,7 @@ the list the Lab 1 UI mockups must cover.*
 - **11.3.8** The system shall address every screen in 11.2 by a distinct URL.
 
 - **11.3.20** The Report a Site screen shall require a pest type selection before the location and description fields become active. *(Added in v0.9. The pest type determines which subsequent fields 5.1.16 makes mandatory.)*
-- **11.3.21** The Report Review screen shall offer the referral action, and not the work-order creation action, for a report whose pest class is Wildlife. *(Added in v0.9. Traces 8.1.14 and 8.1.15 onto the screen where the manager actually stands.)*
+- **11.3.21** The Report Review screen shall offer ordinary work-order creation for a verified wildlife, AVS bird or BeeWasp report when its pest catalogue entry is available. *(Revised in v0.18; source and capability validation remain required.)*
 
 ## 11.4 Loading, empty and error states
 
@@ -1171,6 +1185,11 @@ the list the Lab 1 UI mockups must cover.*
 - **11.6.9** The system shall select in the priority table the cluster whose boundary is selected on the map.
 - **11.6.10** The system shall display "No data" rather than a zero for any value that is unavailable.
 - **11.6.11** The system shall display units on every quantity it presents.
+- **11.6.12** Staff, vehicle, task and report titles shall omit DEMO fixture prefixes and opaque record identifiers.
+- **11.6.13** Entity titles shall display readable words rather than serialised enum tokens.
+- **11.6.14** The system shall retain record identifiers in metadata or detail fields when cleaning titles.
+- **11.6.15** The system shall retain demo provenance in descriptions, metadata or a separate label when cleaning titles.
+- **11.6.16** Necessary staff, vehicle, task and report lists shall use image cards with readable titles and their required actions.
 
 ## 11.7 Accessibility and interaction
 
@@ -1264,7 +1283,7 @@ vehicle on its registry row and on any route that uses it.)*
 - **11.11.3** The Dispatch screen shall display the completed plan's computation timestamp in Singapore time.
 - **11.11.4** The Dispatch screen shall poll for a ready snapshot while a background calculation is pending or refreshing.
 - **11.11.5** The Dispatch screen shall show a failed-calculation explanation without removing the last completed routes.
-- **11.11.6** The Dispatch screen shall not display an external referral list. Operations Managers can review and manage referrals on the dedicated screen in 11.2.28.
+- **11.11.6** The Dispatch screen shall omit both the selected-day urgent list and the urgent external-referral list; historical referrals shall remain accessible through their dedicated records.
 - **11.11.7** Each route card shall display the allocated vehicle's name and registration.
 - **11.11.8** Each route card using a demo vehicle shall display a Demo label explaining that its capacities are illustrative.
 - **11.11.9** Each route card shall display its used and maximum payload in kilograms.
@@ -1273,10 +1292,26 @@ vehicle on its registry row and on any route that uses it.)*
 - **11.11.12** The Vehicle Registry screen shall provide an HQ filter.
 - **11.11.13** The Vehicle Registry screen shall provide create and edit forms for the recorded vehicle fields in §2.6.
 - **11.11.14** The Vehicle Registry screen shall identify demo records as illustrative data before they are used for operational planning.
+- **11.11.15** Operations and Dispatch shall present routine status and planning information as concise labels, values or image cards rather than persistent explanatory prose blocks.
+- **11.11.16** Generic reference images on operational cards shall be distinguishable from photographs of the reported incident.
+- **11.11.17** The Dispatch screen shall retain the horizon, day selector, unassigned reasons and map viewport controls when replacing task lists with cards.
 
 ---
 
 # 12. Traceability
+
+**v0.18 verification checkpoint (2026-10-29).** Local backend checks passed 223 tests across
+11 files; typecheck passed. Final full-suite, fresh-build, deployment and live browser/API checks
+remain pending. Requirements describe the intended contract, not proof of a deployed release.
+
+| Requirement group | Implementation reference | Acceptance evidence required |
+|---|---|---|
+| 2.5.19; 8.1.14-8.1.15; 8.7.3; 8.8.3; 8.8.19-8.8.21 | `StaffRoutingPolicy`, `DispatchController`, `DispatchRouteInputs`, migration 015 | Explicit AuthorityResponse recording; ordinary authority creation and assignment; generic-crew refusal; exact-point proposal-to-planner flow; unchanged staffing, access and fleet constraints |
+| 8.6; 8.9.25-8.9.26; 11.3.21 | Historical referral stores/screens; ordinary report-review creation | Retained historical referral records and outcomes; no required new handoff or authority-only refusal |
+| 8.11.7; 11.6.12-11.6.16; 11.11.6; 11.11.15-11.11.17 | Shared display names, Operations/Dispatch cards and entity screens | Removed urgent/referral sections; clean titles with retained identity/provenance; image-card actions, day selection, unassigned reasons and stable map viewport |
+
+Historical frozen submissions remain unchanged. Current downstream diagrams, use cases and test-plan
+traceability require a separate reconciliation; this master revision does not certify those artefacts.
 
 Every requirement number above shall be traced forward in the delivery artefacts below. The existing
 `EPICS-STORIES.md` maps the earlier baseline; v0.10 and v0.11 additions require the updates identified below.
@@ -1429,6 +1464,15 @@ Requirements are written against these sources. Verification status is from
 ---
 
 # 14. Revision history and review dispositions
+
+**v0.18 (2026-10-29)** - unify authority operations and replace text-heavy lists with concise cards.
+
+- Revised authority-only exclusions in 8.1, 8.7, 8.8 and 8.9; retained 8.6 as historical compatibility.
+- Added Authority Response Inspection capability and explicit qualification requirements. Existing
+  provisional staffing, exact report targets, verified access and vehicle/time limits remain.
+- Revised 8.11.7 and 11.3.21; added clean-title, provenance and card obligations in 11.6 and 11.11.
+- Local backend 223-test and typecheck results are known; final full-suite, deployment and live
+  verification remain pending. Earlier revision entries below describe their dated contracts.
 
 **v0.15 (2026-10-28)** - specify bounded road-cost improvement, cancellable bounded OneMap leg concurrency,
 five-minute snapshot freshness and committed-work exclusion. Local implementation verification passed; production deployment remains separate.

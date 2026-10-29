@@ -216,6 +216,8 @@ class DemoRun:
         if not payload or payload.get("planStatus") not in {"ready", "refreshing"} or not payload.get("computedAt") or len(payload.get("plans", [])) != 7 or not all(plan.get("planStatus") == "ready" for plan in payload["plans"]):
             raise AssertionError("seven-day horizon did not reach ready state")
 
+        if payload.get("referrals") or any(day.get("referrals") for day in payload.get("plans", [])):
+            raise AssertionError("authority-only referrals still exclude jobs from unified dispatch")
         plans = payload["plans"]
         expected_days = [(date.fromisoformat(start) + timedelta(days=offset)).isoformat() for offset in range(7)]
         if [plan["date"] for plan in plans] != expected_days or plans[-1]["date"] != end.isoformat():
@@ -247,6 +249,31 @@ class DemoRun:
             if order_id in unassigned and not str(unassigned[order_id].get("reason", "")).strip():
                 raise AssertionError(f"unassigned DEMO task has no explanation: {order_id}")
 
+        former = self.manifest.get("formerAuthorityTasks", [])
+        if former:
+            planned_sources = set()
+            unassigned_sources = set()
+            authority_routes = []
+            for day in plans:
+                for route in day.get("routes", []):
+                    if "AuthorityResponse" in route.get("teamId", ""):
+                        authority_routes.append(route)
+                    for waypoint in route.get("waypointOrder", []):
+                        if waypoint.get("sourceReportId"):
+                            planned_sources.add(waypoint["sourceReportId"])
+                        planned_sources.update(waypoint.get("reportIds", []))
+            for item in payload.get("unassigned", []):
+                if item.get("sourceReportId"):
+                    unassigned_sources.add(item["sourceReportId"])
+                unassigned_sources.update(item.get("reportIds", []))
+            for task in former:
+                report_id = task.get("sourceReportId")
+                if report_id and report_id not in planned_sources | unassigned_sources:
+                    raise AssertionError("formerly external-authority report is absent from ordinary dispatch dispositions")
+            if not authority_routes:
+                raise AssertionError("no qualified authority-response route was produced")
+            self.record("unified-authority-dispatch", "PASS", f"{len(former)} former authority tasks covered; {len(authority_routes)} qualified daily response routes")
+
         if settled:
             self.record("settled-demo-orders", "PASS", f"already Verified and absent from new allocation: {', '.join(sorted(settled))}")
 
@@ -275,33 +302,26 @@ class DemoRun:
             Select(self.driver.find_element(By.ID, "dispatch-day")).select_by_value(plan["date"])
             wait.until(lambda d, day=plan["date"]: day in d.find_element(By.CSS_SELECTOR, '[data-screen="DispatchProposal"] h1').text)
             self.visible('[data-part="planned-routes"]')
-            rendered = self.driver.find_element(By.CSS_SELECTOR, '[data-part="planned-routes"]').text
+            if self.driver.find_elements(By.CSS_SELECTOR, '[data-part="urgent-task-queue"]'):
+                raise AssertionError("removed selected-day urgent text block is still present")
+            if "Urgent referrals requiring external authority" in self.driver.find_element(By.TAG_NAME, "body").text:
+                raise AssertionError("removed external referral text block is still present")
             for route in plan.get("routes", []):
                 for waypoint in route.get("waypointOrder", []):
                     order_id = waypoint.get("workOrderId")
-                    if order_id and order_id in active_task_ids and waypoint.get("label") and waypoint["label"] not in rendered:
-                        raise AssertionError(f"day {index + 1} screen omitted its planned DEMO stop label")
-            urgent = self.driver.find_element(By.CSS_SELECTOR, '[data-part="urgent-task-queue"]')
-            urgent_rows = urgent.find_elements(By.CSS_SELECTOR, 'li[data-priority="High"], li[data-priority="Critical"]')
-            urgent_text = [" ".join(row.text.split()) for row in urgent_rows]
-            expected_urgent = []
-            for route in plan.get("routes", []):
-                for waypoint in route.get("waypointOrder", []):
-                    if waypoint.get("isHq") or waypoint.get("priority") not in {"High", "Critical"}:
+                    if waypoint.get("isHq") or not order_id:
                         continue
-                    if waypoint.get("workOrderId") in settled:
-                        continue
-                    locality = waypoint.get("locality") or re.sub(r"^Stop\s+\d+:\s*", "", waypoint.get("label", ""))
-                    expected_urgent.append((waypoint["priority"], locality))
-            for item in payload.get("unassigned", []):
-                if item.get("priority") not in {"High", "Critical"}:
-                    continue
-                if (item.get("scheduledDate") or item.get("date")) not in (None, "", plan["date"]):
-                    continue
-                expected_urgent.append((item["priority"], item.get("locality") or item.get("workOrderId", "")))
-            for priority, locality in expected_urgent:
-                if not any(priority in row and locality in row for row in urgent_text):
-                    raise AssertionError(f"selected-day urgent queue omitted a {priority} route/unassigned task on day {index + 1}")
+                    card = wait.until(ec.visibility_of_element_located((By.CSS_SELECTOR,
+                        f'[data-part="planned-routes"] [data-work-order-id="{order_id}"]')))
+                    if waypoint.get("priority") and card.get_attribute("data-priority") != waypoint["priority"]:
+                        raise AssertionError("selected-day task card has the wrong priority")
+                    images = card.find_elements(By.CSS_SELECTOR, 'img')
+                    if not images:
+                        raise AssertionError("selected-day task card has no reference image")
+                    wait.until(lambda d, img=images[0]: d.execute_script("return arguments[0].complete && arguments[0].naturalWidth>1", img))
+                    title = card.find_element(By.CSS_SELECTOR, 'strong').text
+                    if re.search(r"\bDEMO\b|20261029|[0-9a-f]{8}-[0-9a-f-]{20,}", title, re.I):
+                        raise AssertionError("selected-day task title exposes a fixture marker or opaque identifier")
             self.screenshot(f"dispatch-day-{index + 1}")
 
         # The map is a real Leaflet control: explicitly zoom, wait past the 20-second route poll,
@@ -331,11 +351,16 @@ class DemoRun:
 
         self.driver.find_element(By.XPATH, "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'unassigned / committed')]").click()
         self.visible('[data-part="unassigned-tasks"]')
-        unassigned_text = self.driver.find_element(By.CSS_SELECTOR, '[data-part="unassigned-tasks"]').text
-        for order_id in active_task_ids & unassigned.keys():
-            item = unassigned[order_id]
-            if (item.get("locality") or order_id) not in unassigned_text or item["reason"] not in unassigned_text:
-                raise AssertionError("the unassigned DOM view did not show a DEMO task and its reason")
+        for item in payload.get("unassigned", []):
+            order_id = item["workOrderId"]
+            card = wait.until(ec.visibility_of_element_located((By.CSS_SELECTOR,
+                f'[data-part="unassigned-tasks"] [data-work-order-id="{order_id}"]')))
+            for detail in card.find_elements(By.TAG_NAME, 'details'):
+                if not detail.get_attribute('open'):
+                    detail.find_element(By.TAG_NAME, 'summary').click()
+            if item["reason"] not in card.text:
+                raise AssertionError("unassigned card detail omitted its full reason")
+        self.driver.find_element(By.CSS_SELECTOR, '[data-part="unassigned-tasks"]').location_once_scrolled_into_view
         self.screenshot("dispatch-unassigned")
         self.record("manager-seven-day-dispatch", "PASS", f"7 completed dates; {len(task_ids)} owned orders visible as planned or explained; snapshot state {payload['planStatus']}")
 
@@ -347,9 +372,9 @@ class DemoRun:
         self.driver.get(self.args.base + "/ops/staff")
         WebDriverWait(self.driver, 30).until(ec.visibility_of_element_located((By.CSS_SELECTOR, '[data-screen="StaffAccounts"]')))
         remaining = {staff["email"]: staff for staff in self.manifest["staff"]}
-        WebDriverWait(self.driver, 30).until(lambda d: d.find_elements(By.CSS_SELECTOR, 'tr[data-active]'))
+        WebDriverWait(self.driver, 30).until(lambda d: d.find_elements(By.CSS_SELECTOR, '[data-part="staff-cards"] > [data-entity-id]'))
         for page in range(100):
-            rows = self.driver.find_elements(By.CSS_SELECTOR, 'tr[data-active]')
+            rows = self.driver.find_elements(By.CSS_SELECTOR, '[data-part="staff-cards"] > [data-entity-id]')
             for row in rows:
                 for email, staff in list(remaining.items()):
                     if email not in row.text:
@@ -362,6 +387,11 @@ class DemoRun:
                         selected = row.find_element(By.CSS_SELECTOR, "select.staff-spec-tag option:checked").get_attribute("value")
                         if selected != staff["specialisation"]:
                             raise AssertionError("DEMO staff account has the wrong capability in the manager view")
+                    title = row.find_element(By.CSS_SELECTOR, '[data-part="entity-title"]').text
+                    if re.search(r"\bDEMO\b|20261029|[0-9a-f]{8}-[0-9a-f-]{20,}", title, re.I):
+                        raise AssertionError("staff title exposes a fixture or identifier")
+                    image = row.find_element(By.CSS_SELECTOR, 'img')
+                    WebDriverWait(self.driver, 30).until(lambda d, img=image: d.execute_script("return arguments[0].complete && arguments[0].naturalWidth>1", img))
                     del remaining[email]
             if not remaining:
                 break
@@ -381,9 +411,16 @@ class DemoRun:
                      "NorthWest": "North-West Regional Office", "SouthEast": "South-East Regional Office",
                      "SouthWest": "South-West Regional Office"}
         for vehicle in self.manifest["vehicles"]:
-            row = WebDriverWait(self.driver, 30).until(ec.visibility_of_element_located((By.XPATH, f"//tr[.//strong[normalize-space()='{vehicle['registration']}']]")))
-            if vehicle.get("hqLocation") and vehicle["hqLocation"] != row.find_elements(By.TAG_NAME, "td")[1].text.strip():
-                raise AssertionError("DEMO vehicle has the wrong HQ in the manager view")
+            row = WebDriverWait(self.driver, 30).until(ec.visibility_of_element_located((By.CSS_SELECTOR, f'[data-part="vehicle-cards"] > [data-entity-id="{vehicle["id"]}"]')))
+            if row.get_attribute("data-registration") != vehicle["registration"]:
+                raise AssertionError("vehicle identity metadata was lost")
+            if vehicle.get("hqLocation") and vehicle["hqLocation"] != row.get_attribute("data-hq"):
+                raise AssertionError("owned vehicle has the wrong HQ in the manager view")
+            title = row.find_element(By.CSS_SELECTOR, '[data-part="entity-title"]').text
+            if re.search(r"\bDEMO\b|20261029|[0-9a-f]{8}-[0-9a-f-]{20,}", title, re.I):
+                raise AssertionError("vehicle title exposes a fixture or identifier")
+            image = row.find_element(By.CSS_SELECTOR, 'img')
+            WebDriverWait(self.driver, 30).until(lambda d, img=image: d.execute_script("return arguments[0].complete && arguments[0].naturalWidth>1", img))
         if self.manifest["vehicles"] and "Demo vehicle" not in self.driver.find_element(By.TAG_NAME, "body").text:
             raise AssertionError("DEMO fleet rows are not visibly labelled")
         self.screenshot("manager-demo-vehicles")

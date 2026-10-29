@@ -23,25 +23,23 @@ export const SPECIALISATION_TASKS: Readonly<Record<StaffSpecialisation, readonly
   [StaffSpecialisation.Sanitation]: [TaskType.RefuseClearance, TaskType.DrainClearance, TaskType.Inspection],
   [StaffSpecialisation.Structural]: [TaskType.Inspection],
   [StaffSpecialisation.GeneralInspection]: [TaskType.Inspection],
+  [StaffSpecialisation.AuthorityResponse]: [TaskType.Inspection],
 };
 
-/** The pest classes (4.2.3) each specialisation may work on. Wildlife is nobody's. */
+/** Pest-class coverage; authority species are further restricted by the shared matcher below. */
 export const SPECIALISATION_PEST_CLASSES: Readonly<Record<StaffSpecialisation, readonly PestClass[]>> = {
   [StaffSpecialisation.VectorControl]: [PestClass.VectorBorne],
   [StaffSpecialisation.Sanitation]: [PestClass.VectorBorne, PestClass.Structural, PestClass.Nuisance],
   [StaffSpecialisation.Structural]: [PestClass.Structural],
   [StaffSpecialisation.GeneralInspection]: [PestClass.VectorBorne, PestClass.Structural, PestClass.Nuisance],
+  [StaffSpecialisation.AuthorityResponse]: [PestClass.Wildlife, PestClass.Nuisance],
 };
 
-/**
- * Authorities that take a case away from the internal crew. Wildlife is refused by class (8.1.14);
- * the catalogue also routes the three birds to AVS and bees to NParks (`$authorityNote` in
- * `config/pests.default.json`), and a crew sent to a crow roost has been sent to someone else's job.
- */
+/** Historical referral destination classifier, also used to identify specialist authority work. */
 // ponytail: matches the catalogue's display name; move to an authority key on PestProfile if names change.
 const EXTERNAL_AUTHORITY = /^(AVS|NParks)\b/;
 
-/** Shared catalogue rule for cases handled outside the internal crew. */
+/** Legacy referral classification. This does not exclude a case from unified dispatch. */
 export function isExternalReferral(pestClass: PestClass, authority: string): boolean {
   return pestClass === PestClass.Wildlife || EXTERNAL_AUTHORITY.test(authority);
 }
@@ -77,7 +75,7 @@ export interface IneligibleStaff {
 }
 
 export interface RoutingDecision {
-  /** Set when the case belongs to an external authority; candidates are then always empty. */
+  /** Legacy referral payload. Unified operations returns null; historical referrals remain stored. */
   referral: { authority: string; contactNumber: string } | null;
   candidates: RankedCandidate[];
   ineligible: IneligibleStaff[];
@@ -94,6 +92,7 @@ export function pestClassOf(pestType: PestType, profile: PestProfile | null): Pe
 /** Task types allowed for a pest, shared by creation, assignment and recommendation. */
 export function permittedTasksFor(pestType: PestType, profile: PestProfile | null): TaskType[] {
   const pestClass = pestClassOf(pestType, profile);
+  if (requiresAuthorityResponse(pestClass, pestType, profile)) return [TaskType.Inspection];
   let tasks: TaskType[];
   switch (pestClass) {
     case PestClass.VectorBorne:
@@ -110,7 +109,7 @@ export function permittedTasksFor(pestType: PestType, profile: PestProfile | nul
   return pestType === PestType.Rat ? tasks.filter((task) => task !== TaskType.Fogging) : tasks;
 }
 
-/** @returns the authority a case is referred to, or null when it is crew work. */
+/** Catalogue authority metadata for historical referrals and capability matching. */
 export function externalAuthority(profile: PestProfile | null): string | null {
   if (profile === null) {
     return null;
@@ -125,14 +124,26 @@ export function coveringSpecialisations(
   taskType: TaskType,
   pestClass: PestClass | null,
   pestType?: PestType,
+  profile: PestProfile | null = null,
 ): StaffSpecialisation[] {
+  if (pestClass === null) return [];
   if (pestType === PestType.Rat && taskType === TaskType.Fogging) return [];
+  if (requiresAuthorityResponse(pestClass, pestType, profile)) {
+    return taskType === TaskType.Inspection ? [StaffSpecialisation.AuthorityResponse] : [];
+  }
   return Object.values(StaffSpecialisation).filter(
     (s) =>
+      s !== StaffSpecialisation.AuthorityResponse &&
       pestClass !== null &&
       SPECIALISATION_TASKS[s].includes(taskType) &&
       SPECIALISATION_PEST_CLASSES[s].includes(pestClass),
   );
+}
+
+/** Authority cases enter the same dispatch workflow with an explicitly recorded capability. */
+function requiresAuthorityResponse(pestClass: PestClass | null, pestType?: PestType, profile: PestProfile | null = null): boolean {
+  return pestClass === PestClass.Wildlife || externalAuthority(profile) !== null ||
+    [PestType.HouseCrow, PestType.Pigeon, PestType.JavanMyna, PestType.BeeWasp].includes(pestType as PestType);
 }
 
 /** The first-choice specialisation: the one whose equipment the task is. */
@@ -140,7 +151,10 @@ export function primarySpecialisation(
   taskType: TaskType,
   pestClass: PestClass | null,
   pestType?: PestType,
+  profile: PestProfile | null = null,
 ): StaffSpecialisation | null {
+  if (pestClass === null) return null;
+  if (requiresAuthorityResponse(pestClass, pestType, profile)) return StaffSpecialisation.AuthorityResponse;
   switch (taskType) {
     case TaskType.Fogging:
     case TaskType.Larviciding:
@@ -172,10 +186,6 @@ export function ineligibilityReason(
   if (!staff.isActive) {
     return 'the account is deactivated';
   }
-  const authority = externalAuthority(profile);
-  if (authority !== null) {
-    return `${job.pestType} cases are referred to ${authority}, not sent to a crew`;
-  }
   if (!permittedTasksFor(job.pestType, profile).includes(job.taskType)) {
     return `${job.taskType} is not permitted for ${job.pestType}`;
   }
@@ -186,6 +196,13 @@ export function ineligibilityReason(
   const pestClass = pestClassOf(job.pestType, profile);
   if (pestClass === null) {
     return `${job.pestType} has no pest catalogue entry, so no capability can be matched to it`;
+  }
+  if (requiresAuthorityResponse(pestClass, job.pestType, profile)) {
+    return specialisation === StaffSpecialisation.AuthorityResponse && job.taskType === TaskType.Inspection
+      ? null : `${specialisation} does not cover this authority response; AuthorityResponse is required`;
+  }
+  if (specialisation === StaffSpecialisation.AuthorityResponse) {
+    return `AuthorityResponse does not cover ${job.pestType}`;
   }
   if (!SPECIALISATION_TASKS[specialisation].includes(job.taskType)) {
     return `${specialisation} does not cover ${job.taskType}`;
@@ -205,8 +222,7 @@ export function rankStaff(
   job: RoutingJob,
   profile: PestProfile | null,
 ): RoutingDecision {
-  const authority = externalAuthority(profile);
-  const primary = primarySpecialisation(job.taskType, pestClassOf(job.pestType, profile), job.pestType);
+  const primary = primarySpecialisation(job.taskType, pestClassOf(job.pestType, profile), job.pestType, profile);
   const candidates: RankedCandidate[] = [];
   const ineligible: IneligibleStaff[] = [];
   for (const member of staff) {
@@ -238,10 +254,7 @@ export function rankStaff(
   );
   ineligible.sort((a, b) => a.email.localeCompare(b.email));
   return {
-    referral:
-      authority === null || profile === null
-        ? null
-        : { authority, contactNumber: profile.authorityContactNumber },
+    referral: null,
     candidates,
     ineligible,
   };

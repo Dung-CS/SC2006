@@ -32,6 +32,7 @@ import { label } from '../../lib/labels';
 import { RoutingDecision, specialisationLabel } from '../../lib/dispatchRouting';
 import { staffDisplayName, staffPhotoUrl } from '../../lib/staffVisuals';
 import { ScreenProps } from '../ScreenProps';
+import { displayTaskName } from '../../../../src/presentation/DisplayNames';
 
 interface DetailPayload {
   workOrder: {
@@ -139,9 +140,9 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
 
       <StateView state={detail.state} onRetry={detail.retry}>
         {order === undefined ? null : (
-          <article>
+          <article data-entity-id={order.id}>
             <h1>
-              {label(order.taskType)}{' '}
+              <span data-part="entity-title">{displayTaskName(order.taskType, order.pestType ?? undefined, order.location ?? 'Site visit')}</span>{' '}
               <Pill tone={statusTone(order.status)}>{label(order.status)}</Pill>
             </h1>
 

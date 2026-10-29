@@ -50,7 +50,7 @@ function mount(plan: Record<string, unknown>, proposals: unknown[] = []) {
 describe('Precomputed dispatch and vehicle-load display', () => {
   it('distinguishes initial background computation from a completed empty plan', async () => {
     mount({ planStatus: 'pending', computedAt: null });
-    expect(await screen.findByText(/Preparing the first dispatch plan/)).toBeTruthy();
+    expect(await screen.findByText(/Pending/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
     expect(screen.queryByText(/No eligible tasks/)).toBeNull();
     expect(screen.queryByText(/No routable work orders/)).toBeNull();
@@ -58,10 +58,10 @@ describe('Precomputed dispatch and vehicle-load display', () => {
 
   it('keeps the completed crew and vehicle plan visible while a replacement computes', async () => {
     mount({ planStatus: 'refreshing', computedAt: '2026-10-27T09:00:00Z', planningDurationSeconds: 2.5, routes: [route] });
-    expect(await screen.findByText(/The last completed plan remains visible/)).toBeTruthy();
+    expect(await screen.findByText(/Updating/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect(screen.getByText('Demo van · DEMO-C1')).toBeTruthy();
-    expect(screen.getByText('Demo vehicle — illustrative capacity')).toBeTruthy();
+    expect(screen.getByText('Van')).toBeTruthy();
+    expect(screen.getByText('Illustrative capacity')).toBeTruthy();
     expect(screen.getByText(/Payload: 25.0 \/ 750.0 kg/)).toBeTruthy();
     expect(screen.getByText(/Cargo volume: 0.200 \/ 6.000 m³/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Logistics & Equipment Packing List/ }));
@@ -70,37 +70,36 @@ describe('Precomputed dispatch and vehicle-load display', () => {
     expect(screen.getByText('Provisional item values')).toBeTruthy();
   });
 
-  it('shows an urgent referral without offering an internal allocation', async () => {
+  it('does not render separate referral or urgent queues', async () => {
     mount({ planStatus: 'ready', referrals: [{ reportId: 'snake-1', pestType: 'Snake', priority: 'Critical',
       locality: 'Snake report', authority: 'NParks', reason: 'Specialist authority response required.' }] });
-    await screen.findByRole('heading', { name: /Active Clusters & Multi-Team Road Routes/ });
-    expect(screen.queryByRole('heading', { name: /External authority tasks/ })).toBeNull();
-    const urgentQueue = screen.getByRole('region', { name: 'High and Critical task queue' });
-    expect(within(urgentQueue).getByText(/Critical: Snake report/)).toBeTruthy();
-    expect(within(urgentQueue).getByRole('link', { name: 'Review referral' }).getAttribute('href')).toBe('/ops/referrals/snake-1');
-    fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect(screen.queryByText(/No eligible tasks/)).toBeNull();
+    await screen.findByRole('heading', { name: /Routes/ });
+    expect(screen.queryByRole('region', { name: /urgent task queue/i })).toBeNull();
+    expect(screen.queryByRole('region', { name: /urgent external referrals/i })).toBeNull();
   });
 
-  it('passes report-only pest identity to creation and never offers an internal order for referrals', async () => {
+  it('passes report-only pest identity to work-order creation, including authority-response tasks', async () => {
     mount({ planStatus: 'ready' }, [
       { clusterId: 'pest-rat-1', sourceReportId: 'rat-1', pestType: 'Rat', locality: 'Rat task', score: 0,
         tier: 'High', suggestedTaskType: 'Inspection', scheduledDate: '2099-01-01', priorityBasis: 'ReportTriage' },
       { clusterId: 'pest-snake-1', sourceReportId: 'snake-1', pestType: 'Snake', locality: 'Snake task', score: 0,
         tier: 'Critical', suggestedTaskType: 'Inspection', scheduledDate: '2099-01-01', referralAuthority: 'NParks' },
     ]);
+    fireEvent.click(screen.getByRole('button', { name: /Daily Proposals List/ }));
     const create = (await screen.findAllByRole('link', { name: 'Raise a work order' }))[0]!;
     const query = new URL(create.getAttribute('href')!, 'https://example.test').searchParams;
     expect(query.get('sourceReportId')).toBe('rat-1');
     expect(query.get('pestType')).toBe('Rat');
     expect(query.has('clusterId')).toBe(false);
     expect(screen.getAllByRole('link', { name: 'Raise a work order' })).toHaveLength(2);
-    expect(screen.getAllByRole('link', { name: 'Review referral' }).every((item) => item.getAttribute('href') === '/ops/referrals/snake-1')).toBe(true);
+    expect(screen.getAllByText('Capability data unavailable')).toHaveLength(2);
+    expect(screen.queryByRole('link', { name: 'Review referral' })).toBeNull();
   });
 
   it('filters dispatch map targets by waypoint map identity rather than work-order identifiers', async () => {
     mount({ planStatus: 'ready', routes: [route] });
     await screen.findByRole('button', { name: /Planned Multi-Team Routes \(1 Teams\)/ });
+    expect(document.querySelector('[data-part="planned-routes"] [data-work-order-id="report-rat-1"][data-priority="High"]')).toBeTruthy();
     const map = screen.getByTestId('dispatch-map-targets');
     expect(within(map).getByText('Rat report target')).toBeTruthy();
     expect(within(map).queryByText(/Unrelated locality/)).toBeNull();
@@ -111,7 +110,8 @@ describe('Precomputed dispatch and vehicle-load display', () => {
       { ...route, teamId: 'unverified', route: { ...route.route, coordinates: [] } },
     ] }, [{ clusterId: 'other', locality: 'Unverified proposal', tier: 'Low', score: 1,
       suggestedTaskType: 'Inspection', scheduledDate: '2099-01-01' }]);
-    await screen.findByText('Unverified proposal');
+    fireEvent.click(await screen.findByRole('button', { name: /Daily Proposals List/ }));
+    await screen.findByText(/Unverified proposal/);
     const map = screen.getByTestId('dispatch-map-targets');
     expect(map.textContent).toBe('');
     expect(map.getAttribute('data-routes')).toBe('');
@@ -121,7 +121,7 @@ describe('Precomputed dispatch and vehicle-load display', () => {
   it('can isolate one road-accessible team and omits duplicate badges and completed stops', async () => {
     mount({ planStatus: 'ready', routes: [route, { ...route, teamId: 'Second', waypointOrder:
       route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, status: 'Completed', isCompleted: true }) }] });
-    await screen.findByRole('option', { name: 'Team Second' });
+    await screen.findByRole('option', { name: 'Second' });
     fireEvent.change(screen.getByLabelText('Map team:'), { target: { value: 'Second' } });
     const map = screen.getByTestId('dispatch-map-targets');
     expect(map.getAttribute('data-routes')).toBe('Second');
@@ -136,22 +136,14 @@ describe('Precomputed dispatch and vehicle-load display', () => {
       { workOrderId: 'c1', locality: 'Existing task', priority: 'Critical', reason: 'Keep current assignee.', disposition: 'committed', status: 'Assigned' },
     ] });
     fireEvent.click(await screen.findByRole('button', { name: /Horizon unassigned \/ committed \(1 \/ 1\)/ }));
-    expect((await screen.findAllByText(/No qualified crew available/)).length).toBe(2);
-    expect(screen.getAllByText(/Committed \(Assigned\)/).length).toBe(2);
+    expect((await screen.findAllByText(/No qualified crew available/)).length).toBe(1);
+    expect(screen.getAllByText(/Committed \(Assigned\)/).length).toBe(1);
   });
 
-  it('shows a High existing order in the urgent queue when no proposal exists', async () => {
-    const existing = { ...route, waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, workOrderId: 'order-existing' }) };
-    mount({ planStatus: 'ready', routes: [existing] }, []);
-    const queue = await screen.findByRole('region', { name: 'High and Critical task queue' });
-    expect(within(queue).getByText('High: Rat hotspot')).toBeTruthy();
-    expect(within(queue).getByRole('link', { name: 'Review work order' }).getAttribute('href')).toBe('/ops/work-orders/order-existing');
-  });
-
-  it('does not link a report proposal to a nonexistent lifecycle work order', async () => {
+  it('does not duplicate planned tasks in a separate urgent queue', async () => {
     mount({ planStatus: 'ready', routes: [route] }, []);
-    const queue = await screen.findByRole('region', { name: 'High and Critical task queue' });
-    expect(within(queue).queryByRole('link', { name: 'Review work order' })).toBeNull();
+    await screen.findByRole('button', { name: /Planned Multi-Team Routes/ });
+    expect(screen.queryByRole('region', { name: /urgent task queue/i })).toBeNull();
   });
 
   it('uses the horizon union for the unassigned tab, not a day queue item scheduled later', async () => {
@@ -166,17 +158,17 @@ describe('Precomputed dispatch and vehicle-load display', () => {
     expect(screen.queryByText('Later planned')).toBeNull();
   });
 
-  it('keeps more than ten urgent proposals reachable through the priority filter and pages', async () => {
+  it('keeps all priority proposals reachable through the filter and pages', async () => {
     const urgent = Array.from({ length: 12 }, (_, i) => ({ clusterId: `urgent-${i}`, locality: `Urgent ${i}`, tier: i === 0 ? 'Critical' : 'High', score: 1, suggestedTaskType: 'Inspection' }));
     mount({ planStatus: 'ready' }, urgent);
-    const queue = await screen.findByRole('region', { name: 'High and Critical task queue' });
-    expect(within(queue).getAllByRole('listitem')).toHaveLength(12);
-    expect(within(queue).getByText(/Urgent 11/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Priority filter:'), { target: { value: 'High' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Daily Proposals List/ }));
+    await screen.findByRole('heading', { name: /Urgent 0$/ });
     const proposalsList = document.querySelector<HTMLOListElement>('ol[data-part="proposals"]')!;
-    expect(within(proposalsList).getByText('Urgent 1')).toBeTruthy();
+    expect(within(proposalsList).getAllByRole('listitem')).toHaveLength(10);
+    fireEvent.change(screen.getByLabelText('Priority filter:'), { target: { value: 'High' } });
+    expect(within(proposalsList).getByRole('heading', { name: /Urgent 1$/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Go to next page/ }));
-    expect(within(proposalsList).getByText('Urgent 11')).toBeTruthy();
+    expect(within(proposalsList).getByRole('heading', { name: /Urgent 11$/ })).toBeTruthy();
   });
 
   it('changes the selected day on both the route map and task route list', async () => {
@@ -185,10 +177,10 @@ describe('Precomputed dispatch and vehicle-load display', () => {
     const next = new Date(`${today}T12:00:00+08:00`); next.setDate(next.getDate() + 1);
     const nextDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(next);
     fireEvent.change(screen.getByLabelText('Horizon start:'), { target: { value: nextDate } });
-    expect(await screen.findByRole('option', { name: 'Team Next-Day' })).toBeTruthy();
+    expect(await screen.findByRole('option', { name: 'Next Day' })).toBeTruthy();
     expect(screen.getByTestId('dispatch-map-targets').getAttribute('data-routes')).toBe('Next-Day');
     fireEvent.click(screen.getByRole('button', { name: /Planned Multi-Team Routes/ }));
-    expect(await screen.findByText('Next day job')).toBeTruthy();
+    expect(await screen.findByText(/Next day job/i)).toBeTruthy();
   });
 
   it('labels walking access separately from the driving route', async () => {

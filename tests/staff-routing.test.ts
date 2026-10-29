@@ -201,17 +201,20 @@ describe('Persistence — the Postgres mapping and migration 010', () => {
 
   it('P2 — reads map a stored value back; NULL and an unrecognised value both read as unknown', async () => {
     expect((await new AccountRepository(fakeDb([row('Structural')]).db).findById('acc-1'))?.specialisation).toBe(StaffSpecialisation.Structural);
+    expect((await new AccountRepository(fakeDb([row('AuthorityResponse')]).db).findById('acc-1'))?.specialisation).toBe(StaffSpecialisation.AuthorityResponse);
     expect((await new AccountRepository(fakeDb([row(null)]).db).findById('acc-1'))?.specialisation).toBeNull();
     expect((await new AccountRepository(fakeDb([row('Wizard')]).db).findById('acc-1'))?.specialisation).toBeNull();
   });
 
-  it('P3 — migration 010 adds a nullable column with no default, constrained to exactly the enum, crew only', () => {
-    const sql = readFileSync(new URL('../src/persistence/migrations/010_staff_specialisation.sql', import.meta.url), 'utf8')
+  it('P3 — migrations retain nullable capability without upgrades and permit exactly the current enum, crew only', () => {
+    const initial = readFileSync(new URL('../src/persistence/migrations/010_staff_specialisation.sql', import.meta.url), 'utf8');
+    expect(initial).toMatch(/ADD COLUMN IF NOT EXISTS specialisation text;/);
+    const sql = readFileSync(new URL('../src/persistence/migrations/015_authority_response.sql', import.meta.url), 'utf8')
       .split('\n')
       .filter((line) => !line.trim().startsWith('--'))
       .join('\n');
-    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS specialisation text;/);
     expect(sql).not.toMatch(/DEFAULT/i);
+    expect(sql).not.toMatch(/UPDATE\s+account/i);
     const listed = [...(/IN \(([^)]*)\)/.exec(sql)?.[1] ?? '').matchAll(/'(\w+)'/g)].map((m) => m[1]);
     expect(listed).toEqual(Object.values(StaffSpecialisation));
     expect(sql).toMatch(/role = 'CleaningCrew'/);

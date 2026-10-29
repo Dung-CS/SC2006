@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 96" role="img" aria-label="Illustrative service van">
+  <rect width="160" height="96" rx="14" fill="#edf4f6"/>
+  <path d="M23 27h74a7 7 0 0 1 7 7v37H23z" fill="#176b63"/>
+  <path d="M104 43h22l13 16v12h-35z" fill="#2f8b7d"/>
+  <path d="M110 48h12l9 11h-21z" fill="#d9eef0"/>
+  <circle cx="49" cy="73" r="10" fill="#21343a"/><circle cx="49" cy="73" r="4" fill="#fff"/>
+  <circle cx="119" cy="73" r="10" fill="#21343a"/><circle cx="119" cy="73" r="4" fill="#fff"/>
+  <path d="M40 47h39M40 55h28" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".8"/>
+</svg>

@@ -19,6 +19,7 @@ import { Pill, statusTone, tierTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
 import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
+import { displayTaskName } from '../../../../src/presentation/DisplayNames';
 
 interface JobsPayload {
   filter: string;
@@ -88,7 +89,7 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
           {pagedItems.map((job) => (
             <li key={job.id} data-status={job.status} data-priority={job.priority}>
               <a href={`/crew/jobs/${job.id}`} onClick={link(props, `/crew/jobs/${job.id}`)}>
-                {label(job.taskType)}
+                <span data-part="entity-title">{displayTaskName(job.taskType, job.pestType ?? undefined, job.location ?? 'Reported location')}</span>
               </a>
               <p className="job-card-location" data-part="location">
                 📍 {job.location ?? (job.point == null ? 'Singapore' : `${job.point.latitude}, ${job.point.longitude}`)}

@@ -23,7 +23,7 @@ The manifest shape is:
 }
 ```
 
-`tasks[].orderId`, `tasks[].label`, staff emails and vehicle registrations must match the owned records created through the app's supported APIs. Include the lifecycle order and crew in the owned sets. The runner reads credentials only to fill the sign-in form. It does not print credentials, API tokens, or page contents. Screenshots are taken only after sign-in, and the final browser page is signed out.
+`tasks[].orderId`, staff emails and vehicle registrations must match the owned records created through the app's supported APIs. Task labels are readable display names; identifiers and demo fixture prefixes belong in metadata or descriptions. Include the lifecycle order and crew in the owned sets. The runner reads credentials only to fill the sign-in form. It does not print credentials, API tokens, or page contents. Screenshots are taken only after sign-in, and the final browser page is signed out.
 
 ## Install and run
 
@@ -43,11 +43,21 @@ For local rehearsal, use `--base http://localhost:3000`. Add `--headed` to watch
 
 ## Flows and pass conditions
 
-1. **Manager dispatch horizon.** Sign in through the real form; open Dispatch; select the manifest start date and seven-day horizon. Read the horizon endpoint through the authenticated browser session and read each owned order's current status. Wait for seven completed dated plans with a computed timestamp (the snapshot may be ready or refreshing while those completed plans remain visible), then assert every active owned task appears in a daily route exactly once or in the global unassigned list with a reason. Already Verified owned orders are recorded explicitly as settled. On each selected date, the actual High/Critical queue is checked against urgent route stops and date-matched unassigned tasks. Planned stop labels must be visible in the matching day's route panel. The Horizon unassigned / committed view must show each owned unassigned item's locality/ID and reason. The map is zoomed and checked after at least two new horizon poll requests to ensure the viewport remains stable. Any provider walking visits in the live plan are recorded and each direction is checked against the 600-second cap.
+1. **Manager dispatch horizon.** Sign in through the real form; open Dispatch; select the manifest start date and seven-day horizon. Read the horizon endpoint through the authenticated browser session and read each owned order's current status. Wait for seven completed dated plans with a computed timestamp (ready or refreshing while completed plans remain visible). Assert every active owned task appears once in a daily route or in horizon-unassigned output with a reason. Record Verified orders as settled. Check High/Critical tasks within ordinary route and unplanned cards. Confirm the removed selected-day urgent and external-referral sections are absent. Match each rendered stop card to its task identity, then check its readable label and day. In Horizon unassigned / committed, match owned unassigned cards through metadata and verify each reason. Zoom the map and check retention after two new horizon polls. Record live walking visits and check both directions against the 600-second cap.
 2. **Staff and fleet read views.** Open the manager's Staff and Vehicle Registry screens. Assert every manifest-owned demo staff email and vehicle registration is present in the actual DOM. Confirm the vehicle page labels demo vehicles.
 3. **Owned work-order lifecycle.** Open the manifest lifecycle order. Assign it to the manifest crew if needed, sign in as that crew, open that exact job through My Jobs, accept and start it, then upload the repository's full-size `hdb-perimeter-drain.jpg` as clearly identified illustrative evidence and submit completion. Sign back in as manager, inspect evidence and verify the order. If a prior run already left the owned order Verified, the runner reports an idempotent replay only after reading that terminal state in the API and manager DOM. If a prior run reached Completed, the runner resumes with manager verification without repeating crew actions. Cancelled or Rejected remains a failure requiring a fresh owned fixture.
 
 The script never creates or searches for records to mutate. It acts only on manifest IDs. A task that is missing from both planned and unassigned horizon output fails; an unassigned item without a reason fails. Route identity and uniqueness checks use the API payload, while the corresponding day route and unassigned reason are checked in rendered DOM.
+
+## Card selector contract (v0.18)
+
+- Use `[data-part="planned-routes"]` for the selected day's route cards and `[data-part="unassigned-tasks"]` for horizon dispositions.
+- Use `[data-work-order-id]` and `[data-entity-id]` metadata where present to match owned records. Do not require a raw ID, DEMO prefix or serialised task enum in a title.
+- Required task collections use `[data-cards]` / `.dispatch-task-cards`. Reference images must identify themselves as illustrative rather than incident evidence.
+- Do not query the removed `[data-part="urgent-task-queue"]` or require a separate urgent/referral list. Verify urgent coverage through the API dispositions and the ordinary rendered cards.
+- Authority-response fixtures use recorded `AuthorityResponse` staff capability; generic inspection staff must not appear as eligible. Insufficient crew, vehicle capacity or verified access must leave the task unassigned with a reason.
+
+At this documentation checkpoint, the root-owned runner update and final end-to-end rehearsal remain pending. These selectors describe the revised acceptance contract; they do not establish a completed browser run.
 
 ## Evidence limits
 

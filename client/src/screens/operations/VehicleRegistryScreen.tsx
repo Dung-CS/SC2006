@@ -6,6 +6,7 @@ import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { Pill } from '../../components/Presentation';
 import { ScreenProps } from '../ScreenProps';
+import { cleanTitle } from '../../../../src/presentation/DisplayNames';
 
 const NUMBER_FIELDS = [
   ['maxPayloadKg', 'Maximum payload (kg)'],
@@ -61,9 +62,7 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
 
   return <section data-screen="VehicleRegistry" data-requirement="11.2.29">
     <h1>Vehicle registry</h1>
-    <p>Record each HQ vehicle's payload, usable cargo volume, cargo bay dimensions and seats. Mark unavailable vehicles here to exclude them from new plans.</p>
-    {(loaded.value?.vehicles ?? []).some((vehicle) => vehicle.isDemo) ?
-      <p role="note"><strong>Demo fleet:</strong> vehicles marked Demo use illustrative capacities. Confirm or replace these records before operational use.</p> : null}
+    <p>Fleet capacity and availability</p>
     {message ? <p role="status">{message}</p> : null}
     <label htmlFor="vehicle-hq-filter">Filter by HQ</label>{' '}
     <select id="vehicle-hq-filter" value={filter} onChange={(event) => setFilter(event.target.value as HqLocation | 'All')}>
@@ -71,18 +70,24 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
       {Object.values(HqLocation).map((hq) => <option key={hq} value={hq}>{hq}</option>)}
     </select>
     <StateView state={loaded.state} onRetry={loaded.retry}>
-      <div style={{ overflowX: 'auto' }}>
-        <table>
-          <caption>Vehicles by regional HQ</caption>
-          <thead><tr><th>Vehicle</th><th>HQ</th><th>Payload</th><th>Cargo volume</th><th>Bay L × W × H</th><th>Seats</th><th>Availability</th><th>Action</th></tr></thead>
-          <tbody>{vehicles.map((vehicle) => <tr key={vehicle.id}>
-            <td><strong>{vehicle.registration}</strong><br />{vehicle.name}{' '}{vehicle.isDemo ? <Pill tone="warn">Demo vehicle</Pill> : null}</td>
-            <td>{vehicle.hqLocation}</td><td>{vehicle.maxPayloadKg} kg</td><td>{vehicle.maxCargoVolumeM3} m³</td>
-            <td>{vehicle.cargoLengthCm} × {vehicle.cargoWidthCm} × {vehicle.cargoHeightCm} cm</td>
-            <td>{vehicle.seatCapacity}</td><td>{vehicle.isAvailable ? 'Available' : 'Unavailable'}</td>
-            <td><button type="button" onClick={() => edit(vehicle)}>Edit {vehicle.registration}</button></td>
-          </tr>)}</tbody>
-        </table>
+      <div data-part="vehicle-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+        {vehicles.map((vehicle) => <article key={vehicle.id} data-entity-id={vehicle.id} data-hq={vehicle.hqLocation} data-registration={vehicle.registration}
+          style={{ overflow: 'hidden', border: '1px solid #dbe3ea', borderRadius: 12, background: '#fff' }}>
+          <img src="/visuals/vehicle-van.svg" alt="Illustrative service van" style={{ display: 'block', width: '100%', height: 112, objectFit: 'cover' }} />
+          <div style={{ padding: 14, display: 'grid', gap: 10 }}>
+            <div><strong data-part="entity-title">{cleanTitle(vehicle.name, 'Vehicle')}</strong><div data-part="hq">{vehicle.hqLocation}</div>
+              <small>{cleanTitle(vehicle.registration, 'Registration unrecorded')}</small>{' '}{vehicle.isDemo ? <Pill tone="warn" title="Illustrative capacities; confirm before operational use">Demo vehicle</Pill> : null}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: '0.9rem' }}>
+              <span>Payload <strong>{vehicle.maxPayloadKg} kg</strong></span><span>Cargo <strong>{vehicle.maxCargoVolumeM3} m³</strong></span>
+              <span>Bay <strong>{vehicle.cargoLengthCm} × {vehicle.cargoWidthCm} × {vehicle.cargoHeightCm} cm</strong></span>
+              <span>Seats <strong>{vehicle.seatCapacity}</strong></span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Pill tone={vehicle.isAvailable ? 'good' : 'neutral'}>{vehicle.isAvailable ? 'Available' : 'Unavailable'}</Pill>
+              <button type="button" aria-label={`Edit ${vehicle.registration}`} onClick={() => edit(vehicle)}>Edit vehicle</button>
+            </div>
+          </div>
+        </article>)}
         {vehicles.length === 0 && (loaded.value?.vehicles.length ?? 0) > 0 ? <p>No vehicles are recorded at this HQ.</p> : null}
       </div>
     </StateView>
@@ -98,11 +103,11 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
         {NUMBER_FIELDS.map(([key, label]) => <label key={key}>{label}<input required type="number" min={key === 'seatCapacity' ? 1 : 0.001}
           step={key === 'seatCapacity' ? 1 : 'any'} value={form[key]} onChange={(event) => change(key, event.target.value)} /></label>)}
       </div>
-      <p>Enter usable cargo capacity after allowing for fixed fittings. The usable volume must fit within the bay dimensions.</p>
+      <small>Enter usable capacity after fixed fittings; volume must fit inside the cargo bay.</small>
       <label><input type="checkbox" checked={form.isAvailable} onChange={(event) => change('isAvailable', event.target.checked)} /> Available for dispatch</label>{' '}
       <label><input type="checkbox" checked={form.isDemo} onChange={(event) => change('isDemo', event.target.checked)} /> Demo data (illustrative vehicle)</label>
       <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-        <button type="submit" disabled={busy}>{busy ? 'Saving…' : editingId ? 'Save vehicle' : 'Add vehicle'}</button>
+        <button type="submit" disabled={busy}>{busy ? 'Saving...' : editingId ? 'Save vehicle' : 'Add vehicle'}</button>
         {editingId ? <button type="button" disabled={busy} onClick={() => { setEditingId(null); setForm(blank()); setFailure(null); }}>Cancel edit</button> : null}
       </div>
     </form>

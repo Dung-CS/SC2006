@@ -1,4 +1,5 @@
 import { Account } from '../entity/Account';
+import { cleanTitle } from '../presentation/DisplayNames';
 import { Cluster } from '../entity/Cluster';
 import { PestProfile } from '../entity/PestProfile';
 import { WorkOrder } from '../entity/WorkOrder';
@@ -9,7 +10,7 @@ import { GeoPoint } from '../entity/valueTypes';
 import { DispatchProposal } from './DispatchController';
 import { taskForReport, triageForReport } from './ReportTriagePolicy';
 import { RouteTeam, estimateRequiredStaff } from './RouteOptimizationService';
-import { coveringSpecialisations, externalAuthority, pestClassOf, permittedTasksFor, primarySpecialisation } from './StaffRoutingPolicy';
+import { coveringSpecialisations, pestClassOf, permittedTasksFor, primarySpecialisation } from './StaffRoutingPolicy';
 import { ReportGroupProvenance, groupNearbyReports, isPendingOrder, ordersForReportGroup, reportGroupProvenance } from './ReportSpatialClustering';
 import type { DispatchJob } from './DispatchPlanService';
 
@@ -48,10 +49,6 @@ const higherPriority = (...tiers: Array<string | undefined>): PriorityTier =>
 const validPoint = (point?: GeoPoint | null): point is GeoPoint => Boolean(point &&
   Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
 const demoEvidence = (text?: string): boolean => /^\[DEMO(?:\s|\])/.test(text ?? '');
-const demoLocality = (locality: string | undefined, ...evidence: Array<string | undefined>): string | undefined => {
-  const tag = evidence.map((text) => text?.match(/^\[DEMO(?:\s[^\]\r\n]*)?\]/)?.[0]).find(Boolean);
-  return tag ? `${tag} · ${locality || 'Unassigned'}`.slice(0, 80) : locality;
-};
 
 /** Build planning inputs from real records; missing staff or locations create no synthetic work. */
 export function buildDispatchRouteInputs(input: {
@@ -97,27 +94,13 @@ export function buildDispatchRouteInputs(input: {
       (score.pestType ?? PestType.Mosquito) === pest);
   const jobs: DispatchJob[] = [];
   const referrals: DispatchReferral[] = [];
-  const referralIds = new Set<string>();
   const reportTargets = new Set<string>();
   const addJob = (job: Omit<DispatchJob, 'requiredCapability'>, pest: PestType): void => {
     const profile = input.profiles.get(pest) ?? null;
-    const authority = externalAuthority(profile);
-    if (authority !== null) {
-      const key = job.sourceReportId ?? `${job.clusterId ?? job.workOrderId}:${pest}`;
-      if (!referralIds.has(key)) {
-        referralIds.add(key);
-        referrals.push({ reportId: job.sourceReportId, workOrderId: job.workOrderId,
-          reportIds: job.reportIds, reportCount: job.reportCount, individualCounts: job.individualCounts,
-          clusterId: job.clusterId ?? undefined, pestType: pest, priority: job.priority ?? PriorityTier.Medium,
-          locality: job.locality ?? 'Unassigned', authority,
-          reason: `${pest} cases are handled by ${authority}; no internal crew is allocated.` });
-      }
-      return;
-    }
     if (!permittedTasksFor(pest, profile).includes(job.taskType as TaskType)) return;
     const pestClass = pestClassOf(pest, profile);
-    const allowedCapabilities = coveringSpecialisations(job.taskType as TaskType, pestClass, pest);
-    const preferred = primarySpecialisation(job.taskType as TaskType, pestClass, pest);
+    const allowedCapabilities = coveringSpecialisations(job.taskType as TaskType, pestClass, pest, profile);
+    const preferred = primarySpecialisation(job.taskType as TaskType, pestClass, pest, profile);
     if (allowedCapabilities.length === 0 || jobs.some((j) => j.workOrderId === job.workOrderId)) return;
     jobs.push({ ...job, requiredCapability: preferred ?? allowedCapabilities[0]!, allowedCapabilities,
       requiredStaff: estimateRequiredStaff(job.taskType, pest) });
@@ -144,8 +127,7 @@ export function buildDispatchRouteInputs(input: {
       mapClusterId: group?.id ?? (targetReport ? `pest-${targetReport.id}` : order.pestType !== PestType.Mosquito && score ?
         `inat-${score.clusterId}-${order.pestType}` : order.clusterId ?? undefined),
       priority: higherPriority(order.priority, score?.tier, group?.priority, ...linkedReports.map((r) => triageForReport(r).priority)),
-      locality: demoLocality(order.location ?? source?.localityBinding ?? cluster?.locality,
-        order.instructions, source?.description ?? targetReport?.description), status: order.currentStatus(), scheduledDate: order.scheduledDate,
+      locality: cleanTitle(order.location ?? source?.localityBinding ?? cluster?.locality, 'Unassigned'), status: order.currentStatus(), scheduledDate: order.scheduledDate,
       score: score?.score }, order.pestType);
   }
 
@@ -158,7 +140,7 @@ export function buildDispatchRouteInputs(input: {
     addJob({ workOrderId: `report-${report.id}`, sourceReportId: report.id, clusterId: report.clusterId,
       isDemo: demoEvidence(report.description),
       ...reportGroupProvenance(group), mapClusterId: group.id, point: report.point, taskType, pestType: report.pestType,
-      priority, locality: demoLocality(report.localityBinding || 'Unassigned', report.description), status: 'Pending', scheduledDate: input.date }, report.pestType);
+      priority, locality: cleanTitle(report.localityBinding, 'Unassigned'), status: 'Pending', scheduledDate: input.date }, report.pestType);
     for (const member of group.reports) if (member.clusterId) reportTargets.add(`${member.clusterId}:${member.pestType}:${taskType}`);
   }
 
@@ -168,7 +150,7 @@ export function buildDispatchRouteInputs(input: {
     // otherwise bypass proposeDailyList when this builder is called independently.
     if (pest !== PestType.Mosquito && !proposal.sourceReportId) continue;
     const source = proposal.sourceReportId ? reports.get(proposal.sourceReportId) : undefined;
-    if (pest !== PestType.Mosquito && (!source || source.pestType !== pest || !validPoint(source.point))) continue;
+    if (proposal.sourceReportId && (!source || source.pestType !== pest || !validPoint(source.point))) continue;
     if (proposal.sourceReportId) {
       // Avoid repeating report groups or existing work orders.
       const ids = proposal.reportIds ?? [proposal.sourceReportId];
@@ -184,7 +166,7 @@ export function buildDispatchRouteInputs(input: {
     const cluster = clusters.get(proposal.clusterId);
     const sourcePoint = source?.point;
     // A report's recorded location is authoritative; callers cannot substitute a locality point.
-    const proposalPoint = pest !== PestType.Mosquito ? sourcePoint : proposal.point;
+    const proposalPoint = proposal.sourceReportId ? sourcePoint : proposal.point;
     const point = proposalPoint ?? sourcePoint ?? (cluster?.boundary?.rings[0]?.length ? cluster.boundary.centroid() : undefined);
     if (!validPoint(point)) continue;
     const workOrderId = proposal.sourceReportId ? `report-${proposal.sourceReportId}` : `prop-${proposal.clusterId}-${pest}`;
@@ -196,7 +178,7 @@ export function buildDispatchRouteInputs(input: {
       point, taskType: proposal.suggestedTaskType, pestType: pest,
       ...(pest === PestType.Mosquito && !proposal.sourceReportId && !proposal.point && cluster?.isActive && cluster.boundary?.rings[0]?.length
         ? { serviceArea: cluster.boundary } : {}),
-      priority: proposal.tier, locality: demoLocality(proposal.locality, source?.description), score: proposal.score, status: 'Pending', scheduledDate: proposal.scheduledDate }, pest);
+      priority: proposal.tier, locality: cleanTitle(proposal.locality, 'Unassigned'), score: proposal.score, status: 'Pending', scheduledDate: proposal.scheduledDate }, pest);
   }
   jobs.sort((a, b) => (tierRank[a.priority ?? 'Medium'] ?? 2) - (tierRank[b.priority ?? 'Medium'] ?? 2));
   referrals.sort((a, b) => (tierRank[a.priority] ?? 2) - (tierRank[b.priority] ?? 2));

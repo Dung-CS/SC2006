@@ -47,7 +47,7 @@ export function MyReportsScreen(props: ScreenProps): JSX.Element {
       <StateView state={state} onRetry={retry}>
         <ul data-part="reports" data-cards>
           {pagedItems.map((report) => (
-            <li key={report.id} data-status={report.status} className="report-card">
+            <li key={report.id} data-entity-id={report.id} data-status={report.status} className="report-card">
               <div className="report-card-layout">
                 <img
                   src={reportPhotoUrl(report.type, report.pestType)}
@@ -57,7 +57,7 @@ export function MyReportsScreen(props: ScreenProps): JSX.Element {
                 />
                 <div className="report-card-content">
                 <div data-part="card-head">
-                  <a href={`/reports/${report.id}`} onClick={link(props, `/reports/${report.id}`)}>
+                  <a data-part="entity-title" href={`/reports/${report.id}`} onClick={link(props, `/reports/${report.id}`)}>
                     {report.pestType && report.pestType !== 'Mosquito'
                       ? `${label(report.pestType)} · ${label(report.type)}`
                       : label(report.type)}

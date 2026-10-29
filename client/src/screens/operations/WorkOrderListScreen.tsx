@@ -18,9 +18,10 @@ import { link } from '../../components/Link';
 import { WorkOrderStatus } from '../../../../src/entity/enums';
 import { Pill, statusTone, tierTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
-import { staffPhotoUrl } from '../../lib/staffVisuals';
+import { staffPhotoUrl, staffDisplayName } from '../../lib/staffVisuals';
 import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
+import { displayTaskName } from '../../../../src/presentation/DisplayNames';
 
 /** 11.2.22 — the crew accounts a manager may assign to, used here only to put a name to an id. */
 interface CrewPayload {
@@ -95,10 +96,10 @@ export function WorkOrderListScreen(props: ScreenProps): JSX.Element {
           </thead>
           <tbody>
             {pagedItems.map((order) => (
-              <tr key={order.id} data-status={order.status} data-issue={order.issueFlag}>
+              <tr key={order.id} data-entity-id={order.id} data-status={order.status} data-issue={order.issueFlag}>
                 <td>
                   <a href={`/ops/work-orders/${order.id}`} onClick={link(props, `/ops/work-orders/${order.id}`)}>
-                    {label(order.taskType)}
+                    <span data-part="entity-title">{displayTaskName(order.taskType, undefined, order.location ?? 'Site visit')}</span>
                   </a>
                 </td>
                 <td className="wo-location-cell">
@@ -125,7 +126,7 @@ export function WorkOrderListScreen(props: ScreenProps): JSX.Element {
                         className="staff-avatar-img"
                         style={{ width: '28px', height: '28px', minWidth: '28px' }}
                       />
-                      <span>{crewById.get(order.assigneeId) ?? order.assigneeId}</span>
+                      <span>{crewById.has(order.assigneeId) ? staffDisplayName(crewById.get(order.assigneeId)!) : 'Assigned crew'}</span>
                     </div>
                   )}
                 </td>

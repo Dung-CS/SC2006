@@ -1,5 +1,15 @@
 # Dengue Prioritiser — Feature Backlog
 
+## Current delivery delta - 2026-10-29 (unified authority operations and concise cards)
+
+### Dispatch authority cases through qualified crews
+- **Status:** Implementation and documentation drafted; final full-suite, build, deployment and live checks pending.
+- **Scope:** `../notes/UNIFIED_OPERATIONS_UI_20261029.md`; requirements v0.18. Wildlife, AVS birds and BeeWasp enter ordinary creation, assignment recommendations and route planning. Authority Response is an explicitly recorded Inspection capability; generic inspection does not qualify staff.
+- **Acceptance:** No authority-only case loss or required new referral. Preserve exact source points, capability/staffing, road/walking, four-hour and fleet constraints. Retain historical referral records. Remove selected-day urgent and external-referral sections; necessary lists use image cards. Staff/vehicle/task/report titles omit IDs, fixture prefixes and enum tokens; metadata/descriptions retain identity and demo provenance.
+- **Known checks:** Backend 223 tests across 11 files passed; typecheck passed. Final combined full-suite counts and release/live evidence remain pending.
+- **Root follow-up:** Apply migration 015 before provisioning AuthorityResponse through supported staff APIs; preserve original staff readiness. Update the owned WebDriver runner for card/identity selectors and removed urgent-list assertions. Verify routes, title cleaning, retained provenance and map/day controls after deployment.
+- **Limits:** Existing crew/logistics defaults remain provisional. Supporting crew identities remain a model gap. No savings or global-optimum claim.
+
 ## Current delivery delta - 2026-10-29 (Soon Lee dispatch eligibility)
 
 ### Require source evidence for non-mosquito site dispatch

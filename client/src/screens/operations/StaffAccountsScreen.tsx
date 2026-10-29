@@ -11,7 +11,7 @@ import { emailRule, evaluate, formIsValid, passwordRules, required } from '../..
 import { HqLocation, Role, StaffSpecialisation, StaffStatus } from '../../../../src/entity/enums';
 import { Pill } from '../../components/Presentation';
 import { label } from '../../lib/labels';
-import { staffPhotoUrl, staffDisplayName } from '../../lib/staffVisuals';
+import { staffPhotoUrl, staffDisplayName, staffRoleLocationLabel } from '../../lib/staffVisuals';
 import { SPECIALISATION_LABEL, specialisationLabel } from '../../lib/dispatchRouting';
 import { Pagination, usePagination } from '../../components/Pagination';
 import { ScreenProps } from '../ScreenProps';
@@ -381,29 +381,18 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
       </section>
 
       <StateView state={state} onRetry={retry}>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Staff Member</th>
-              <th scope="col">Role & Capability</th>
-              <th scope="col">Readiness Status</th>
-              <th scope="col">Account</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div data-part="staff-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             {pagedItems.map((member) => (
-              <tr key={member.id} data-active={member.isActive}>
-                <td>
-                  <div className="staff-profile-cell">
-                    <img src={staffPhotoUrl(member.email, member.role)} alt="" className="staff-avatar-img" />
-                    <div>
-                      <div className="staff-name">{staffDisplayName(member.email)}</div>
-                      <div className="staff-email-sub">{member.email}</div>
-                    </div>
+              <article key={member.id} data-entity-id={member.id} data-email={member.email} data-active={member.isActive} style={{ border: '1px solid #dbe3ea', borderRadius: 12, padding: 14, display: 'grid', gap: 12, background: '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <img src={staffPhotoUrl(member.email, member.role)} alt="" className="staff-avatar-img" style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover' }} />
+                  <div>
+                    <strong data-part="entity-title">{staffDisplayName(member.email)}</strong>
+                    <div className="staff-email-sub">{staffRoleLocationLabel(member.role, member.hqLocation)}</div>
+                    <small data-part="identity">{member.email}</small>
                   </div>
-                </td>
-                <td>
-                  <div className="staff-role-cell">
+                </div>
+                <div className="staff-role-cell" style={{ display: 'grid', gap: 8 }}>
                     <span className="staff-role-main">{label(member.role)}</span>
                     {member.role === Role.CleaningCrew ? (
                       <Pill tone={member.specialisation ? 'good' : 'neutral'}>
@@ -430,7 +419,7 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
                         ))}
                       </select>
                     ) : null}
-                    <span className="staff-hq-pill">{member.hqLocation ? HQ_LABEL[member.hqLocation] : 'HQ unassigned'}</span>
+                    <span className="staff-hq-pill" data-part="hq">{member.hqLocation ? HQ_LABEL[member.hqLocation] : 'HQ unassigned'}</span>
                     <select
                       className="staff-hq-select"
                       aria-label={`HQ location for ${member.email}`}
@@ -447,9 +436,7 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
                         </option>
                       ))}
                     </select>
-                  </div>
-                </td>
-                <td>
+                </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <Pill
                       tone={
@@ -478,37 +465,17 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
                       <option value={StaffStatus.Dispatched}>Dispatched</option>
                     </select>
                   </div>
-                </td>
-                <td>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <Pill tone={member.isActive ? 'good' : 'neutral'}>
-                      {member.isActive ? 'Active' : 'Deactivated'}
-                    </Pill>
+                    <Pill tone={member.isActive ? 'good' : 'neutral'}>{member.isActive ? 'Active' : 'Deactivated'}</Pill>
                     {member.isActive ? (
-                      <button
-                        type="button"
-                        data-variant="danger"
-                        disabled={busy}
-                        onClick={() => setPending({ id: member.id, email: member.email })}
-                        aria-label={`Deactivate ${member.email}`}
-                      >
-                        Deactivate
-                      </button>
+                      <button type="button" data-variant="danger" disabled={busy} onClick={() => setPending({ id: member.id, email: member.email })} aria-label={`Deactivate ${member.email}`}>Deactivate</button>
                     ) : (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void change(member.id, 'reactivate', member.email)}
-                      >
-                        Reactivate {member.email}
-                      </button>
+                      <button type="button" aria-label={`Reactivate ${member.email}`} disabled={busy} onClick={() => void change(member.id, 'reactivate', member.email)}>Reactivate account</button>
                     )}
                   </div>
-                </td>
-              </tr>
+              </article>
             ))}
-          </tbody>
-        </table>
+        </div>
 
         <Pagination
           currentPage={currentPage}

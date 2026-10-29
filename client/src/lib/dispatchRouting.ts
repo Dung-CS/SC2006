@@ -16,6 +16,7 @@ export const SPECIALISATION_LABEL: Readonly<Record<StaffSpecialisation, string>>
   [StaffSpecialisation.Sanitation]: 'Sanitation',
   [StaffSpecialisation.Structural]: 'Structural pests',
   [StaffSpecialisation.GeneralInspection]: 'General inspection',
+  [StaffSpecialisation.AuthorityResponse]: 'Authority response',
 };
 
 /** A recorded capability in words, or the explicit unknown. */

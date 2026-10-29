@@ -20,6 +20,7 @@ import { evaluate, formIsValid, maxLength, required } from '../../components/Fie
 import { link } from '../../components/Link';
 import { ScreenProps } from '../ScreenProps';
 import { UploadedPhoto, uploadPhoto } from '../../lib/PhotoUpload';
+import { cleanTitle } from '../../../../src/presentation/DisplayNames';
 
 const NOTES_MAX = 500;
 
@@ -82,7 +83,7 @@ export function JobCompletionScreen(props: ScreenProps): JSX.Element {
           <form onSubmit={submit} noValidate>
             <h1>Record completion</h1>
             {/* 8.3.7 — read-only: the server takes this from the order, not from the request. */}
-            <p data-part="task">Task performed: {job.taskType}</p>
+            <p data-part="task">Task performed: {cleanTitle(job.taskType, 'Inspection')}</p>
 
             <Field
               id="notes"

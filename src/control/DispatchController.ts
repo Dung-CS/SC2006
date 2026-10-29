@@ -7,7 +7,7 @@
  * table first. Requirement 8.3.2 is then enforced in exactly one place — the Lab 2 adversarial
  * review found a version of this model that claimed one owner of the state machine and drew two.
  */
-import { PestType, PriorityTier, ReportStatus, Role, TaskType, WorkOrderStatus } from '../entity/enums';
+import { PestType, PriorityTier, ReportStatus, Role, StaffSpecialisation, TaskType, WorkOrderStatus } from '../entity/enums';
 import { PestProfile } from '../entity/PestProfile';
 import { Report } from '../entity/Report';
 import { ConfigSet } from '../config/ConfigSet';
@@ -26,7 +26,7 @@ import {
   WorkOrderStore,
 } from '../ports/Stores';
 import { WorkOrderLifecycleController, TransitionRefused } from './WorkOrderLifecycleController';
-import { RoutingDecision, coveringSpecialisations, externalAuthority, ineligibilityReason, permittedTasksFor, pestClassOf, rankStaff } from './StaffRoutingPolicy';
+import { RoutingDecision, coveringSpecialisations, ineligibilityReason, permittedTasksFor, pestClassOf, rankStaff } from './StaffRoutingPolicy';
 import { AccessControlService } from './AccessControlService';
 import { Principal } from './Principal';
 import { taskForReport, triageForReport } from './ReportTriagePolicy';
@@ -161,14 +161,12 @@ export class DispatchController {
       const report = group.representative;
       const taskType = taskForReport(report);
       const profile = this.profileFor(report.pestType);
-      const authority = externalAuthority(profile);
       candidates.push({ clusterId: report.clusterId ?? group.id, sourceReportId: report.id, mapClusterId: group.id,
         ...reportGroupProvenance(group),
         point: report.point, pestType: report.pestType,
         locality: report.localityBinding || 'Unassigned', score: group.score, tier: group.priority,
         suggestedTaskType: taskType, scheduledDate: date, priorityBasis: 'ReportTriage',
-        ...(authority ? { referralAuthority: authority } : {}),
-        allowedCapabilities: authority ? [] : coveringSpecialisations(taskType, pestClassOf(report.pestType, profile), report.pestType) });
+        allowedCapabilities: coveringSpecialisations(taskType, pestClassOf(report.pestType, profile), report.pestType, profile) });
       for (const member of group.reports) if (member.clusterId) reportTargets.add(`${member.clusterId}:${member.pestType}:${taskType}`);
     }
     for (const score of latest) {
@@ -178,7 +176,6 @@ export class DispatchController {
       // Locality scores guide risk review; only mosquito clusters are official site proposals.
       if (pestType !== PestType.Mosquito) continue;
       const profile = this.profileFor(pestType);
-      const authority = externalAuthority(profile);
       const suggestedTaskType = pestType === PestType.Mosquito ? DispatchController.suggestTask(cluster) : TaskType.Inspection;
       const target = `${cluster.id}:${pestType}:${suggestedTaskType}`;
       if (occupiedTasks.has(target) || reportTargets.has(target)) continue;
@@ -186,8 +183,7 @@ export class DispatchController {
           p.suggestedTaskType === suggestedTaskType)) continue;
       candidates.push({ clusterId: cluster.id, pestType, priorityBasis: 'LocalityScore',
         mapClusterId: pestType === PestType.Mosquito ? cluster.id : `inat-${score.clusterId}-${pestType}`,
-        allowedCapabilities: authority ? [] : coveringSpecialisations(suggestedTaskType, pestClassOf(pestType, profile), pestType),
-        ...(authority ? { referralAuthority: authority } : {}),
+        allowedCapabilities: coveringSpecialisations(suggestedTaskType, pestClassOf(pestType, profile), pestType, profile),
         locality: cluster.locality, score: score.score, tier: score.tier, suggestedTaskType, scheduledDate: date });
     }
     return candidates.sort((a, b) => (tierOrder[a.tier] ?? 3) - (tierOrder[b.tier] ?? 3) || b.score - a.score ||
@@ -222,12 +218,6 @@ export class DispatchController {
     if ((draft.instructions ?? '').length > 1000) {
       throw new WorkOrderRejected('instructions exceed 1000 characters (8.1.6)');
     }
-    // 8.1.14, 8.1.15 — a wildlife case is not crew work. The Cleaning Crew is not equipped or
-    // authorised to remove a snake or a boar, and a work order that nobody can carry out is worse
-    // than an honest refusal: it reads as dispatched, suppresses nothing, and leaves the resident
-    // waiting. §8.6 defines what happens instead, and the refusal names it.
-    // The catalogue's AVS and NParks pests (the birds and bees) are refused the same way: see
-    // `StaffRoutingPolicy.externalAuthority`.
     let linkedReports: Report[] = [];
     let sourceGroup: ReportSpatialGroup | undefined;
     let source: Report | null = null;
@@ -295,16 +285,7 @@ export class DispatchController {
       }
     }
     const profile = this.profileFor(pestType);
-    const authority = externalAuthority(profile);
-    if (authority !== null) {
-      throw new WorkOrderRejected(
-        `${pestType} is handled by ${authority}, not by a cleaning crew — ` +
-          `refer the report instead (8.1.14, 8.1.15)`,
-      );
-    }
-    // 8.1.17 — fogging is not a response to a rat. Which task types suit which pest class is
-    // configuration, not a rule in code, so an unconfigured pest class permits everything rather
-    // than silently permitting nothing.
+    // Use the same permitted-task policy as assignment and planning.
     const permitted = permittedTasksFor(pestType, profile);
     if (!permitted.includes(draft.taskType)) {
       throw new WorkOrderRejected(
@@ -388,9 +369,9 @@ export class DispatchController {
     const profile = this.profileFor(pestType);
     // Checked here, on the one path assignment and reassignment share, so a request that skips the
     // screen meets the same rule as the screen.
-    const authority = externalAuthority(profile);
-    if (authority !== null) {
-      throw new WorkOrderRejected(`${pestType} cases go to ${authority}, not to a crew (8.1.14)`);
+    if (this.accounts === null && coveringSpecialisations(TaskType.Inspection, pestClassOf(pestType, profile), pestType, profile)
+      .includes(StaffSpecialisation.AuthorityResponse)) {
+      throw new WorkOrderRejected('authority response capability validation is unavailable');
     }
     if (this.accounts !== null) {
       const reason = ineligibilityReason(

@@ -25,6 +25,7 @@ export enum StaffSpecialisation {
   Sanitation = 'Sanitation',
   Structural = 'Structural',
   GeneralInspection = 'GeneralInspection',
+  AuthorityResponse = 'AuthorityResponse',
 }
 
 /** Operational readiness status of staff accounts. */

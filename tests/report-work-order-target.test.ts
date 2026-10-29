@@ -313,12 +313,9 @@ describe('8.1.2 — creation outside a dengue cluster', () => {
     expect(fog.priority).toBe(PriorityTier.Low);
   });
 
-  it('T7 — unverified, wildlife, mismatched cluster or pest, and already-linked sources write nothing', async () => {
+  it('T7 — unverified, mismatched cluster or pest, and already-linked sources write nothing', async () => {
     const submitted = await verifiedReport(f, 'rat-submitted', PestType.Rat, { status: ReportStatus.Submitted });
     await expect(reportJob(f, submitted.id)).rejects.toThrow(/Verified report/);
-
-    const snake = await verifiedReport(f, 'snake-1', PestType.Snake);
-    await expect(reportJob(f, snake.id)).rejects.toThrow(/refer the report instead/);
 
     const outside = await verifiedReport(f, 'rat-outside', PestType.Rat);
     await expect(
