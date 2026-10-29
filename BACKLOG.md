@@ -1,14 +1,23 @@
 # Dengue Prioritiser — Feature Backlog
 
+## Current delivery delta - 2026-10-29 (Soon Lee dispatch eligibility)
+
+### Require source evidence for non-mosquito site dispatch
+- **Status:** Done; deployed and live-verified on `738078ba8b26adda1912f97704da71e5a533b408`; [Actions run 40738506469](https://github.com/Dung-CS/SC2006/actions/runs/40738506469) passed.
+- **Entrypoints:** Dispatch proposal generation and shared route-input construction; requirements v0.16.
+- **Acceptance:** Keep score-only non-mosquito locality proposals out of executable dispatch; preserve verified report proposals at their source points, explicit work orders and official mosquito cluster proposals; reject spoofed source IDs; preserve source records and existing staffing/availability rules.
+- **Evidence:** Live Soon Lee now has one SouthWest mosquito fogging task, zero other Soon Lee tasks and zero score-only non-mosquito route/unplanned tasks. Five routes / 12 tasks; live ETA/resource/priority/browser checks passed. Local suite 1,063 passed / 58 SQL skipped; typecheck/build/diff/package smoke passed. See `scratchpad/routing-implementation-20261028/SOON_LEE_DEPLOYMENT.md` and `SOON_LEE_REVIEW.md`.
+- **Open:** Broader compatible-visit bundling is not implemented. Configured local sanitation/general-inspection pools remain unavailable; no regional cap or staffing rule was added. No savings claim.
+
 ## Current delivery delta - 2026-10-28 (routing implementation)
 
 ### Bounded road-cost planning and fresh snapshots
-- **Status:** Locally verified; not deployed. Production remains `4c44def`.
+- **Status:** Deployed and live-verified on `a8ef7ed072eed77eb27a095b739b8e505d3e5881`; [Actions run 40703499843](https://github.com/Dung-CS/SC2006/actions/runs/40703499843) passed test and production deployment.
 - **Entrypoints:** `dengue/src/control/RouteOptimizationService.ts`, `dengue/src/control/routing/OneMapRoadRoutingStrategy.ts`, `dengue/src/control/DispatchPlanService.ts`, `dengue/src/control/DispatchRouteInputs.ts`, `dengue/src/boundary/http/WorkOrderRoutes.ts`.
-- **Expected actions:** review the verification note; treat benchmark values as synthetic fixture results only.
+- **Expected actions:** review provisional crew, logistics and demo-fleet values; treat benchmark values as synthetic fixture results only.
 - **Acceptance:** compare bounded candidate allocations on consistent actual directed-road duration; accept only strict road-time improvements preserving served IDs and whole-plan constraints; expose ordered leg ETAs; cap concurrency and cancel queued work; refresh five-minute snapshots in the background; retain last good plans; keep committed work out of new allocation with clear reasons.
-- **Evidence:** `scratchpad/routing-implementation-20261028/VERIFICATION.md`, `REVIEW.md`, and `synthetic-benchmark.md`. Offline 1,061 pass / 58 SQL skips; typecheck, production build, diff check and clean-package smoke pass. Frozen fixture comparison: 900 s to 120 s for `synthetic-j1`; separate cross-route unit fixture: 320 s to 150 s with the same three task IDs. Neither is operational savings evidence.
-- **Open:** no live benchmark or deployment was run. Supporting crew identities are not represented; no live-GPS rolling optimisation, exact 3D packing, global-optimum proof or strict provider API quota is claimed.
+- **Evidence:** `scratchpad/routing-implementation-20261028/DEPLOYMENT.md`, `deployment-verification.json`, `deployed-dispatch.png`, `VERIFICATION.md`, `REVIEW.md`, and `synthetic-benchmark.md`. Offline 1,061 pass / 58 SQL skips; typecheck, production build, diff check and clean-package smoke pass. Live route, ETA, resource, priority, map and zoom checks passed; no page errors. Frozen fixture comparison: 900 s to 120 s for `synthetic-j1`; separate cross-route unit fixture: 320 s to 150 s with the same three task IDs. Neither is operational savings evidence.
+- **Open:** Supporting crew identities are not represented. No live-GPS rolling optimisation, exact 3D packing, global-optimum proof or strict provider API quota is claimed. Live timings are bounded observations, not guarantees; no operational savings claim.
 
 ## Current delivery delta - 2026-10-28 (routing research)
 
@@ -269,3 +278,11 @@ The selected-species YOLO-World S test and Culico-Net ONNX mosquito detector bot
 The user's fresh-photo timeout remains unresolved; their photo was unavailable. Manual observation remains the fallback. No app/provider/configuration/deployment change occurred. Root independently reran both tests; non-timing outputs matched exactly. Python network guards observed zero attempts, not proof of OS firewall isolation. The bounded source scan did not establish a suitably covered, verified-free-licensed model; it does not establish that none exists.
 
 Evidence and candidate limits: `scratchpad/smart-nation-pest-models-20261021/RESULT.md`, `ROOT_VERIFICATION.json`, and `CANDIDATES.md`.
+
+## Dispatch horizon and demonstration rehearsal (2026-10-29)
+
+Status: Implemented; live WebDriver verification in progress.
+Entrypoint: `/ops/dispatch`.
+Expected actions: choose one to seven days, select a day, inspect its tasks/routes and horizon-unassigned reasons.
+Acceptance: unique task/report allocation across dates; no early scheduling; verified road or <=10-minute walking access each way; all High/Critical dispositions visible; daily resource and four-hour constraints retained.
+Validation: 1,126 passed / 58 SQL tests skipped; typecheck/build and clean package smoke passed. Nine owned demo orders, eight demo staff and three demo vans provisioned without altering existing staff availability. Live browser results remain pending.

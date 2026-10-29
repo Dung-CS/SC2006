@@ -288,7 +288,8 @@ export class DispatchPlanService {
             recomputed = true;
             // Leave time to publish the planner's accepted routes before the outer
             // horizon timer fires. Equal deadlines can discard a valid partial day.
-            return bounded(() => this.planner.plan(teams, jobs, vehicles, roadUnverified, { deadline: deadline - 1000 }));
+            const dailyDeadline = Date.now() + Math.max(0, (deadline - Date.now() - 1000) / (plans.length - index));
+            return bounded(() => this.planner.plan(teams, jobs, vehicles, roadUnverified, { deadline: dailyDeadline }));
           } });
           await daily.refresh(date);
           const result = daily.snapshot(date);

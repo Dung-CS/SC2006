@@ -168,6 +168,10 @@ function proposalMapId(proposal: DispatchPayload['proposals'][number]): string {
   return proposal.mapClusterId ?? (proposal.sourceReportId ? `pest-${proposal.sourceReportId}` : proposal.clusterId);
 }
 
+function existingOrderPath(id?: string): string | undefined {
+  return id && !id.startsWith('report-') && !id.startsWith('prop-') ? `/ops/work-orders/${id}` : undefined;
+}
+
 function dateOffset(date: string, offset: number): string {
   const [year = 0, month = 1, day = 1] = date.split('-').map(Number);
   const value = new Date(Date.UTC(year, month - 1, day + offset));
@@ -233,15 +237,15 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
     addUrgent({ id, aliasIds: [waypoint.workOrderId, waypoint.sourceReportId, waypoint.clusterId ?? undefined, waypoint.mapClusterId].filter((alias): alias is string => Boolean(alias)),
       priority: waypoint.priority!, locality: waypoint.locality ?? waypoint.label.replace(/^Stop\s+\d+:\s*/, ''),
       disposition: 'Planned route', reason: `Included on Team ${route.teamId}’s selected-day route.`, scheduledDate: selectedDay,
-      isDemo: waypoint.isDemo, href: waypoint.workOrderId ? `/ops/work-orders/${waypoint.workOrderId}` : undefined,
-      actionLabel: waypoint.workOrderId ? 'Review work order' : undefined });
+      isDemo: waypoint.isDemo, href: existingOrderPath(waypoint.workOrderId),
+      actionLabel: existingOrderPath(waypoint.workOrderId) ? 'Review work order' : undefined });
   }));
   [...dailyUnplanned, ...horizonUnassigned].filter((job) => isUrgent(job.priority) && (!(job.scheduledDate ?? job.date) || (job.scheduledDate ?? job.date)! <= selectedDay))
     .forEach((job) => addUrgent({ id: job.workOrderId, aliasIds: [job.sourceReportId, ...(job.reportIds ?? [])].filter((alias): alias is string => Boolean(alias)),
       priority: job.priority!, locality: job.locality ?? job.workOrderId,
       disposition: job.disposition === 'committed' ? `Committed${job.status ? ` (${job.status})` : ''}` : 'Unassigned',
       reason: job.reason, scheduledDate: job.scheduledDate ?? job.date, isDemo: job.isDemo,
-      href: `/ops/work-orders/${job.workOrderId}`, actionLabel: 'Review work order' }));
+      href: existingOrderPath(job.workOrderId), actionLabel: 'Review work order' }));
   urgentReferrals.forEach((referral) => {
     const reportId = referral.reportId ?? referral.reportIds?.[0];
     addUrgent({ id: referral.workOrderId ?? reportId ?? referral.clusterId ?? referral.locality,
@@ -921,7 +925,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                 {job.isDemo ? <> <Pill tone="warn">DEMO</Pill></> : null}
                 {' '}Unassigned{job.scheduledDate ? ` · eligible ${job.scheduledDate}` : ''}.
                 {' '}{job.requiredStaff ?? '?'} staff required. {job.reason}
-                {' '}<a href={`/ops/work-orders/${job.workOrderId}`} onClick={link(props, `/ops/work-orders/${job.workOrderId}`)}>Review work order</a>
+                {existingOrderPath(job.workOrderId) ? <> <a href={existingOrderPath(job.workOrderId)} onClick={link(props, existingOrderPath(job.workOrderId)!)}>Review work order</a></> : null}
               </li>
             ))}</ul>
             <h3>Committed work ({horizonCommitted.length})</h3>

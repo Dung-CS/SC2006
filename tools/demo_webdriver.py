@@ -37,6 +37,7 @@ AUTH_CAPTURE = r"""
   };
   window.__demoGet = async (path) => {
     const response = await nativeFetch(path, {
+      signal: AbortSignal.timeout(20000),
       headers: window.__demoToken ? { Authorization: `Bearer ${window.__demoToken}` } : {},
     });
     return { status: response.status, body: await response.json() };
@@ -131,11 +132,15 @@ class DemoRun:
         self.driver.save_screenshot(str(self.shots / f"{name}.png"))
 
     def get_json(self, path: str) -> dict[str, Any]:
-        result = self.driver.execute_async_script(
-            "const path=arguments[0], done=arguments[arguments.length-1];"
-            "window.__demoWaitGet(path,done);",
-            path,
-        )
+        for attempt in range(3):
+            result = self.driver.execute_async_script(
+                "const path=arguments[0], done=arguments[arguments.length-1];"
+                "window.__demoWaitGet(path,done);",
+                path,
+            )
+            if result["status"] != 0 or attempt == 2:
+                break
+            time.sleep(1)
         if result["status"] != 200:
             raise AssertionError(f"API returned HTTP {result['status']} for {path}")
         return result["body"]
@@ -264,6 +269,7 @@ class DemoRun:
         else:
             self.record("provider-walking-access", "SKIP", "no walking visit was present in this live plan; do not infer a walking case")
 
+        self.driver.find_element(By.XPATH, "//button[contains(., 'Planned Multi-Team Routes')]").click()
         for index, plan in enumerate(plans):
             Select(self.driver.find_element(By.ID, "dispatch-day")).select_by_value(plan["date"])
             wait.until(lambda d, day=plan["date"]: day in d.find_element(By.CSS_SELECTOR, '[data-screen="DispatchProposal"] h1').text)
@@ -301,20 +307,24 @@ class DemoRun:
         # then confirm the poll did not restore the original viewport.
         map_section = self.driver.find_element(By.CSS_SELECTOR, '[aria-label="Dispatch Route Map"]')
         zoom_in = map_section.find_element(By.CSS_SELECTOR, 'a[title="Zoom in"]')
-        pane = self.driver.find_element(By.CSS_SELECTOR, '.leaflet-map-pane')
-        before = pane.get_attribute("style")
+        def viewport() -> dict[str, str]:
+            return self.driver.execute_script("""
+              const root=document.querySelector('[aria-label="Dispatch Route Map"]');
+              const path=root.querySelector('svg path.leaflet-interactive');
+              return {pane:root.querySelector('.leaflet-map-pane').getAttribute('style'), shape:path?.getAttribute('d')||''};
+            """)
+        before = viewport()
+        if not before["shape"]:
+            raise AssertionError("selected-day map has no rendered route geometry to verify zoom")
         zoom_in.click()
-        wait.until(lambda d: d.find_element(By.CSS_SELECTOR, '.leaflet-map-pane').get_attribute("style") != before)
-        time.sleep(1)  # Let Leaflet finish the zoom animation before capturing viewport state.
-        zoomed = self.driver.find_element(By.CSS_SELECTOR, '.leaflet-map-pane').get_attribute("style")
+        wait.until(lambda d: viewport()["shape"] != before["shape"])
+        time.sleep(1)
+        zoomed = viewport()
         self.driver.execute_script("performance.clearResourceTimings()")
-        before_polls = self.driver.execute_script(
-            "return performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/ops/dispatch/horizon')).length"
-        )
         wait.until(lambda d: d.execute_script(
             "return performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/ops/dispatch/horizon')).length"
-        ) >= before_polls + 2)
-        if self.driver.find_element(By.CSS_SELECTOR, '.leaflet-map-pane').get_attribute("style") != zoomed:
+        ) >= 2)
+        if viewport() != zoomed:
             raise AssertionError("map viewport changed during the route refresh poll")
         self.screenshot("dispatch-map-zoom-after-poll")
 
@@ -335,34 +345,45 @@ class DemoRun:
 
         self.driver.get(self.args.base + "/ops/staff")
         WebDriverWait(self.driver, 30).until(ec.visibility_of_element_located((By.CSS_SELECTOR, '[data-screen="StaffAccounts"]')))
-        for staff in self.manifest["staff"]:
-            row = self.driver.find_element(By.XPATH, f"//tr[.//*[contains(normalize-space(.), '{staff['email']}')] ]")
-            if staff["email"] not in row.text:
-                raise AssertionError("manager staff roster omits an owned DEMO account")
-            if staff.get("hqLocation"):
-                hq_select = row.find_element(By.CSS_SELECTOR, "select.staff-hq-select")
-                if hq_select.get_attribute("value") != staff["hqLocation"]:
-                    selected = hq_select.find_element(By.CSS_SELECTOR, "option:checked").get_attribute("value")
-                    if selected != staff["hqLocation"]:
-                        raise AssertionError("DEMO staff account has the wrong HQ in the manager view")
-            if staff.get("specialisation"):
-                capability = row.find_element(By.CSS_SELECTOR, "select.staff-spec-tag")
-                selected = capability.find_element(By.CSS_SELECTOR, "option:checked").get_attribute("value")
-                if selected != staff["specialisation"]:
-                    raise AssertionError("DEMO staff account has the wrong capability in the manager view")
+        remaining = {staff["email"]: staff for staff in self.manifest["staff"]}
+        WebDriverWait(self.driver, 30).until(lambda d: d.find_elements(By.CSS_SELECTOR, 'tr[data-active]'))
+        for page in range(100):
+            rows = self.driver.find_elements(By.CSS_SELECTOR, 'tr[data-active]')
+            for row in rows:
+                for email, staff in list(remaining.items()):
+                    if email not in row.text:
+                        continue
+                    if staff.get("hqLocation"):
+                        selected = row.find_element(By.CSS_SELECTOR, "select.staff-hq-select option:checked").get_attribute("value")
+                        if selected != staff["hqLocation"]:
+                            raise AssertionError("DEMO staff account has the wrong HQ in the manager view")
+                    if staff.get("specialisation"):
+                        selected = row.find_element(By.CSS_SELECTOR, "select.staff-spec-tag option:checked").get_attribute("value")
+                        if selected != staff["specialisation"]:
+                            raise AssertionError("DEMO staff account has the wrong capability in the manager view")
+                    del remaining[email]
+            if not remaining:
+                break
+            next_buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button[aria-label="Go to next page"]')
+            if not next_buttons or not next_buttons[0].is_enabled():
+                raise AssertionError(f"manager staff pages omit {len(remaining)} owned DEMO accounts")
+            first = rows[0]
+            next_buttons[0].click()
+            WebDriverWait(self.driver, 30).until(ec.staleness_of(first))
+        if remaining:
+            raise AssertionError("staff pagination exceeded the rehearsal bound")
         self.screenshot("manager-demo-staff")
 
         self.driver.get(self.args.base + "/ops/vehicles")
         WebDriverWait(self.driver, 30).until(ec.visibility_of_element_located((By.CSS_SELECTOR, '[data-screen="VehicleRegistry"]')))
-        body = self.driver.find_element(By.TAG_NAME, "body").text
         hq_labels = {"Central": "Central Regional Office", "NorthEast": "Eastern Regional Office",
                      "NorthWest": "North-West Regional Office", "SouthEast": "South-East Regional Office",
                      "SouthWest": "South-West Regional Office"}
         for vehicle in self.manifest["vehicles"]:
-            row = self.driver.find_element(By.XPATH, f"//tr[.//strong[normalize-space()='{vehicle['registration']}']]")
-            if vehicle.get("hqLocation") and hq_labels.get(vehicle["hqLocation"], vehicle["hqLocation"]) not in row.text:
+            row = WebDriverWait(self.driver, 30).until(ec.visibility_of_element_located((By.XPATH, f"//tr[.//strong[normalize-space()='{vehicle['registration']}']]")))
+            if vehicle.get("hqLocation") and vehicle["hqLocation"] != row.find_elements(By.TAG_NAME, "td")[1].text.strip():
                 raise AssertionError("DEMO vehicle has the wrong HQ in the manager view")
-        if self.manifest["vehicles"] and "Demo vehicle" not in body:
+        if self.manifest["vehicles"] and "Demo vehicle" not in self.driver.find_element(By.TAG_NAME, "body").text:
             raise AssertionError("DEMO fleet rows are not visibly labelled")
         self.screenshot("manager-demo-vehicles")
         self.record("manager-staff-and-fleet-views", "PASS", "owned DEMO staff and vehicles shown in manager screens")
@@ -379,6 +400,7 @@ class DemoRun:
         if status == "Verified":
             self.driver.get(self.args.base + f"/ops/work-orders/{order_id}")
             self.visible('[data-screen="WODetail"]')
+            WebDriverWait(self.driver, 30).until(ec.text_to_be_present_in_element((By.CSS_SELECTOR, '[data-screen="WODetail"]'), 'Verified'))
             if "Verified" not in self.driver.find_element(By.CSS_SELECTOR, '[data-screen="WODetail"]').text:
                 raise AssertionError("manager screen did not show the owned order's Verified state")
             self.record("demo-order-lifecycle", "PASS", "idempotent replay: manager UI/API confirmed owned order is already Verified")
@@ -394,11 +416,13 @@ class DemoRun:
             self.driver.get(self.args.base + f"/ops/work-orders/{order_id}")
             wait.until(ec.visibility_of_element_located((By.CSS_SELECTOR, '[data-screen="WODetail"]')))
             if status in {"Created", "Pending"}:
-                Select(wait.until(ec.presence_of_element_located((By.ID, "crew")))).select_by_value(crew_id)
+                wait.until(ec.presence_of_element_located((By.CSS_SELECTOR, f'#crew option[value="{crew_id}"]')))
+                Select(self.driver.find_element(By.ID, "crew")).select_by_value(crew_id)
                 self.driver.find_element(By.XPATH, "//button[normalize-space()='Assign']").click()
                 wait.until(lambda d: self.get_json(f"/api/ops/work-orders/{order_id}").get("workOrder", {}).get("status") == "Assigned")
             elif status == "Assigned" and detail.get("assigneeId") != crew_id:
-                Select(wait.until(ec.presence_of_element_located((By.ID, "crew")))).select_by_value(crew_id)
+                wait.until(ec.presence_of_element_located((By.CSS_SELECTOR, f'#crew option[value="{crew_id}"]')))
+                Select(self.driver.find_element(By.ID, "crew")).select_by_value(crew_id)
                 self.driver.find_element(By.XPATH, "//button[normalize-space()='Reassign']").click()
                 wait.until(lambda d: self.get_json(f"/api/ops/work-orders/{order_id}").get("workOrder", {}).get("assigneeId") == crew_id)
 
@@ -425,7 +449,7 @@ class DemoRun:
                 photo = Path(__file__).resolve().parents[1] / "client/public/visuals/clusters/hdb-perimeter-drain.jpg"
                 if not photo.is_file() or photo.stat().st_size < 10_000:
                     raise AssertionError("known illustrative DEMO evidence image is missing or unexpectedly small")
-                self.driver.find_element(By.ID, "photo").send_keys(str(photo))
+                wait.until(ec.presence_of_element_located((By.ID, "photo"))).send_keys(str(photo))
                 wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, 'li[data-key]')) > 0)
                 self.driver.find_element(By.ID, "notes").send_keys("DEMO rehearsal: illustrative reference photograph, not a live site record.")
                 self.driver.find_element(By.XPATH, "//button[normalize-space()='Submit completion']").click()
@@ -455,6 +479,7 @@ class DemoRun:
         from selenium.webdriver.edge.options import Options
 
         options = Options()
+        options.page_load_strategy = "eager"
         if EDGE.is_file():
             options.binary_location = str(EDGE)
         if not self.args.headed:
@@ -463,6 +488,8 @@ class DemoRun:
         options.add_argument("--disable-gpu")
         try:
             self.driver = webdriver.Edge(options=options)
+            self.driver.set_page_load_timeout(45)
+            self.driver.set_script_timeout(45)
         except Exception as error:
             self.record("webdriver-start", "FAIL", f"{type(error).__name__}: {str(error).splitlines()[0][:180]}")
             return self.finish()

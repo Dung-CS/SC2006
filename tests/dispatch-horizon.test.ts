@@ -233,6 +233,27 @@ describe('Background dispatch horizon', () => {
     expect(service.snapshotRange(date, 7).planStatus).toBe('failed');
   });
 
+  it('shares provider waiting across all days when an unverified task keeps returning', async () => {
+    const dates: number[] = [];
+    const planner = { plan: vi.fn(async (_teams: unknown, _jobs: RouteJob[], _vehicles: unknown, _unverified: unknown,
+      options?: { deadline?: number }) => {
+      const wait = options!.deadline! - Date.now();
+      dates.push(wait);
+      await new Promise<void>((resolve) => setTimeout(resolve, wait));
+      return [];
+    }) };
+    const service = new DispatchPlanService(async () => input([job('unverified')]), planner);
+    service.snapshotRange(date, 7);
+    await complete();
+    await vi.advanceTimersByTimeAsync(29_999);
+    const result = service.snapshotRange(date, 7);
+    expect(result.planStatus).toBe('ready');
+    expect(result.plans.every((plan) => plan.planStatus === 'ready')).toBe(true);
+    expect(planner.plan).toHaveBeenCalledTimes(7);
+    expect(dates[0]).toBeLessThan(5000);
+    expect(result.unassigned.map((item) => item.workOrderId)).toEqual(['unverified']);
+  });
+
   it('publishes twenty thousand pending identities without pairwise deduplication scans', async () => {
     const jobs = Array.from({ length: 20_000 }, (_, index) => job(`large-${index}`, { sourceReportId: `report-${index}` }));
     const service = new DispatchPlanService(async () => input(jobs), { plan: async () => [] });

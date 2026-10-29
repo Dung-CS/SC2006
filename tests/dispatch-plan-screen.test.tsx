@@ -141,10 +141,17 @@ describe('Precomputed dispatch and vehicle-load display', () => {
   });
 
   it('shows a High existing order in the urgent queue when no proposal exists', async () => {
-    mount({ planStatus: 'ready', routes: [route] }, []);
+    const existing = { ...route, waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, workOrderId: 'order-existing' }) };
+    mount({ planStatus: 'ready', routes: [existing] }, []);
     const queue = await screen.findByRole('region', { name: 'High and Critical task queue' });
     expect(within(queue).getByText('High: Rat hotspot')).toBeTruthy();
-    expect(within(queue).getByRole('link', { name: 'Review work order' }).getAttribute('href')).toBe('/ops/work-orders/report-rat-1');
+    expect(within(queue).getByRole('link', { name: 'Review work order' }).getAttribute('href')).toBe('/ops/work-orders/order-existing');
+  });
+
+  it('does not link a report proposal to a nonexistent lifecycle work order', async () => {
+    mount({ planStatus: 'ready', routes: [route] }, []);
+    const queue = await screen.findByRole('region', { name: 'High and Critical task queue' });
+    expect(within(queue).queryByRole('link', { name: 'Review work order' })).toBeNull();
   });
 
   it('uses the horizon union for the unassigned tab, not a day queue item scheduled later', async () => {
