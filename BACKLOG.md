@@ -3,11 +3,11 @@
 ## Current delivery delta - 2026-10-29 (unified authority operations and concise cards)
 
 ### Dispatch authority cases through qualified crews
-- **Status:** Implementation and documentation drafted; final full-suite, build, deployment and live checks pending.
+- **Status:** Done (9891e16 deployed; live API and WebDriver verified).
 - **Scope:** `../notes/UNIFIED_OPERATIONS_UI_20261029.md`; requirements v0.18. Wildlife, AVS birds and BeeWasp enter ordinary creation, assignment recommendations and route planning. Authority Response is an explicitly recorded Inspection capability; generic inspection does not qualify staff.
 - **Acceptance:** No authority-only case loss or required new referral. Preserve exact source points, capability/staffing, road/walking, four-hour and fleet constraints. Retain historical referral records. Remove selected-day urgent and external-referral sections; necessary lists use image cards. Staff/vehicle/task/report titles omit IDs, fixture prefixes and enum tokens; metadata/descriptions retain identity and demo provenance.
-- **Known checks:** Backend 223 tests across 11 files passed; typecheck passed. Final combined full-suite counts and release/live evidence remain pending.
-- **Root follow-up:** Apply migration 015 before provisioning AuthorityResponse through supported staff APIs; preserve original staff readiness. Update the owned WebDriver runner for card/identity selectors and removed urgent-list assertions. Verify routes, title cleaning, retained provenance and map/day controls after deployment.
+- **Known checks:** Final local 1,149 passed / 58 SQL tests skipped; typecheck/build and CI package/deploy/hash checks passed. Live WebDriver, desktop/mobile cards and all 103 staff titles passed; six former authority cases routed and two access-unverified.
+- **Release evidence:** Migrations 014/015 recorded; 20 owned AuthorityResponse staff and five vans provisioned with existing readiness preserved. See scratchpad/unified-ops-20261029/DEPLOYMENT.md.
 - **Limits:** Existing crew/logistics defaults remain provisional. Supporting crew identities remain a model gap. No savings or global-optimum claim.
 
 ## Current delivery delta - 2026-10-29 (Soon Lee dispatch eligibility)
@@ -75,7 +75,7 @@ The delivery records below are historical; their counts and fallback description
 
 - **Deployed through CI/CD:** background all-pest dispatch, HQ vehicle registry, dimensioned logistics and vehicle-constrained routes. [Actions run 40515218625](https://github.com/Dung-CS/SC2006/actions/runs/40515218625) succeeded; Azure `c143da4b-d1fe-47d8-a40a-0a7ea89a8577` is active/status 4. Final live fleet/dispatch, cache and invalidation checks passed.
 - Snapshot reads do not wait for route computation. Startup, scoring/cluster changes, application writes and a 30-second fingerprint check refresh plans. The last good plan remains visible. Road waits have a shared 30-second budget before labelled estimates.
-- Verified/actioned reports outside dengue clusters, due/overdue orders and locality scores share one queue and map triage. Other pests/tasks are not suppressed by an unrelated open task. External-authority cases appear as referrals.
+- Verified/actioned reports outside dengue clusters, due/overdue orders and locality scores share one queue and map triage. Other pests/tasks are not suppressed by an unrelated open task. Authority cases use qualified ordinary dispatch; historical referral records remain available.
 - Manager-only vehicle CRUD is at `/ops/vehicles`. Migration 014 is applied; ten vehicles are explicitly DEMO data, two per HQ. Routes enforce unique available HQ vehicles, seats, kg, m3 and rotated individual-item dimensions. Conservative full-route load envelopes reuse shared gear and accumulate consumables/collection loads. Automatic pest returns are removed; explicit operator returns remain possible. Exact 3D packing and unload-trip optimisation are not implemented.
 - Tests are split: offline/CI 1,001 passed / 58 SQL skipped, and live SQL 58 passed separately. Typecheck/build and clean extracted-package smoke pass. Initial live test timeouts were corrected and rechecked; no claim of one uninterrupted full-suite run.
 - Every push/PR checks; passing `main` pushes deploy. Source is at `Dung-CS/SC2006`, main `ae99340c92fdaa5c7986d4edff22721a992d9079`. `.env` never goes to GitHub. Identity IDs are encrypted GitHub Secrets; live service credentials remain in Azure settings. OIDC has app-scoped Website Contributor.

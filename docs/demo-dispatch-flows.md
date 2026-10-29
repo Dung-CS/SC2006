@@ -57,7 +57,7 @@ The script never creates or searches for records to mutate. It acts only on mani
 - Do not query the removed `[data-part="urgent-task-queue"]` or require a separate urgent/referral list. Verify urgent coverage through the API dispositions and the ordinary rendered cards.
 - Authority-response fixtures use recorded `AuthorityResponse` staff capability; generic inspection staff must not appear as eligible. Insufficient crew, vehicle capacity or verified access must leave the task unassigned with a reason.
 
-At this documentation checkpoint, the root-owned runner update and final end-to-end rehearsal remain pending. These selectors describe the revised acceptance contract; they do not establish a completed browser run.
+The updated runner and live rehearsal passed. Dispatch checks atomically compare card metadata with the latest real horizon response consumed by the UI so a background refresh cannot create a stale-element or old-day assertion. Evidence is recorded in scratchpad/unified-ops-20261029/DEPLOYMENT.md.
 
 ## Evidence limits
 
