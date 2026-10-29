@@ -395,9 +395,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
         {view !== 'routes' ? <p className="dispatch-map-note">{view === 'proposals' ? 'Candidate locations' : 'Recorded task locations'} · Road access not verified</p> : null}
         <SingaporeMap label="dispatch-routes-map" viewKey={photoScope} showClusterBadges={false}
           clusters={[]} routes={view === 'routes' ? mapRoutes : []} tasks={mapTasks} onTaskOpen={openTask} size="tall" />
-        {unavailableTasks.length > 0 ? <details className="dispatch-location-unavailable"><summary>{unavailableTasks.length} locations unavailable</summary>
-          <ul>{unavailableTasks.map((task) => <li key={task.id} data-task-id={task.id}>{task.location}</li>)}</ul>
-        </details> : null}
+        {unavailableTasks.length > 0 ? <p className="dispatch-map-note">{unavailableTasks.length} locations unavailable</p> : null}
       </section>
             <div data-part="dispatch-status" aria-live="polite">
         {horizon?.planStatus === 'pending' || plan?.planStatus === 'pending' ? <span className="dispatch-status-chip" role="status" title="Routes are being prepared">Pending</span> : null}
