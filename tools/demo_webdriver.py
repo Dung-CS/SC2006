@@ -199,7 +199,7 @@ class DemoRun:
         deadline = time.monotonic() + 150
         while time.monotonic() < deadline:
             payload = self.get_json(f"/api/ops/dispatch/horizon?date={start}&days=7")
-            if payload.get("planStatus") in ("ready", "failed") and len(payload.get("plans", [])) == 7:
+            if payload.get("planStatus") == "ready" and len(payload.get("plans", [])) == 7:
                 break
             time.sleep(2)
         if not payload or payload.get("planStatus") != "ready" or len(payload.get("plans", [])) != 7:
@@ -476,6 +476,7 @@ class DemoRun:
                     try:
                         action()
                     except Exception as error:  # Record useful failure class, never page bodies/tokens.
+                        self.screenshot(f"failure-{flow}")
                         self.record(flow, "FAIL", f"{type(error).__name__}: {str(error).splitlines()[0][:180]}")
             self.record("provider-walking-edge-cases", "SKIP", "not fabricated by live browser run; use deterministic local routing evidence")
         finally:

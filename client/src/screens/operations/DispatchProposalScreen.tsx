@@ -268,7 +268,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   }, (r.route.drivingStops ?? r.waypointOrder.map((wp) => wp.point)).map((p) => new GeoPoint(p.latitude, p.longitude))));
   const displayedRoutes = roadRoutes.filter((r) => selectedTeam === '' || r.teamId === selectedTeam);
   const roadClusterIds = new Set(displayedRoutes.flatMap((r) => r.waypointOrder
-    .flatMap((wp, idx) => !wp.isHq && (stopOverrides[`${r.teamId}-${idx}`] ?? wp.status) !== 'Completed'
+    .flatMap((wp, idx) => !wp.isHq && (stopOverrides[`${selectedDay}:${r.teamId}-${idx}`] ?? wp.status) !== 'Completed'
       ? [wp.mapClusterId ?? wp.clusterId] : [])));
   const displayedClusters = allClusters.filter((c) => roadClusterIds.has(c.clusterId));
 
@@ -280,7 +280,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
     walkingSegments: (r.route.walkingVisits ?? []).flatMap((visit) => [visit.outbound, visit.return]
       .map((leg) => ({ coordinates: leg.coordinates })).filter((segment) => segment.coordinates.length >= 2)),
     waypoints: r.waypointOrder.flatMap((wp, idx) => {
-      const overrideKey = `${r.teamId}-${idx}`;
+      const overrideKey = `${selectedDay}:${r.teamId}-${idx}`;
       const effectiveStatus = stopOverrides[overrideKey] ?? wp.status;
       if (!wp.isHq && effectiveStatus === 'Completed') return [];
       return [{
@@ -305,7 +305,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   };
 
   const updateStopStatus = (teamId: string, idx: number, status: 'Completed' | 'InProgress' | 'Pending') => {
-    const key = `${teamId}-${idx}`;
+    const key = `${selectedDay}:${teamId}-${idx}`;
     setStopOverrides((prev) => ({ ...prev, [key]: status }));
   };
 
@@ -462,7 +462,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                 let completedStops = 0;
                 planned.waypointOrder.forEach((wp, idx) => {
                   if (!wp.isHq) {
-                    const key = `${planned.teamId}-${idx}`;
+                    const key = `${selectedDay}:${planned.teamId}-${idx}`;
                     const st = stopOverrides[key] ?? wp.status;
                     if (st === 'Completed') completedStops++;
                   }
@@ -668,7 +668,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                         }}
                       >
                         {planned.waypointOrder.map((waypoint, index) => {
-                          const overrideKey = `${planned.teamId}-${index}`;
+                          const overrideKey = `${selectedDay}:${planned.teamId}-${index}`;
                           const currentStatus = stopOverrides[overrideKey] ?? waypoint.status;
                           const isDone = currentStatus === 'Completed';
                           const isInProg = currentStatus === 'InProgress';
