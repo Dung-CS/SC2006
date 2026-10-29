@@ -281,8 +281,8 @@ Evidence and candidate limits: `scratchpad/smart-nation-pest-models-20261021/RES
 
 ## Dispatch horizon and demonstration rehearsal (2026-10-29)
 
-Status: Implemented; live WebDriver verification in progress.
+Status: Done (deployed bc64be2; live WebDriver verified).
 Entrypoint: `/ops/dispatch`.
 Expected actions: choose one to seven days, select a day, inspect its tasks/routes and horizon-unassigned reasons.
 Acceptance: unique task/report allocation across dates; no early scheduling; verified road or <=10-minute walking access each way; all High/Critical dispositions visible; daily resource and four-hour constraints retained.
-Validation: 1,126 passed / 58 SQL tests skipped; typecheck/build and clean package smoke passed. Nine owned demo orders, eight demo staff and three demo vans provisioned without altering existing staff availability. Live browser results remain pending.
+Validation: 1,128 passed / 58 SQL tests skipped; typecheck/build and clean package smoke passed. Nine owned demo orders, eight demo staff and three demo vans provisioned without altering existing staff availability. Final Edge WebDriver flows passed; final release evidence is in scratchpad/dispatch-demo-20261029/DEPLOYMENT.md.
