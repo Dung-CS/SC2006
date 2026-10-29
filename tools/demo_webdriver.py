@@ -313,30 +313,30 @@ class DemoRun:
             # Compare against the latest real response consumed by the UI: a live refresh
             # may legitimately move a carried task to an earlier day while this flow runs.
             def day_matches_live_response(driver):
-                current = driver.execute_script("return window.__demoUiHorizon?.plans.find(p=>p.date===arguments[0])||null", plan["date"])
+                snapshot = driver.execute_script("""
+                  const plan=window.__demoUiHorizon?.plans.find(p=>p.date===arguments[0]);
+                  const cards=[...document.querySelectorAll('[data-part="planned-routes"] article[data-team] [data-work-order-id]')].map(c=>({
+                    id:c.dataset.workOrderId, priority:c.dataset.priority, title:c.querySelector('strong')?.textContent||'',
+                    images:[...c.querySelectorAll('img')].map(i=>i.complete&&i.naturalWidth>1)
+                  }));
+                  return {plan:plan||null,cards};
+                """, plan["date"])
+                current = snapshot["plan"]
                 if not current:
                     return False
                 expected = {job for route in current.get("routes", []) for job in route.get("workOrderIds", [])}
-                cards = driver.find_elements(By.CSS_SELECTOR, '[data-part="planned-routes"] article[data-team] [data-work-order-id]')
-                actual = {card.get_attribute("data-work-order-id") for card in cards}
-                return current if expected == actual else False
-            current_plan = wait.until(day_matches_live_response)
-            for route in current_plan.get("routes", []):
-                for waypoint in route.get("waypointOrder", []):
-                    order_id = waypoint.get("workOrderId")
-                    if waypoint.get("isHq") or not order_id:
-                        continue
-                    card = wait.until(ec.visibility_of_element_located((By.CSS_SELECTOR,
-                        f'[data-part="planned-routes"] [data-work-order-id="{order_id}"]')))
-                    if waypoint.get("priority") and card.get_attribute("data-priority") != waypoint["priority"]:
-                        raise AssertionError("selected-day task card has the wrong priority")
-                    images = card.find_elements(By.CSS_SELECTOR, 'img')
-                    if not images:
-                        raise AssertionError("selected-day task card has no reference image")
-                    wait.until(lambda d, img=images[0]: d.execute_script("return arguments[0].complete && arguments[0].naturalWidth>1", img))
-                    title = card.find_element(By.CSS_SELECTOR, 'strong').text
-                    if re.search(r"\bDEMO\b|20261029|[0-9a-f]{8}-[0-9a-f-]{20,}", title, re.I):
-                        raise AssertionError("selected-day task title exposes a fixture marker or opaque identifier")
+                actual = {card["id"] for card in snapshot["cards"]}
+                if expected != actual:
+                    return False
+                return snapshot if all(card["images"] and all(card["images"]) for card in snapshot["cards"]) else False
+            current = wait.until(day_matches_live_response)
+            priorities = {waypoint["workOrderId"]: waypoint.get("priority") for route in current["plan"].get("routes", [])
+                          for waypoint in route.get("waypointOrder", []) if waypoint.get("workOrderId")}
+            for card in current["cards"]:
+                if priorities.get(card["id"]) and card["priority"] != priorities[card["id"]]:
+                    raise AssertionError("selected-day task card has the wrong priority")
+                if re.search(r"\bDEMO\b|20261029|[0-9a-f]{8}-[0-9a-f-]{20,}", card["title"], re.I):
+                    raise AssertionError("selected-day task title exposes a fixture marker or opaque identifier")
             self.screenshot(f"dispatch-day-{index + 1}")
 
         # The map is a real Leaflet control: explicitly zoom, wait past the 20-second route poll,
@@ -366,16 +366,17 @@ class DemoRun:
 
         self.driver.find_element(By.XPATH, "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'unassigned / committed')]").click()
         self.visible('[data-part="unassigned-tasks"]')
-        current_unassigned = self.driver.execute_script("return window.__demoUiHorizon?.unassigned||[]")
-        for item in current_unassigned:
-            order_id = item["workOrderId"]
-            card = wait.until(ec.visibility_of_element_located((By.CSS_SELECTOR,
-                f'[data-part="unassigned-tasks"] [data-work-order-id="{order_id}"]')))
-            for detail in card.find_elements(By.TAG_NAME, 'details'):
-                if not detail.get_attribute('open'):
-                    detail.find_element(By.TAG_NAME, 'summary').click()
-            if item["reason"] not in card.text:
-                raise AssertionError("unassigned card detail omitted its full reason")
+        def unassigned_matches_live_response(driver):
+            snapshot = driver.execute_script("""
+              return {tasks:window.__demoUiHorizon?.unassigned||[], cards:[...document.querySelectorAll('[data-part="unassigned-tasks"] [data-work-order-id]')].map(c=>({id:c.dataset.workOrderId,text:c.textContent}))};
+            """)
+            actual = {card["id"]: card["text"] for card in snapshot["cards"]}
+            return snapshot if all(task["workOrderId"] in actual and task["reason"] in actual[task["workOrderId"]] for task in snapshot["tasks"]) else False
+        wait.until(unassigned_matches_live_response)
+        details = self.driver.find_elements(By.CSS_SELECTOR, '[data-part="unassigned-tasks"] details:not([open]) summary')
+        if details:
+            details[0].click()
+            wait.until(lambda d: d.find_elements(By.CSS_SELECTOR, '[data-part="unassigned-tasks"] details[open] p'))
         self.driver.find_element(By.CSS_SELECTOR, '[data-part="unassigned-tasks"]').location_once_scrolled_into_view
         self.screenshot("dispatch-unassigned")
         self.record("manager-seven-day-dispatch", "PASS", f"7 completed dates; {len(task_ids)} owned orders visible as planned or explained; snapshot state {payload['planStatus']}")
