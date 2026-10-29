@@ -11,7 +11,7 @@ explicit Inspection capability; general inspection does not qualify staff for au
 Dispatch removes the selected-day urgent and external-referral lists. Necessary lists use image cards,
 and entity titles omit fixture tokens and identifiers while metadata retains identity and provenance.
 This amendment supersedes earlier authority-only exclusions. Historical referral records and frozen
-submissions remain intact. Final full-suite, deployment and live verification evidence is pending.
+submissions remain intact. The v0.18 full-suite, deployment and live verification evidence is recorded in the unified-operations release report.
 
 Definition audit for v0.19: 759 anchored numbered definitions, 759 unique IDs, zero duplicates.
 
@@ -20,7 +20,7 @@ coordinates and optional map-cluster identity. Official cluster proposals expose
 boundary centroid while route-input area-access semantics remain unchanged; report proposals retain
 their exact source-report coordinates. Dispatch views change map content, Team and Job Type use
 checkboxes, and task callouts show pest, task, priority, location, photo and team. Singapore zoom and
-pan bounds apply. Local checks pass; deployment and live browser verification remain pending.
+pan bounds apply. Local, CI deployment and live browser checks passed; release evidence is recorded separately.
 
 **v0.9 widens the product from dengue to all common household pests and all wild animals requiring
 NEA or AVS intervention**, on the TA's suggestion and Yen Kit's decision of 2026-09-16. The scoring
@@ -1309,8 +1309,8 @@ vehicle on its registry row and on any route that uses it.)*
 # 12. Traceability
 
 **v0.19 verification checkpoint (2026-10-29).** The full suite passed 1,152 tests with 58 SQL tests
-skipped; typecheck, fresh build and clean release extraction smoke checks passed. Deployment and
-live browser checks remain pending. Requirements describe the contract, not proof of a deployed release.
+skipped; typecheck, fresh build and clean release extraction smoke checks passed. Final release d1ebbbe passed CI deployment, server/client identity checks and live Edge map flows.
+Requirements describe the contract; detailed evidence is recorded in the release report.
 
 | Requirement group | Implementation reference | Acceptance evidence required |
 |---|---|---|
@@ -1474,7 +1474,7 @@ Requirements are written against these sources. Verification status is from
 
 # 14. Revision history and review dispositions
 
-**v0.19 (2026-10-29)** - expose map-ready coordinates and identities for dispatch dispositions and proposals. Local focused metadata tests passed; full-suite, typecheck, map integration and live checks remain pending.
+**v0.19 (2026-10-29)** - expose map-ready coordinates and identities for dispatch dispositions and proposals. Full-suite, typecheck, map integration, CI deployment and live Edge map checks passed; see the current release report.
 
 **v0.18 (2026-10-29)** - unify authority operations and replace text-heavy lists with concise cards.
 
@@ -1482,8 +1482,8 @@ Requirements are written against these sources. Verification status is from
 - Added Authority Response Inspection capability and explicit qualification requirements. Existing
   provisional staffing, exact report targets, verified access and vehicle/time limits remain.
 - Revised 8.11.7 and 11.3.21; added clean-title, provenance and card obligations in 11.6 and 11.11.
-- Local backend 223-test and typecheck results are known; final full-suite, deployment and live
-  verification remain pending. Earlier revision entries below describe their dated contracts.
+- Final v0.18 verification passed 1,149 local tests / 58 SQL skips, deployment and live browser checks;
+  see the unified-operations release report. Earlier revision entries describe their dated contracts.
 
 **v0.15 (2026-10-28)** - specify bounded road-cost improvement, cancellable bounded OneMap leg concurrency,
 five-minute snapshot freshness and committed-work exclusion. Local implementation verification passed; production deployment remains separate.

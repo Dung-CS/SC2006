@@ -1,14 +1,12 @@
 # Dengue Prioritiser — Feature Backlog
 
-## Current delivery delta - 2026-10-29 (dispatch map interaction, v0.19)
+## Current delivery delta - 2026-10-30 (dispatch map interaction)
 
-### Show filtered dispatch tasks and proposals on the bounded map
-- **Status:** Implemented; local checks passed; browser and deployment validation pending.
-- **Scope:** Dispatch map, dispatch screen, proposal/unplanned response metadata, map tests and focused backend regressions.
-- **Acceptance:** Routes, Horizon Unassigned / Committed and Daily Proposals views change the mapped tasks and route lines appropriately. Team and Job Type filters use checkbox groups with All, multi-select and explicit none-selected behaviour. Task callouts show pest type, task type, priority, location, photo and assigned team without generated task headings. Photos load only after selection through the existing authenticated report/image path; missing incident photos use a labelled reference fallback. Map zoom and pan remain within the Singapore extent, and polling retains zoom and selected task while updates are reconciled by task ID.
-- **Metadata and routing:** Unplanned tasks expose serialized source coordinates and optional `mapClusterId`. Official cluster proposals expose display-only `mapPoint` from the source boundary centroid; absent boundary geometry yields no invented point. Source-report proposal `point` remains exact. Route calculation, area access, admission and resource limits are unchanged.
-- **Known local checks:** Full suite: 1,152 passed / 58 SQL tests skipped; typecheck and build passed; clean package extraction smoke passed. Focused metadata tests: 33 passed across two files. `DFENCE_TEST_LIVE_DB=false`.
-- **Pending:** Browser interaction/photo checks and deployment review.
+### Make map controls and task callouts operational
+- **Status:** Done (d1ebbbe deployed; Actions 40892029275 and live Edge verification passed).
+- **Acceptance:** Team/Job Type checkbox All/multiple/none; three map views; six-field callout and authenticated on-open photo; labelled references; no synthetic task heading; collapsed details; Singapore zoom/pan boundary; poll-stable popup/zoom. Preserve full verified route geometry and source-point/area-access semantics.
+- **Validation:** 1,152 local tests passed / 58 SQL skipped; typecheck/build/clean release smoke and full CI passed. Seven live map flows passed; desktop and actual 390px mobile visual checks passed. Requirements v0.19: 759 unique definitions.
+- **Evidence:** scratchpad/map-interaction-20261029/DEPLOYMENT.md and webdriver-warm/results.json. No operational record mutations.
 
 ## Current delivery delta - 2026-10-29 (unified authority operations and concise cards)
 

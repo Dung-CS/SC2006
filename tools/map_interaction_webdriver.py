@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 import unittest
+import json
 
 from demo_webdriver import AUTH_CAPTURE, EDGE, DemoRun, load_inputs, parse_args
 
@@ -95,6 +96,23 @@ def assert_bounds(snapshot: dict) -> None:
         raise AssertionError('map centre escaped Singapore envelope')
 
 
+def callout_ready(snapshot: dict) -> bool:
+    if not snapshot or not snapshot['photoLoaded'] or not snapshot['provenance']:
+        return False
+    if not {'Pest:', 'Task:', 'Priority:', 'Location:', 'Team:'}.issubset(snapshot['fields']):
+        return False
+    popup, canvas = snapshot['popup'], snapshot['canvas']
+    return (popup['width'] > 0 and popup['height'] > 0
+            and popup['left'] >= canvas['left'] - 2 and popup['top'] >= canvas['top'] - 2
+            and popup['right'] <= canvas['right'] + 2 and popup['bottom'] <= canvas['bottom'] + 2)
+
+
+def assert_viewport(name: str, requested: int, actual: int) -> None:
+    tolerance = 0 if name == 'mobile' else 32
+    if abs(actual - requested) > tolerance:
+        raise AssertionError(f'{name} viewport is {actual}px; expected {requested}px')
+
+
 class MapInteractionRun(DemoRun):
     def snapshot(self) -> dict:
         return self.driver.execute_script(SNAPSHOT)
@@ -136,6 +154,7 @@ class MapInteractionRun(DemoRun):
             raise AssertionError('selected day has no map task for callout/poll check')
         # Fit task bounds first; choose a visible marker and let WebDriver perform the click.
         self.driver.find_element('xpath', f"//*[@data-part='dispatch-routes-map']//button[normalize-space()='Fit to map']").click()
+        time.sleep(.4)  # Let Leaflet finish fitting before clicking a moving marker.
         def visible_pin(_):
             return self.driver.execute_script('''
               const map=document.querySelector(arguments[0]).getBoundingClientRect();
@@ -145,15 +164,28 @@ class MapInteractionRun(DemoRun):
               })||null;
             ''', CANVAS, PINS)
         pin = wait.until(visible_pin)
+        clicked_task = pin.get_attribute('data-task-id')
         self.driver.execute_script('arguments[0].scrollIntoView({block:"center"})', pin)
         pin.click()
-        popup = wait.until(lambda d: d.find_element('css selector', CALLOUT))
-        for field in ('Pest:', 'Task:', 'Priority:', 'Location:', 'Team:'):
-            if field not in popup.text:
-                raise AssertionError(f'callout missing {field}')
-        wait.until(lambda d: d.execute_script('const p=document.querySelector(arguments[0]);const i=p?.querySelector("img");return i?.complete&&i.naturalWidth>1', CALLOUT))
-        if not any(label in popup.text for label in ('Reference photo', 'Report photo')):
-            raise AssertionError('callout photo lacks provenance label')
+        def current_callout(_):
+            # Query fresh DOM each time: protected photo loading replaces the callout node.
+            # Read labels from content, including rows reachable through maxHeight scrolling.
+            state = self.driver.execute_script('''
+              const p=document.querySelector(arguments[0]),map=document.querySelector(arguments[1]);
+              if(!p||!map)return null;
+              const i=p.querySelector('img'),text=p.textContent||'';
+              const rect=e=>{const r=e.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}};
+              return {fields:[...p.querySelectorAll('strong')].map(e=>e.textContent.trim()),
+                photoLoaded:!!(i?.complete&&i.naturalWidth>1),
+                provenance:text.includes('Reference photo')||text.includes('Report photo'),
+                popup:rect(p.closest('.leaflet-popup')),canvas:rect(map)};
+            ''', CALLOUT, CANVAS)
+            self.callout_debug = {'clickedTask': clicked_task, 'callout': state, 'map': self.snapshot()}
+            return state if callout_ready(state) else False
+        wait.until(current_callout)
+        time.sleep(.4)  # Leaflet auto-pan finishes before geometry evidence is captured.
+        wait.until(current_callout)
+        self.screenshot('desktop-callout-contained')
         self.driver.find_element('css selector', MAP + ' .leaflet-control-zoom-in').click()
         time.sleep(1)
         before = self.snapshot()
@@ -163,8 +195,9 @@ class MapInteractionRun(DemoRun):
         after = self.settle()
         if after['popup'] != before['popup'] or after['zoom'] != before['zoom']:
             raise AssertionError('poll changed selected callout or zoom')
+        wait.until(current_callout)
         self.screenshot('desktop-callout-after-two-polls')
-        self.record('map-callout-real-polls', 'PASS', 'Six fields/photo loaded; callout ID and zoom retained over two successful UI horizon polls')
+        self.record('map-callout-real-polls', 'PASS', 'Five text fields plus loaded labelled photo; popup inside canvas; callout ID and zoom retained over two successful UI horizon polls')
 
     def boundaries(self) -> None:
         from selenium.webdriver import ActionChains
@@ -221,15 +254,45 @@ class MapInteractionRun(DemoRun):
         self.callout_and_poll()
         self.boundaries()
         for name, width, height in [('desktop', 1440, 1000), ('mobile', 390, 844)]:
-            self.driver.set_window_size(width, height)
+            if name == 'mobile':
+                # Edge enforces a minimum outer window width; emulate the actual CSS viewport.
+                self.driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {
+                    'width': width, 'height': height, 'deviceScaleFactor': 1, 'mobile': True,
+                })
+            else:
+                self.driver.execute_cdp_cmd('Emulation.clearDeviceMetricsOverride', {})
+                self.driver.set_window_size(width, height)
             time.sleep(1)
+            actual_width = self.driver.execute_script('return window.innerWidth')
+            assert_viewport(name, width, actual_width)
             state = self.settle()
             assert_bounds(state)
             if state['overflow']:
                 raise AssertionError(f'{name} page overflows horizontally')
             self.driver.find_element('css selector', CANVAS).location_once_scrolled_into_view
             self.screenshot(f'{name}-map-overflow-check')
-        self.record('map-responsive', 'PASS', 'Desktop/mobile screenshots captured; no horizontal page overflow')
+            if name == 'mobile':
+                self.driver.execute_script('window.scrollTo(0,0)')
+                self.screenshot('mobile-page-top-checkboxes')
+                details = self.driver.find_element('css selector', '.dispatch-details')
+                was_open = details.get_attribute('open') is not None
+                if not was_open:
+                    summary = details.find_element('css selector', 'summary')
+                    self.driver.execute_script('arguments[0].scrollIntoView({block:"center"})', summary)
+                    summary.click()
+                cards = self.driver.find_elements('css selector', '[data-part="planned-routes"] [data-work-order-id]')
+                if not cards:
+                    raise AssertionError('mobile task-card screenshot has no task card')
+                cards[0].location_once_scrolled_into_view
+                if self.snapshot()['overflow']:
+                    raise AssertionError('mobile task details overflow horizontally')
+                self.screenshot('mobile-task-cards')
+                if not was_open:
+                    summary = details.find_element('css selector', 'summary')
+                    self.driver.execute_script('arguments[0].scrollIntoView({block:"center"})', summary)
+                    summary.click()
+            self.record(f'map-{name}-viewport', 'PASS', f'window.innerWidth={actual_width}px (requested {width}px); screenshots captured; no horizontal overflow')
+        self.record('map-responsive', 'PASS', 'Actual desktop and 390px mobile viewport widths verified; map, mobile page top/checkboxes and task cards captured')
 
     def run(self) -> int:
         from selenium import webdriver
@@ -250,6 +313,8 @@ class MapInteractionRun(DemoRun):
             self.sign_in('manager')
             self.map_checks()
         except Exception as error:
+            if hasattr(self, 'callout_debug'):
+                (self.args.out / 'callout-debug.json').write_text(json.dumps(self.callout_debug, indent=2), encoding='utf-8')
             self.record('map-interaction', 'FAIL', f'{type(error).__name__}: {str(error).splitlines()[0][:180]}')
             if self.driver:
                 try:
@@ -266,6 +331,25 @@ class MapInteractionRun(DemoRun):
 
 
 class Checks(unittest.TestCase):
+    def test_mobile_width_must_be_actual_390_not_edge_minimum_500(self):
+        assert_viewport('mobile', 390, 390)
+        assert_viewport('desktop', 1440, 1425)
+        with self.assertRaises(AssertionError):
+            assert_viewport('mobile', 390, 500)
+        with self.assertRaises(AssertionError):
+            assert_viewport('mobile', 390, 389)
+
+    def test_callout_needs_all_fields_loaded_photo_and_contained_popup(self):
+        rect = {'left': 0, 'top': 0, 'right': 500, 'bottom': 400, 'width': 500, 'height': 400}
+        good = {'fields': ['Pest:', 'Task:', 'Priority:', 'Location:', 'Team:'],
+                'photoLoaded': True, 'provenance': True, 'canvas': rect,
+                'popup': {**rect, 'left': 20, 'top': 20, 'right': 300, 'bottom': 380}}
+        self.assertTrue(callout_ready(good))
+        for wrong in ({'fields': ['Task:']}, {'photoLoaded': False}, {'provenance': False},
+                      {'popup': {**good['popup'], 'top': -20}},
+                      {'popup': {**good['popup'], 'right': 550}}):
+            self.assertFalse(callout_ready({**good, **wrong}))
+
     def test_source_identity_and_route_geometry_must_both_match(self):
         good = {'ready': True, 'actual': ['b', 'a'], 'expected': ['a', 'b'], 'lines': 2, 'expectedLines': 2}
         self.assertTrue(matching(good))
