@@ -296,7 +296,9 @@ export class WorkOrderLifecycleController {
       // 8.3.11
       await this.notifier?.notify(workOrder.assigneeId, `Your completion was rejected for work order ${workOrder.id}.`);
     }
-    if (status === WorkOrderStatus.Verified) {
+    if (status === WorkOrderStatus.Completed || status === WorkOrderStatus.Verified) {
+      // Completion resolves the source report (Closed, shown as "Resolved"); the later verification
+      // finds it already Closed and does nothing, so both calls are idempotent.
       // 8.5.1, 8.5.2, 5.2.7 — close every linked report and tell the residents who filed them.
       // Before the rescore, not after: closing a report removes it from 5.2.5's count, and the
       // cycle that follows must see that removal, or the score keeps a driver for work now done.

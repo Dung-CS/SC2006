@@ -168,6 +168,32 @@ describe('Session persistence — §2.1.8, 2.1.9, 2.1.12', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('S12 — a 503 during a server restart is retried, and the session comes back', async () => {
+    const storage = memoryStorage({ [SESSION_KEY]: 'tok-abc' });
+    let n = 0;
+    const fetcher: Fetcher = () => {
+      n += 1;
+      const ok = n >= 3;
+      return Promise.resolve({
+        ok,
+        status: ok ? 200 : 503,
+        json: () => Promise.resolve(ok ? { accountId: 'acc-7', role: Role.Resident } : {}),
+      } as Response);
+    };
+    const outcome = await restoreSession(new ApiClient('', fetcher), storage, 0);
+    expect(outcome.kind).toBe('restored');
+    expect(n).toBe(3);
+    expect(storage.map.get(SESSION_KEY)).toBe('tok-abc');
+  });
+
+  it('S13 — a 5xx that never clears is unreachable, and the token is kept', async () => {
+    const storage = memoryStorage({ [SESSION_KEY]: 'tok-abc' });
+    const { fetcher } = responder(502, {});
+    const outcome = await restoreSession(new ApiClient('', fetcher), storage, 0);
+    expect(outcome.kind).toBe('unreachable');
+    expect(storage.map.get(SESSION_KEY)).toBe('tok-abc');
+  });
+
   it('S11 — an empty stored value is not a token', () => {
     expect(storedToken(memoryStorage({ [SESSION_KEY]: '' }))).toBeNull();
   });

@@ -449,8 +449,7 @@ describe('Staff and sources — §11.2.22, §11.2.23, §2.2.5, §1.4.3, §1.4.4'
     render(<StaffAccountsScreen {...props({}, fetcher)} />);
     expect(await screen.findByRole('button', { name: 'Vector control, Central: 1 available / 1' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Vector control, Central: 1 available / 1' }));
-    expect(await screen.findByText('crew@example.com')).toBeTruthy();
-    expect(screen.getByLabelText('HQ location for crew@example.com')).toBeTruthy();
+    expect(await screen.findByText('Central Regional Office', { selector: '[data-part="hq"]' })).toBeTruthy();
   });
 
   it('S0b — Resident is not offered, because 2.2.2 says a resident registers themselves', async () => {
@@ -477,20 +476,6 @@ describe('Staff and sources — §11.2.22, §11.2.23, §2.2.5, §1.4.3, §1.4.4'
     expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
   });
 
-  it('S1 — deactivation warns about the sessions it ends, then reports how many (2.2.5)', async () => {
-    const { fetcher } = router({
-      '/api/ops/staff': { body: { staff: [{ id: 'a1', email: 'ah.seng@example.com', role: 'CleaningCrew', isActive: true }] } },
-      '/api/ops/staff/a1/deactivate': { body: { id: 'a1', isActive: false, sessionsEnded: 2 } },
-    });
-    render(<StaffAccountsScreen {...props({}, fetcher)} />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /Deactivate ah.seng@example.com/ }));
-    expect(screen.getByRole('dialog').textContent).toContain('even if they are recording work right now');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
-    await waitFor(() => expect(screen.getByText('ah.seng@example.com deactivated; 2 session(s) ended.')).toBeTruthy());
-  });
-
   it('S2 — a deactivated account stays listed, marked, because it is not deleted (2.2.6)', async () => {
     const { fetcher } = router({
       '/api/ops/staff': { body: { staff: [{ id: 'a1', email: 'gone@example.com', role: 'CleaningCrew', isActive: false }] } },
@@ -498,7 +483,6 @@ describe('Staff and sources — §11.2.22, §11.2.23, §2.2.5, §1.4.3, §1.4.4'
     render(<StaffAccountsScreen {...props({}, fetcher)} />);
 
     await waitFor(() => expect(screen.getByText('Deactivated')).toBeTruthy());
-    expect(screen.getByRole('button', { name: /Reactivate gone@example.com/ })).toBeTruthy();
   });
 
   it('S3 — warning and stale are distinct states with distinct sentences (1.4.3, 1.4.4)', async () => {

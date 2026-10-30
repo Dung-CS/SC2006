@@ -379,6 +379,17 @@ describe('8.1.2 — lifecycle, treatment and scoring', () => {
     expect(await f.treatments.daysSinceLastTreatment(f.clusterId, new Date())).toBe(90);
   });
 
+  it('T19 — completing a report-sourced order resolves the report once, and verifying later is safe', async () => {
+    const source = await verifiedReport(f, 'rat-t19', PestType.Rat);
+    const wo = await reportJob(f, source.id);
+    await completeAs(f, wo.id, 'san-1');
+    expect((await f.reports.findById(source.id))?.currentStatus()).toBe(ReportStatus.Closed);
+    const history = (await f.reports.statusHistory(source.id)).filter((h) => h.to === ReportStatus.Closed);
+    expect(history).toHaveLength(1);
+    await f.lifecycle.verify(wo.id, MANAGER);
+    expect((await f.reports.statusHistory(source.id)).filter((h) => h.to === ReportStatus.Closed)).toHaveLength(1);
+  });
+
   it('L2 — a cluster verification still rescores, and only after its treatment is stored', async () => {
     const wo = await f.dispatch.createWorkOrder({ clusterId: f.clusterId, taskType: TaskType.Fogging, scheduledDate: FUTURE }, MANAGER);
     const by = crew('vc-1');

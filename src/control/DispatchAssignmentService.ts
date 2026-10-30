@@ -418,9 +418,11 @@ export class DispatchAssignmentService {
   }
 
   private async resolveOrder(context: AssignmentContext, stop: PlannedWaypoint, date: string, by: Principal, keep?: string): Promise<WorkOrder> {
-    let order = stop.workOrderId ? await context.workOrders.findById(stop.workOrderId) : null;
+    // Planned ids (report-/prop-) are not uuids: Postgres rejects them, so they never reach findById.
+    const unsaved = !!stop.workOrderId?.startsWith('report-') || !!stop.workOrderId?.startsWith('prop-');
+    let order = stop.workOrderId && !unsaved ? await context.workOrders.findById(stop.workOrderId) : null;
     if (!order) {
-      if (!stop.workOrderId?.startsWith('report-') && !stop.workOrderId?.startsWith('prop-')) {
+      if (!unsaved) {
         throw new DispatchAssignmentRejected('A task was removed after this route was planned. Refresh the plan.');
       }
       try {

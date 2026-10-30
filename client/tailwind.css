@@ -1,0 +1,42 @@
+/*
+ * D-Fence — Tailwind utilities, alongside styles.css (not instead of it).
+ *
+ * - No Preflight: only the theme and the utilities are imported, so the base element rules in
+ *   styles.css (buttons, inputs, headings, the 44px targets of 11.7.7) stay exactly as they were.
+ * - `important`: styles.css styles bare elements with compound selectors such as
+ *   `button[type='button']:not([data-variant='primary'])`, which a single utility class cannot
+ *   outrank. A utility placed on an element is a deliberate decision, so it wins.
+ * - Colours are the styles.css tokens, so a token change reaches every utility with it.
+ * - Built by client/build.mjs and appended to the one served stylesheet (the CSP allows no second
+ *   source and no inline styles).
+ */
+@layer theme, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) important source(none);
+@source './src/**/*.tsx';
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-ink: var(--ink);
+  --color-ink-quiet: var(--ink-quiet);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-dark: var(--accent-dark);
+  --color-accent-quiet: var(--accent-quiet);
+  --color-tier-high: var(--tier-high);
+  --color-tier-medium: var(--tier-medium);
+  --color-tier-low: var(--tier-low);
+  --color-rail: var(--rail);
+  --color-eggplant-300: var(--eggplant-300);
+  --color-neon-300: var(--neon-300);
+  --color-neon-100: var(--neon-100);
+  --color-mint: var(--mint);
+  --color-gum: var(--gum);
+  --color-bolt: var(--bolt);
+  --color-thunder: var(--thunder);
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+}

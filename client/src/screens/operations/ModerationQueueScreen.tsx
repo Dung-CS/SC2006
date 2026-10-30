@@ -55,10 +55,10 @@ export function ModerationQueueScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="ModQueue" data-requirement="11.2.14">
-      <h1>Moderation</h1>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-[2rem]">Moderation</h1>
       <Freshness at={lastLoadedAt} everyMs={QUEUE_REFRESH_MS} onRefresh={retry} />
 
-      <label htmlFor="type-filter">Filter by type</label>
+      <label htmlFor="type-filter" className="mt-3 block font-semibold">Filter by type</label>
       <select
         id="type-filter"
         value={type}

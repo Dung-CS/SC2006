@@ -85,8 +85,8 @@ export function AnalyticsScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="Analytics" data-requirement="11.2.26">
-      <h1>Analytics</h1>
-      <p data-part="window">
+      <h1 className="text-2xl font-bold tracking-tight sm:text-[2rem]">Analytics</h1>
+      <p data-part="window" className="text-ink-quiet">
         The preceding 30 days. Every figure is computed from stored snapshots, so a chart can only
         be as long as the system has been running.
       </p>
@@ -158,8 +158,8 @@ function ChartFrame(props: {
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <section data-chart={props.requirement} data-sufficient={props.chart.sufficient}>
-      <h2>{props.title}</h2>
+    <section data-chart={props.requirement} data-sufficient={props.chart.sufficient} className="mb-4 rounded-3xl border border-line bg-surface p-4 sm:p-6">
+      <h2 className="mt-0">{props.title}</h2>
       {props.chart.sufficient ? null : (
         <p role="status" data-part="insufficient">
           {/* 10.5.3 — the server's own sentence, which names what is missing and how much of it. */}

@@ -128,27 +128,38 @@ export type RestoreOutcome =
 export async function restoreSession(
   api: ApiClient,
   storage: TokenStorage | null,
+  retryDelayMs = 400,
 ): Promise<RestoreOutcome> {
   const token = storedToken(storage);
   if (token === null) {
     return { kind: 'none' };
   }
 
-  api.setToken(token);
-  let me: MeResponse;
-  try {
-    me = await api.get<MeResponse>('/api/auth/me');
-  } catch (error) {
-    // `ApiClient` reports a network failure as status 0 and a refusal as the server's status. The
-    // difference is the whole point of `unreachable`, so it is read rather than assumed.
-    const status = (error as { failure?: { status?: number } }).failure?.status;
-    if (status === 0 || status === undefined) {
-      api.setToken(null);
-      return { kind: 'unreachable' };
+  let me: MeResponse | undefined;
+  // A restart (Azure deploy, cold start) answers 502/503/504 or drops the connection for a few
+  // seconds. Those say nothing about the token, so they are retried and never clear it; only a
+  // real refusal does. Before this, any non-network status, 5xx included, deleted a good token.
+  for (let attempt = 0; attempt < 3 && me === undefined; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
+    api.setToken(token);
+    try {
+      me = await api.get<MeResponse>('/api/auth/me');
+    } catch (error) {
+      const status = (error as { failure?: { status?: number } }).failure?.status;
+      const transient =
+        status === undefined || status === 0 || status >= 500 || status === 408 || status === 429;
+      if (!transient) {
+        api.setToken(null);
+        rememberToken(storage, null);
+        return { kind: 'expired' };
+      }
+    }
+  }
+  if (me === undefined) {
     api.setToken(null);
-    rememberToken(storage, null);
-    return { kind: 'expired' };
+    return { kind: 'unreachable' };
   }
 
   // A 200 whose body is not a principal is not a restore. This is not defensive noise: a proxy or

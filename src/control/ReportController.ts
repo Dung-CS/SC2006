@@ -100,6 +100,8 @@ export class ReportController {
      * reports; when it is absent the profile-dependent checks are skipped rather than failing.
      */
     private readonly config: ConfigSet | null = null,
+    /** Called after a new report is verified, so dispatch plans refresh (debounced by DispatchPlanService). */
+    private readonly onVerifiedReport: (() => void) | null = null,
   ) {}
 
   /**
@@ -209,7 +211,9 @@ export class ReportController {
     // than "a report row was inserted and then something failed".
     await this.audit?.appendAction(by.accountId, 'report:submit', 'Report', saved.id);
     // Verified by default: the Submitted row above stays in the history, then the system verifies.
-    return this.lifecycle.transition(saved.id, ReportStatus.Verified, 'SYSTEM', { at: now });
+    const verified = await this.lifecycle.transition(saved.id, ReportStatus.Verified, 'SYSTEM', { at: now });
+    this.onVerifiedReport?.();
+    return verified;
   }
 
   /**

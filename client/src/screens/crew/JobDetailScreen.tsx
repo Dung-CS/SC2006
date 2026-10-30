@@ -13,6 +13,7 @@
  * with no reason stops the work without telling anyone why.
  */
 import { useState } from 'react';
+import { ArrowLeft, Check, Play, RotateCcw, TriangleAlert } from 'lucide-react';
 import { ApiError } from '../../lib/ApiClient';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
@@ -78,18 +79,19 @@ export function JobDetailScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="JobDetail" data-requirement="11.2.20">
-      <a href="/crew" onClick={link(props, '/crew')}>
+      <a href="/crew" onClick={link(props, '/crew')} className="inline-flex min-h-11 items-center gap-1.5 font-semibold">
+        <ArrowLeft aria-hidden="true" className="size-5" />
         Back to my jobs
       </a>
 
       <StateView state={state} onRetry={retry}>
         {job === undefined ? null : (
-          <article data-entity-id={job.id}>
-            <h1>
+          <article data-entity-id={job.id} className="grid gap-4">
+            <h1 className="text-2xl font-bold tracking-tight md:text-[2rem]">
               <span data-part="entity-title">{displayTaskName(job.taskType, job.pestType ?? undefined, job.location ?? 'Reported location')}</span>{' '}
               <Pill tone={statusTone(job.status)}>{label(job.status)}</Pill>
             </h1>
-            <p className="job-card-location" data-part="location" style={{ fontSize: '1rem', marginBottom: '1rem' }}>
+            <p className="job-card-location text-base" data-part="location">
               📍 {location}
             </p>
             <Facts
@@ -124,36 +126,36 @@ export function JobDetailScreen(props: ScreenProps): JSX.Element {
               ]}
             />
             {job.issueFlag ? (
-              <p role="status" data-part="issue" style={{ color: '#A4342B', fontWeight: 600 }}>
+              <p role="status" data-part="issue" className="m-0 rounded-2xl border border-tier-high bg-surface p-3 font-semibold text-tier-high">
                 ⚠️ Issue raised: {job.issueReason ?? 'no reason recorded'}
               </p>
             ) : null}
 
-            <div data-part="actions">
+            <div data-part="actions" className="grid gap-3">
               {status === WorkOrderStatus.Assigned ? (
-                <button type="button" disabled={busy} onClick={() => void act('accept')}>
-                  Accept this job
+                <button type="button" data-variant="primary" className="min-h-14 w-full text-lg" disabled={busy} onClick={() => void act('accept')}>
+                  <Check aria-hidden="true" className="mr-2 inline size-5 align-text-bottom" />Accept this job
                 </button>
               ) : null}
               {status === WorkOrderStatus.Accepted ? (
-                <button type="button" disabled={busy} onClick={() => void act('start')}>
-                  Start work
+                <button type="button" data-variant="primary" className="min-h-14 w-full text-lg" disabled={busy} onClick={() => void act('start')}>
+                  <Play aria-hidden="true" className="mr-2 inline size-5 align-text-bottom" />Start work
                 </button>
               ) : null}
               {status === WorkOrderStatus.InProgress ? (
-                <a href={`/crew/jobs/${id}/complete`} onClick={link(props, `/crew/jobs/${id}/complete`)}>
-                  Record completion
+                <a href={`/crew/jobs/${id}/complete`} onClick={link(props, `/crew/jobs/${id}/complete`)} className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-accent-fill px-6 text-lg font-bold text-white no-underline hover:bg-accent-dark">
+                  <Check aria-hidden="true" className="size-5" />Record completion
                 </a>
               ) : null}
               {job.issueFlag ? (
-                <button type="button" disabled={busy} onClick={() => void act('resume')}>
-                  Resume work
+                <button type="button" className="min-h-14 w-full text-lg" disabled={busy} onClick={() => void act('resume')}>
+                  <RotateCcw aria-hidden="true" className="mr-2 inline size-5 align-text-bottom" />Resume work
                 </button>
               ) : null}
             </div>
 
-            <section data-part="issue-form">
-              <h2>Blocked?</h2>
+            <section data-part="issue-form" className="grid gap-3 rounded-3xl border border-line bg-surface p-4">
+              <h2 className="m-0 flex items-center gap-2 text-xl font-bold"><TriangleAlert aria-hidden="true" className="size-5 text-tier-medium" />Blocked?</h2>
               <Field
                 id="reason"
                 label="What is stopping you?"
@@ -166,6 +168,7 @@ export function JobDetailScreen(props: ScreenProps): JSX.Element {
               />
               <button
                 type="button"
+                className="min-h-12 w-full"
                 disabled={busy}
                 onClick={() => {
                   setReason((f) => ({ ...f, touched: true }));
@@ -180,7 +183,7 @@ export function JobDetailScreen(props: ScreenProps): JSX.Element {
             </section>
 
             {failure === null ? null : (
-              <div role="alert" data-part="error">
+              <div role="alert" data-part="error" className="rounded-2xl border border-tier-high p-3 font-semibold text-tier-high">
                 <p>{failure.cause}</p>
                 <p>{failure.remedy}</p>
               </div>

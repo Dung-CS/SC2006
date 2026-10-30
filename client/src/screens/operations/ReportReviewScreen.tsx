@@ -96,7 +96,7 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
       <StateView state={state} onRetry={retry}>
         {report === undefined ? null : (
           <article data-entity-id={report.id}>
-            <h1 data-part="entity-title">
+            <h1 data-part="entity-title" className="text-2xl font-bold tracking-tight sm:text-[2rem]">
               {cleanTitle(report.pestType && report.pestType !== PestType.Mosquito ? `${label(report.pestType)} · ${label(report.type)}` : label(report.type), 'Report')}{' '}
               <Pill tone={statusTone(report.status)} title={`Report status (5.2.3)`}>
                 {label(report.status)}
@@ -154,7 +154,7 @@ export function ReportReviewScreen(props: ScreenProps): JSX.Element {
             ) : null}
 
             {/* 2.3.4, 5.3.4 — a manager sees the photographs; this is the screen they exist for. */}
-            <h2>Photographs</h2>
+            <h2 className="tracking-tight">Photographs</h2>
             <PhotoGrid
               path={`report/${id}`}
               photos={value?.photos ?? []}

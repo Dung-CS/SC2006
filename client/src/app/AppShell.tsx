@@ -17,7 +17,7 @@ import { Role } from '../../../src/entity/enums';
 import { NavIcon } from '../components/NavIcon';
 import { useInstallPrompt, useOnline } from '../lib/InstallableApp';
 import { chromeFor, isCurrent, NavItem, navigationFor } from './Navigation';
-import { ClientPrincipal, guard } from './RouteGuard';
+import { ClientPrincipal, guard, homeFor } from './RouteGuard';
 import { RouteDefinition } from './routes';
 
 export type { NavItem };
@@ -42,6 +42,11 @@ export function AppShell(props: AppShellProps): JSX.Element {
   // leave the URL saying one thing and the page showing another, which breaks the back button.
   if (decision.kind === 'redirectToSignIn') {
     props.onNavigate(`/signin?returnTo=${encodeURIComponent(decision.returnTo)}`);
+    return <main data-screen="Redirecting" />;
+  }
+  // A session restored on `/signin` (a refresh, a bookmark) has nothing left to do on the form.
+  if (props.principal !== null && decision.kind === 'allow' && decision.route.screenId === 'SignIn') {
+    props.onNavigate(homeFor(props.principal.role));
     return <main data-screen="Redirecting" />;
   }
 

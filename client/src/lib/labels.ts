@@ -67,6 +67,7 @@ const LABELS: Readonly<Record<string, string>> = {
   UNCHANGED: 'Unchanged',
   SHRUNK: 'Shrunk',
   CLOSED: 'Closed',
+  Closed: 'Resolved', // a report whose work order is complete
 
   // Pest types (5.1.15). Only the ones the camel-case split would mangle or under-name.
   BedBug: 'Bed bug',

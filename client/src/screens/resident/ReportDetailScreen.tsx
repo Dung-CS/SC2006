@@ -11,6 +11,7 @@
  * sentence rather than an error — pressing twice is a normal thing for a person to do.
  */
 import { useState } from 'react';
+import { ArrowLeft, ThumbsUp } from 'lucide-react';
 import { ApiError } from '../../lib/ApiClient';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
@@ -62,7 +63,7 @@ function said(entry: { from: string | null; to: string }): string {
     case 'Actioned':
       return 'A cleaning crew was sent';
     case 'Closed':
-      return 'The work was checked and the report closed';
+      return 'The work was completed and the report resolved';
     default:
       return `Status changed to ${label(entry.to)}`;
   }
@@ -107,14 +108,15 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="ReportDetail" data-requirement="11.2.10">
-      <a href="/reports" onClick={link(props, '/reports')}>
+      <a href="/reports" onClick={link(props, '/reports')} className="mb-3 inline-flex min-h-11 items-center gap-2 font-semibold">
+        <ArrowLeft aria-hidden="true" className="size-4" />
         Back to my reports
       </a>
 
       <StateView state={state} onRetry={retry}>
         {report === undefined ? null : (
           <article data-entity-id={report.id}>
-            <h1 data-part="entity-title">
+            <h1 data-part="entity-title" className="flex flex-wrap items-center gap-3">
               {cleanTitle(report.pestType && report.pestType !== 'Mosquito'
                 ? `${label(report.pestType)} — ${label(report.type)}`
                 : label(report.type), 'Report')}{' '}
@@ -131,6 +133,16 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
                   value: new Date(report.submittedAt).toISOString().slice(0, 16).replace('T', ' ') + ' SGT',
                   part: 'submitted',
                 },
+                ...(report.status === 'Closed'
+                  ? [{
+                      label: 'Resolved',
+                      value: (() => {
+                        const at = (history.value?.history ?? []).filter((h) => h.to === 'Closed').at(-1)?.at;
+                        return at ? new Date(at).toISOString().slice(0, 10) : 'Yes';
+                      })(),
+                      part: 'resolved',
+                    }]
+                  : []),
                 ...(report.estimatedCount != null || report.description?.match(/\[(?:Specimen )?Count:\s*(\d+)\]/i)
                   ? [
                       {
@@ -182,8 +194,8 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
                 `ReportController.statusHistory` both existed, authorisation and all, and no route
                 and no screen had ever called either. This is the third instance of that shape
                 found this month, after the photograph links and the crew's completion evidence. */}
-            <section data-part="history">
-              <h2>What has happened to this report</h2>
+            <section data-part="history" className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
+              <h2 className="mt-0">What has happened to this report</h2>
               <StateView state={history.state} onRetry={history.retry}>
                 {/* `?? []`, not `history.value.history`: a payload that arrives without the field
                     — an older server behind a cached client, a proxy answering something else —
@@ -192,11 +204,11 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
                 {history.value == null ? null : (history.value.history ?? []).length === 0 ? (
                   <p data-part="history-empty">Nothing has been recorded against this report yet.</p>
                 ) : (
-                  <ol data-part="history-list">
+                  <ol data-part="history-list" className="m-0 list-none p-0">
                     {(history.value.history ?? []).map((entry) => (
-                      <li key={`${entry.at}-${entry.to}`} data-status={entry.to}>
+                      <li key={`${entry.at}-${entry.to}`} data-status={entry.to} className="flex flex-wrap justify-between gap-x-4 border-b border-line py-3 last:border-b-0">
                         <span data-part="what">{said(entry)}</span>
-                        <span data-part="when">
+                        <span data-part="when" className="text-sm text-ink-quiet">
                           {new Date(entry.at).toLocaleString('en-SG', {
                             day: '2-digit',
                             month: 'short',
@@ -212,16 +224,17 @@ export function ReportDetailScreen(props: ScreenProps): JSX.Element {
               </StateView>
             </section>
 
-            <p data-part="corroborations">
+            <p data-part="corroborations" className="mt-4 font-semibold">
               {report.corroborationCount === 0
                 ? 'No other residents have confirmed this yet.'
                 : `${report.corroborationCount} other resident(s) have confirmed this.`}
             </p>
-            <button type="button" data-variant="primary" onClick={() => void corroborate()} disabled={busy}>
+            <button type="button" data-variant="primary" onClick={() => void corroborate()} disabled={busy} className="inline-flex items-center gap-2">
+              <ThumbsUp aria-hidden="true" className="size-4" />
               I have seen this too
             </button>
             {notice === null ? null : (
-              <p role="status" data-part="notice">
+              <p role="status" data-part="notice" className="mt-3 rounded-2xl bg-accent-quiet p-3">
                 {notice}
               </p>
             )}

@@ -21,6 +21,7 @@
  * one is advisory.
  */
 import { useEffect, useRef, useState } from 'react';
+import { Bug, Crosshair, Send } from 'lucide-react';
 import { ApiError } from '../../lib/ApiClient';
 import { Field, field, FormField } from '../../components/Field';
 import { evaluate, formIsValid, maxLength, required } from '../../components/FieldValidation';
@@ -294,8 +295,11 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="ReportSite" data-requirement="11.2.8">
-      <h1>Report a pest</h1>
-      <form onSubmit={submit} noValidate>
+      <h1 className="flex items-center gap-3">
+        <Bug aria-hidden="true" className="size-7 shrink-0 text-accent" />
+        Report a pest
+      </h1>
+      <form onSubmit={submit} noValidate className="max-w-2xl rounded-3xl border border-line bg-surface p-5 shadow-sm">
         <div className="form-step-notice" role="note">
           <span className="form-step-badge">Step 1</span>
           <span>Choose what you saw below to begin your report.</span>
@@ -461,9 +465,10 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
           onChange={(v) => setDescription({ value: v, touched: description.touched })}
         />
 
-        <fieldset data-part="location">
+        <fieldset data-part="location" className="mt-4 rounded-2xl border border-line p-4">
           <legend>Where is it?</legend>
-          <button type="button" onClick={useMyLocation}>
+          <button type="button" onClick={useMyLocation} className="inline-flex items-center gap-2">
+            <Crosshair aria-hidden="true" className="size-4" />
             Use my current location
           </button>
           <Field
@@ -484,7 +489,7 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
           />
         </fieldset>
 
-        <fieldset data-part="photos">
+        <fieldset data-part="photos" className="mt-4 rounded-2xl border border-line p-4">
           <legend>Photographs (required: attach at least 1 photo, up to {MAX_PHOTOS_PER_REPORT})</legend>
 
           <div className="sample-photos-picker">
@@ -578,12 +583,13 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
         ) : null}
 
         {failure === null ? null : (
-          <div role="alert" data-part="error">
+          <div role="alert" data-part="error" className="mt-4 rounded-2xl border border-tier-high p-4 text-tier-high">
             <p>{failure.cause}</p>
             <p>{failure.remedy}</p>
           </div>
         )}
-        <button type="submit" disabled={busy || uploading}>
+        <button type="submit" disabled={busy || uploading} className="mt-5 inline-flex items-center gap-2">
+          <Send aria-hidden="true" className="size-4" />
           {busy ? 'Submitting…' : 'Submit report'}
         </button>
       </form>

@@ -26,7 +26,7 @@ export const CREW = new Principal('crew-1', Role.CleaningCrew, 'session-crew');
 export const INSIDE = new GeoPoint(1.43, 103.79);
 
 /** Reports, moderation and dispatch wired together the way server.ts wires them. */
-export async function reportRejectFixture() {
+export async function reportRejectFixture(onVerifiedReport: (() => void) | null = null) {
   const clusters = new InMemoryClusterStore();
   const cluster = new Cluster();
   cluster.objectId = 'c-1';
@@ -46,7 +46,8 @@ export async function reportRejectFixture() {
   const audit = new InMemoryAuditStore();
   const ac = new AccessControlService(new AccessPolicy(), audit);
   const lifecycle = new ReportLifecycleController(new ReportTransitionTable(), reports, notifier, audit);
-  const controller = new ReportController(ac, reports, new InMemoryClusterLocator(clusters), lifecycle, audit);
+  const controller = new ReportController(ac, reports, new InMemoryClusterLocator(clusters), lifecycle, audit,
+    null, null, onVerifiedReport);
   const moderation = new ModerationController(ac, reports, lifecycle);
   const workOrderStore = new InMemoryWorkOrderStore();
   const workOrders = new WorkOrderLifecycleController(

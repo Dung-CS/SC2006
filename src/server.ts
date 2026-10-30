@@ -328,6 +328,7 @@ async function main(): Promise<void> {
   // still takes reports; it simply cannot enforce the wildlife-needs-a-location-context rule.
   const residentReports = new ReportController(
     ac0, reports, locator, reportLifecycle, auditStore, objectStorage, config,
+    () => invalidateDispatchPlans(),
   );
   // 8.6 — referral, the path a wildlife case takes instead of a work order (8.1.14).
   //

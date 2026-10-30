@@ -8,8 +8,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "theme_color": "#1b5e56",
-  "background_color": "#ffffff",
+  "theme_color": "#0c0120",
+  "background_color": "#0c0120",
   "lang": "en-SG",
   "categories": ["government", "health", "utilities"],
   "icons": [

@@ -63,7 +63,9 @@ export function guard(url: string, principal: ClientPrincipal | null): GuardDeci
 export function landingAfterSignIn(role: Role, returnTo: string | null): string {
   if (returnTo !== null) {
     const decision = guard(returnTo, { accountId: '', role });
-    if (decision.kind === 'allow') {
+    // A public screen is not a journey to resume. Following `/signin` here would leave a user who
+    // has just signed in on the sign-in form, which is what an expired token used to produce.
+    if (decision.kind === 'allow' && decision.route.roles !== null) {
       return returnTo;
     }
   }

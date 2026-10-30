@@ -3,6 +3,12 @@
  * Stereotype: <<boundary>>. Traces: 11.2.16, 8.1.7, 8.1.8, 8.1.11, 8.1.12, 11.4.2.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Backpack, Building2, CalendarDays, Car, Check, ChevronDown, ChevronRight, ChevronUp, Circle, CircleCheck,
+  CircleHelp, ClipboardPlus, Clock, ExternalLink, Eye, Filter, Footprints, Hourglass, Inbox, Info, Layers,
+  ListChecks, LoaderCircle, MapPin, Navigation, PawPrint, RefreshCw, Route, ShieldCheck, Timer, TriangleAlert,
+  Truck, Users, Warehouse, Wrench, X,
+} from 'lucide-react';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
@@ -167,6 +173,21 @@ function taskReferenceImage(taskType?: string, pestType?: string): string {
   return reportPhotoUrl(taskType ?? 'StandingWater', pestType);
 }
 
+/* Tailwind class sets reused across the pilot screen (T16). Kept as constants so one look stays one string. */
+const CONTROL_LABEL = 'inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-quiet';
+const CONTROL = 'rounded-xl min-h-11 border border-line bg-surface px-3 text-sm text-ink shadow-xs transition-colors duration-150 hover:border-accent/50 focus:border-accent';
+const TAB = 'inline-flex items-center gap-1.5 rounded-full min-h-11 border-transparent bg-transparent px-3 text-sm font-medium text-ink-quiet transition-colors duration-150 hover:bg-surface hover:text-ink aria-pressed:bg-accent-fill aria-pressed:text-white aria-pressed:shadow-sm';
+const FILTER_OPTION = 'text-sm transition-colors duration-150 hover:text-accent';
+const MAP_SECTION = 'dispatch-map relative mb-3 [&_.map]:relative [&_.map]:mt-0 [&_.map]:overflow-hidden [&_.map]:rounded-2xl [&_.map]:border [&_.map]:border-line [&_.map]:shadow-sm'
+  + ' [&_.map-toolbar]:rounded-2xl [&_.map-toolbar]:border [&_.map-toolbar]:border-line [&_.map-toolbar]:bg-surface/80 [&_.map-toolbar]:p-1.5 [&_.map-toolbar]:shadow-lg [&_.map-toolbar]:backdrop-blur-md'
+  + ' sm:[&_.map-toolbar]:absolute sm:[&_.map-toolbar]:top-3 sm:[&_.map-toolbar]:right-3 sm:[&_.map-toolbar]:z-[500] sm:[&_.map-toolbar]:mb-0';
+const CHIP = 'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold';
+const METRIC = 'inline-flex items-center gap-1.5';
+const GHOST_BUTTON = 'inline-flex items-center gap-1.5 rounded-full min-h-11 border border-line bg-surface px-3 text-sm font-medium text-ink transition-colors duration-150 hover:border-accent/50 hover:bg-accent-quiet hover:text-accent';
+const STATUS_BUTTON = 'inline-flex items-center gap-1 rounded-full min-h-11 border border-line bg-surface px-2.5 text-xs font-medium text-ink transition-colors duration-150';
+const CARD_LIST = '[&>li]:rounded-3xl [&>li]:border [&>li]:border-line [&>li]:shadow-sm [&>li]:transition-shadow [&>li]:duration-200 [&>li]:hover:shadow-md';
+const CARD_LINK = 'inline-flex items-center gap-1.5 text-sm font-medium transition-colors hover:text-accent-dark';
+
 function stopDisplayName(waypoint: WaypointPayload): string {
   return waypoint.isHq ? cleanTitle(waypoint.label, 'HQ') : taskLocation(waypoint.locality, waypoint.targetPoint ?? waypoint.point);
 }
@@ -256,7 +277,7 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
   const dailyUnplanned = plan?.unplanned ?? [];
   // Unassigned tasks the manager can add to a dispatch by hand.
   const addableTasks = dailyUnplanned.filter((job) => job.disposition !== 'committed')
-    .map((job) => ({ workOrderId: job.workOrderId, label: taskLocation(job.locality, job.point) }));
+    .map((job) => ({ workOrderId: job.workOrderId, label: taskLocation(job.locality, job.point), taskType: job.taskType, pestType: job.pestType }));
   // A proposal alone is not evidence of road access. Only validated road-plan stops belong here.
   const roadRoutes = routes.filter((r) => r.route.source === 'onemap' && isUsableDrivingRoute({
     ...r.route, coordinates: r.route.coordinates.map((p) => new GeoPoint(p.latitude, p.longitude)),
@@ -265,7 +286,7 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
 
   const mapRoutes: MapRoute[] = displayedRoutes.map((r) => ({
     teamId: r.teamId,
-    color: r.color || '#2563EB',
+    color: r.color || '#4CC9F0',
     label: `${r.totalStopsCount} stops · ${Math.round(r.totalDurationSeconds / 60)}m`,
     coordinates: r.route.coordinates,
     walkingSegments: (r.route.walkingVisits ?? []).flatMap((visit) => [visit.outbound, visit.return]
@@ -382,16 +403,17 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
 
   return (
     <section className="dispatch-screen" data-screen="DispatchProposal" data-requirement="11.2.16">
-      {props.embedded ? <h2>Dispatch <span data-part="selected-day">{selectedDay}</span></h2>
-        : <h1>Dispatch <span data-part="selected-day">{selectedDay}</span></h1>}
-      <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <div>
-          <label htmlFor="date" style={{ marginRight: '8px', fontWeight: 600 }}>
-            Horizon start:
+      {props.embedded ? <h2 className="tracking-tight">Dispatch <span data-part="selected-day" className="font-normal text-ink-quiet">{selectedDay}</span></h2>
+        : <h1 className="text-2xl font-bold tracking-tight sm:text-[2rem]">Dispatch <span data-part="selected-day" className="font-normal text-ink-quiet">{selectedDay}</span></h1>}
+      <div className="mb-4 flex flex-wrap items-end gap-4 rounded-3xl border border-line bg-surface p-5 shadow-sm">
+        <div className="flex min-w-40 flex-col gap-1">
+          <label htmlFor="date" className={CONTROL_LABEL}>
+            <CalendarDays size={14} aria-hidden="true" /> Horizon start:
           </label>
           <input
             id="date"
             type="date"
+            className={CONTROL}
             value={date}
             onChange={(event) => {
               setDate(event.target.value);
@@ -400,35 +422,36 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
             }}
           />
         </div>
-        <div>
-          <label htmlFor="dispatch-day" style={{ marginRight: '8px', fontWeight: 600 }}>Show day:</label>
-          <select id="dispatch-day" value={selectedDay} onChange={(event) => { setSelectedDay(event.target.value); setCurrentPage(1); }}>
+        <div className="flex min-w-40 flex-col gap-1">
+          <label htmlFor="dispatch-day" className={CONTROL_LABEL}><Eye size={14} aria-hidden="true" /> Show day:</label>
+          <select id="dispatch-day" className={CONTROL} value={selectedDay} onChange={(event) => { setSelectedDay(event.target.value); setCurrentPage(1); }}>
             {Array.from({ length: days }, (_, offset) => dateOffset(date, offset)).map((day, index) => <option key={day} value={day}>Day {index + 1} · {day}</option>)}
           </select>
         </div>
-        <div>
-          <label htmlFor="horizon-days" style={{ marginRight: '8px', fontWeight: 600 }}>Planning horizon:</label>
-          <select id="horizon-days" value={days} onChange={(event) => { setDays(Number(event.target.value)); setSelectedDay(date); }}>
+        <div className="flex min-w-40 flex-col gap-1">
+          <label htmlFor="horizon-days" className={CONTROL_LABEL}><Layers size={14} aria-hidden="true" /> Planning horizon:</label>
+          <select id="horizon-days" className={CONTROL} value={days} onChange={(event) => { setDays(Number(event.target.value)); setSelectedDay(date); }}>
             {[1, 2, 3, 4, 5, 6, 7].map((count) => <option key={count} value={count}>{count} {count === 1 ? 'day' : 'days'}</option>)}
           </select>
         </div>
 
-        <nav aria-label="Dispatch views" data-part="dispatch-tabs">
-          <button type="button" aria-pressed={view === 'routes'} onClick={() => setView('routes')}>Routes ({roadRoutes.length})</button>
-          <button type="button" aria-pressed={view === 'unassigned'} onClick={() => setView('unassigned')}>Unassigned / committed ({horizonOnlyUnassigned.length} / {horizonCommitted.length})</button>
-          <button type="button" aria-pressed={view === 'proposals'} onClick={() => setView('proposals')}>Proposals ({visibleProposals.length})</button>
+        <nav aria-label="Dispatch views" data-part="dispatch-tabs" className="flex flex-wrap gap-1 rounded-full border border-line bg-ground p-1 lg:ml-auto">
+          <button type="button" className={TAB} aria-pressed={view === 'routes'} onClick={() => setView('routes')}><Route size={16} aria-hidden="true" />Routes ({roadRoutes.length})</button>
+          <button type="button" className={TAB} aria-pressed={view === 'unassigned'} onClick={() => setView('unassigned')}><Inbox size={16} aria-hidden="true" />Unassigned / committed ({horizonOnlyUnassigned.length} / {horizonCommitted.length})</button>
+          <button type="button" className={TAB} aria-pressed={view === 'proposals'} onClick={() => setView('proposals')}><ListChecks size={16} aria-hidden="true" />Proposals ({visibleProposals.length})</button>
         </nav>
       </div>
-      <div className="dispatch-filters">
+      <div className="dispatch-filters mb-4 flex flex-wrap gap-3">
         {([
           ['HQ', hqOptions, selectedHqs, setSelectedHqs],
           ['Job Type', typeOptions, selectedTypes, setSelectedTypes],
         ] as const).map(([title, options, selection, setSelection]) => (
-          <fieldset key={title} data-filter={title === 'HQ' ? 'hq' : 'job-type'}>
-            <legend>{title}</legend>
-            <label><input type="checkbox" checked={selection === null || (options.length > 0 && options.every((option) => selection.includes(option)))}
+          <fieldset key={title} data-filter={title === 'HQ' ? 'hq' : 'job-type'}
+            className="m-0 flex min-w-0 flex-wrap gap-x-4 gap-y-0 rounded-3xl border border-line bg-surface px-5 pt-1 pb-2 shadow-sm">
+            <legend className={`${CONTROL_LABEL} px-1`}><Filter size={14} aria-hidden="true" /> {title}</legend>
+            <label className={FILTER_OPTION}><input type="checkbox" checked={selection === null || (options.length > 0 && options.every((option) => selection.includes(option)))}
               onChange={(event) => { setSelection(event.target.checked ? null : []); setCurrentPage(1); }} /> All</label>
-            {options.map((option) => <label key={option}><input type="checkbox" value={option}
+            {options.map((option) => <label key={option} className={FILTER_OPTION}><input type="checkbox" value={option}
               checked={selection === null || selection.includes(option)}
               onChange={(event) => { setSelection(event.target.checked ? [...(selection ?? options), option] : (selection ?? options).filter((item) => item !== option)); setCurrentPage(1); }} />
               {option === '__unassigned' ? 'Unassigned / HQ not recorded' : option === '__unknown' ? 'Type not recorded' : label(option)}
@@ -436,37 +459,45 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
           </fieldset>
         ))}
       </div>
-      {assignmentNotice ? <p role="status" data-part="assignment-notice">{assignmentNotice}</p> : null}
+      {assignmentNotice ? <p role="status" data-part="assignment-notice"
+        className="flex items-center gap-2 rounded-full border border-accent/30 bg-accent-quiet px-4 py-2 text-sm text-accent"><CircleCheck size={16} aria-hidden="true" />{assignmentNotice}</p> : null}
       <SavedDispatches key={selectedDay} api={props.api} date={selectedDay} candidates={addableTasks}
         onSaved={(result) => { setAssignmentNotice(`Dispatch updated · ${result.workOrderIds.length} tasks. Route, crew and vehicle saved.`); routesLoad.retry(); }} />
-      <section className="dispatch-map" aria-label="Dispatch map">
-        <h2 title={view === 'routes' ? 'Full planned route' : undefined}>{view === 'routes' ? 'Routes' : view === 'unassigned' ? 'Horizon tasks' : 'Daily proposals'} <small>{mapTasks.length} locations</small></h2>
-        {view !== 'routes' ? <p className="dispatch-map-note">{view === 'proposals' ? 'Candidate locations' : 'Recorded task locations'} · Road access not verified</p> : null}
+      {/*
+        The map heading and the map's own toolbar float over the canvas in frosted panels on a wide
+        screen. On a phone they stay in the flow above it, where they cannot cover the map.
+      */}
+      <section className={MAP_SECTION} aria-label="Dispatch map">
+        <div className="pointer-events-none mb-2 sm:absolute sm:top-3 sm:left-14 sm:z-[500] sm:mb-0 sm:max-w-[calc(100%-26rem)] sm:rounded-2xl sm:border sm:border-line sm:bg-surface/80 sm:px-4 sm:py-2 sm:shadow-lg sm:backdrop-blur-md">
+          <h2 className="m-0 flex flex-wrap items-baseline gap-x-2 text-lg font-semibold tracking-tight" title={view === 'routes' ? 'Full planned route' : undefined}>{view === 'routes' ? 'Routes' : view === 'unassigned' ? 'Horizon tasks' : 'Daily proposals'} <small className="text-xs font-normal text-ink-quiet">{mapTasks.length} locations</small></h2>
+          {view !== 'routes' ? <p className="dispatch-map-note m-0 flex items-center gap-1 text-xs text-ink-quiet"><TriangleAlert size={12} aria-hidden="true" />{view === 'proposals' ? 'Candidate locations' : 'Recorded task locations'} · Road access not verified</p> : null}
+        </div>
         <SingaporeMap label="dispatch-routes-map" viewKey={photoScope} showClusterBadges={false}
           clusters={[]} routes={view === 'routes' ? mapRoutes : []} tasks={mapTasks} onTaskOpen={openTask} onTaskDetail={openTaskDetail} size="tall"
           onRejectReport={async (id, reason) => { await props.api.post(`/api/ops/moderation/${encodeURIComponent(id)}/reject`, { reason }); routesLoad.retry(); retry(); }} />
-        {unavailableTasks.length > 0 ? <p className="dispatch-map-note">{unavailableTasks.length} locations unavailable</p> : null}
+        {unavailableTasks.length > 0 ? <p className="dispatch-map-note mt-1 mb-0 text-sm text-ink-quiet">{unavailableTasks.length} locations unavailable</p> : null}
       </section>
       {openedTask === null ? null : (
-        <section data-part="task-detail" aria-label="Task detail">
-          <h2>{openedTask.location}</h2>
-          <p>Pest: {openedTask.pestType ? label(openedTask.pestType) : 'Not recorded'} · Task: {openedTask.taskType ? label(openedTask.taskType) : 'Not recorded'} · Priority: {openedTask.priority ?? 'Not recorded'}</p>
-          <p>Team: {openedTask.assignmentState === 'unassigned' ? 'Unassigned' : openedTask.teamLabel ?? 'Team not recorded'}{openedTask.assignmentState === 'planned' ? ' (planned)' : ''}</p>
+        <dialog ref={(el) => { if (el && !el.open) el.showModal(); }} data-part="task-detail" aria-label="Task detail" onClose={() => setOpenedTask(null)}
+          className="max-w-lg rounded-2xl border border-line bg-surface p-6 text-ink shadow-xl backdrop:bg-ground/70 backdrop:backdrop-blur-sm">
+          <h2 className="mt-0 tracking-tight">{openedTask.location}</h2>
+          <p className="text-sm text-ink-quiet">Pest: {openedTask.pestType ? label(openedTask.pestType) : 'Not recorded'} · Task: {openedTask.taskType ? label(openedTask.taskType) : 'Not recorded'} · Priority: {openedTask.priority ?? 'Not recorded'}</p>
+          <p className="text-sm text-ink-quiet">Team: {openedTask.assignmentState === 'unassigned' ? 'Unassigned' : openedTask.teamLabel ?? 'Team not recorded'}{openedTask.assignmentState === 'planned' ? ' (planned)' : ''}</p>
           <ScoreBreakdown explanation={openedTask.scoreExplanation} />
-          <button type="button" onClick={() => setOpenedTask(null)}>Close task</button>
-        </section>
+          <button type="button" className={`${GHOST_BUTTON} mt-4`} onClick={() => setOpenedTask(null)}><X size={16} aria-hidden="true" />Close task</button>
+        </dialog>
       )}
-            <div data-part="dispatch-status" aria-live="polite">
-        {horizon?.planStatus === 'pending' || plan?.planStatus === 'pending' ? <span className="dispatch-status-chip" role="status" title="Routes are being prepared">Pending</span> : null}
-        {horizon?.planStatus === 'refreshing' || plan?.planStatus === 'refreshing' ? <span className="dispatch-status-chip" role="status" title="The previous completed plan remains available">Updating</span> : null}
-        {horizon?.computedAt ? <span className="dispatch-status-chip" title={horizon.planningDurationSeconds != null ? `Calculation took ${horizon.planningDurationSeconds.toFixed(1)} seconds` : undefined}>Updated {new Date(horizon.computedAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })} SGT</span> : null}
-        {horizon?.availabilityAssumption ? <span className="dispatch-status-chip" title={horizon.availabilityAssumption}>Availability assumed</span> : null}
-        {horizon?.planStatus === 'failed' ? <span className="dispatch-status-chip" role="alert" title={horizon.error ?? 'Dispatch calculation failed'}>Failed <button type="button" onClick={routesLoad.retry}>Retry</button></span> : null}
+      <div data-part="dispatch-status" aria-live="polite" className="flex flex-wrap items-center">
+        {horizon?.planStatus === 'pending' || plan?.planStatus === 'pending' ? <span className="dispatch-status-chip" role="status" title="Routes are being prepared"><LoaderCircle size={14} className="motion-safe:animate-spin" aria-hidden="true" />Pending</span> : null}
+        {horizon?.planStatus === 'refreshing' || plan?.planStatus === 'refreshing' ? <span className="dispatch-status-chip" role="status" title="The previous completed plan remains available"><RefreshCw size={14} className="motion-safe:animate-spin" aria-hidden="true" />Updating</span> : null}
+        {horizon?.computedAt ? <span className="dispatch-status-chip" title={horizon.planningDurationSeconds != null ? `Calculation took ${horizon.planningDurationSeconds.toFixed(1)} seconds` : undefined}><Clock size={14} aria-hidden="true" />Updated {new Date(horizon.computedAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })} SGT</span> : null}
+        {horizon?.availabilityAssumption ? <span className="dispatch-status-chip" title={horizon.availabilityAssumption}><Info size={14} aria-hidden="true" />Availability assumed</span> : null}
+        {horizon?.planStatus === 'failed' ? <span className="dispatch-status-chip text-tier-high" role="alert" title={horizon.error ?? 'Dispatch calculation failed'}><TriangleAlert size={14} aria-hidden="true" />Failed <button type="button" onClick={routesLoad.retry}>Retry</button></span> : null}
       </div>
-      <p><a href="/ops/vehicles" onClick={link(props, '/ops/vehicles')}>Vehicles &amp; load limits</a></p>
+      <p><a href="/ops/vehicles" onClick={link(props, '/ops/vehicles')} className="inline-flex items-center gap-1.5 text-sm font-medium no-underline transition-colors hover:text-accent-dark hover:underline"><Truck size={16} aria-hidden="true" />Vehicles &amp; load limits</a></p>
 
 
-      <details className="dispatch-details" key={view}><summary>Task details and actions</summary>
+      <details className="dispatch-details group mt-3 border-t border-line" key={view}><summary className="flex cursor-pointer list-none items-center gap-2 py-3 font-semibold tracking-tight transition-colors hover:text-accent [&::-webkit-details-marker]:hidden"><ChevronRight size={16} className="transition-transform duration-200 group-open:rotate-90" aria-hidden="true" />Task details and actions</summary>
       {view === 'routes' ? (
         <StateView state={plan?.computedAt && routes.length > 0 ? { kind: 'ready' } : routesLoad.state} onRetry={routesLoad.retry}>
           <section aria-label="Planned inspection routes" data-part="planned-routes">
@@ -474,7 +505,7 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
             {plan && !['pending', 'refreshing', 'failed'].includes(plan.planStatus ?? 'ready') &&
               routes.length === 0 && dailyUnplanned.length === 0 ?
               <p>No eligible tasks are waiting for this date.</p> : null}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
+            <div className="grid grid-cols-1 gap-5">
               {displayedRoutes.map((planned) => {
                 const totalStops = planned.waypointOrder.filter((wp) => !wp.isHq).length;
                 let completedStops = 0;
@@ -497,53 +528,21 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                   <article
                     key={planned.teamId}
                     data-team={planned.teamId}
-                    style={{
-                      border: `2px solid ${planned.color || '#cbd5e1'}`,
-                      borderRadius: '10px',
-                      padding: '18px',
-                      background: '#ffffff',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-                    }}
+                    // The team colour is data, so it stays inline; everything else is a utility.
+                    style={{ borderLeftColor: planned.color || 'var(--line)' }}
+                    className="rounded-3xl border border-l-4 border-line bg-surface p-4 shadow-sm transition-shadow duration-200 hover:shadow-md sm:p-6"
                   >
                     {/* Header: Team & Status */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: '8px',
-                        borderBottom: '1px solid #f1f5f9',
-                        paddingBottom: '12px',
-                        marginBottom: '12px',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span
-                          style={{
-                            width: '16px',
-                            height: '16px',
-                            borderRadius: '50%',
-                            background: planned.color,
-                            display: 'inline-block',
-                          }}
-                        />
-                        <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{cleanTitle(planned.teamId, 'Field team')}</h2>
-                        <span
-                          style={{
-                            background: '#f1f5f9',
-                            color: '#334155',
-                            padding: '2px 8px',
-                            borderRadius: '12px',
-                            fontSize: '0.8rem',
-                            fontWeight: 600,
-                          }}
-                        >
-                          🏢 {cleanTitle(planned.depotLocation, 'Depot')} Depot
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <span className="inline-block size-3 rounded-full ring-2 ring-surface" style={{ background: planned.color }} />
+                        <h2 className="m-0 text-xl font-semibold tracking-tight">{cleanTitle(planned.teamId, 'Field team')}</h2>
+                        <span className={`${CHIP} bg-accent-quiet text-accent`}>
+                          <Building2 size={13} aria-hidden="true" />{cleanTitle(planned.depotLocation, 'Depot')} Depot
                         </span>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div className="flex flex-wrap items-center gap-2">
                         <Pill
                           tone={
                             planned.status === 'Available'
@@ -557,27 +556,19 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                             ? `On Call (+${planned.onCallLagHours}h lag)`
                             : planned.status}
                         </Pill>
-                        <span
-                          style={{
-                            background: planned.isWithinFourHourCap ? '#dcfce7' : '#fee2e2',
-                            color: planned.isWithinFourHourCap ? '#166534' : '#991b1b',
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            fontSize: '0.82rem',
-                            fontWeight: 600,
-                          }}
-                        >
-                          ⏱️ {hours}h {minutes}m / 4h 00m cap ({planned.capacityUsedPercentage}%)
+                        <span className={`${CHIP} ${planned.isWithinFourHourCap ? 'bg-tier-low/14 text-tier-low' : 'bg-tier-high/14 text-tier-high'}`}>
+                          <Timer size={13} aria-hidden="true" />{hours}h {minutes}m / 4h 00m cap ({planned.capacityUsedPercentage}%)
                         </span>
                       </div>
                     </div>
 
                     {/* Operational Summary */}
-                    <div className="dispatch-crew-members" data-part="crew-members">
-                      {planned.crewMembers?.length ? planned.crewMembers.map((member) => <span key={member.id} data-crew-id={member.id}>
-                        <img src={staffPhotoUrl(member.email, 'CleaningCrew')} alt="Reference portrait" />
+                    <div className="dispatch-crew-members my-2 flex flex-wrap gap-2" data-part="crew-members">
+                      {planned.crewMembers?.length ? planned.crewMembers.map((member) => <span key={member.id} data-crew-id={member.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-line bg-ground py-1 pr-3 pl-1 text-sm transition-colors hover:border-accent/40">
+                        <img src={staffPhotoUrl(member.email, 'CleaningCrew')} alt="Reference portrait" className="size-8 rounded-full object-cover" />
                         {staffDisplayName(member.email, 'CleaningCrew', member.displayName)}
-                      </span>) : <span>{planned.staffCount ?? '?'} staff · names not recorded</span>}
+                      </span>) : <span className="inline-flex items-center gap-1.5 text-sm text-ink-quiet"><Users size={14} aria-hidden="true" />{planned.staffCount ?? '?'} staff · names not recorded</span>}
                     </div>
                     <DispatchAssignmentEditor key={`${selectedDay}:${planned.teamId}:${planned.workOrderIds.join(',')}`}
                       api={props.api} date={selectedDay} teamId={planned.teamId}
@@ -586,95 +577,61 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                       candidates={addableTasks}
                       onAssigned={(result) => { setAssignmentNotice(`Dispatch assigned · ${result.workOrderIds.length} tasks. Crew and vehicle saved.`); routesLoad.retry(); }} />
                     {planned.vehicleId ? (
-                      <section aria-label="Assigned vehicle and cargo load">
-                        {planned.vehiclePhotoUrl ? <figure className="dispatch-vehicle-photo"><img src={planned.vehiclePhotoUrl} alt={`${planned.vehicleModel || 'Vehicle'} reference photo`}
-                          onError={(event) => { event.currentTarget.hidden = true; }} /><figcaption>Model reference photo</figcaption></figure> : null}
-                        <p><strong title={planned.vehicleRegistration}>{cleanTitle(planned.vehicleModel || planned.vehicleName, 'Assigned vehicle')}</strong>{' '}
+                      <section aria-label="Assigned vehicle and cargo load" className="my-3 rounded-xl border border-line bg-ground p-4 text-sm">
+                        {planned.vehiclePhotoUrl ? <figure className="dispatch-vehicle-photo m-0 mb-2"><img src={planned.vehiclePhotoUrl} alt={`${planned.vehicleModel || 'Vehicle'} reference photo`}
+                          className="h-36 w-full max-w-80 rounded-lg object-cover"
+                          onError={(event) => { event.currentTarget.hidden = true; }} /><figcaption className="text-xs text-ink-quiet">Model reference photo</figcaption></figure> : null}
+                        <p className="m-0 flex flex-wrap items-center gap-2"><Truck size={16} className="text-ink-quiet" aria-hidden="true" /><strong title={planned.vehicleRegistration} className="tracking-tight">{cleanTitle(planned.vehicleModel || planned.vehicleName, 'Assigned vehicle')}</strong>{' '}
                           {planned.isDemoVehicle ? <Pill tone="warn">Illustrative capacity</Pill> : null}</p>
-                        <p>Payload: {planned.loadWeightKg?.toFixed(1)} / {planned.maxPayloadKg?.toFixed(1)} kg
+                        <p className="mt-1 mb-0 text-ink-quiet">Payload: {planned.loadWeightKg?.toFixed(1)} / {planned.maxPayloadKg?.toFixed(1)} kg
                           {planned.loadWeightPercentage != null ? ` (${planned.loadWeightPercentage.toFixed(1)}%)` : ''}.
                           {' '}Cargo volume: {planned.loadVolumeM3?.toFixed(3)} / {planned.maxCargoVolumeM3?.toFixed(3)} m³
                           {planned.loadVolumePercentage != null ? ` (${planned.loadVolumePercentage.toFixed(1)}%)` : ''}.</p>
                         {planned.loadBasis ? <span title={planned.loadBasis}>Load basis</span> : null}
                       </section>
                     ) : null}
-                    <span title={planned.route.source === 'onemap' ? 'Provider-verified road route' : 'Direct-distance estimate'}>{planned.route.source === 'onemap' ? 'Verified route' : 'Estimated route'}</span>
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '16px',
-                        fontSize: '0.88rem',
-                        color: '#475569',
-                        marginBottom: '14px',
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <span>📍 <strong>{totalStops}</strong> stops</span>
-                      <span>🚗 <strong>{(planned.route.distanceMetres / 1000).toFixed(1)} km</strong> total travel
+                    <span className={`${CHIP} mb-3 border border-line text-ink-quiet`} title={planned.route.source === 'onemap' ? 'Provider-verified road route' : 'Direct-distance estimate'}>
+                      {planned.route.source === 'onemap' ? <ShieldCheck size={13} aria-hidden="true" /> : <Navigation size={13} aria-hidden="true" />}
+                      {planned.route.source === 'onemap' ? 'Verified route' : 'Estimated route'}</span>
+                    <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink-quiet [&_strong]:text-ink">
+                      <span className={METRIC}><MapPin size={15} aria-hidden="true" /><span><strong>{totalStops}</strong> stops</span></span>
+                      <span className={METRIC}><Car size={15} aria-hidden="true" /><span><strong>{(planned.route.distanceMetres / 1000).toFixed(1)} km</strong> total travel
                         {walkingDistanceMetres > 0 ? ` (${(drivingDistanceMetres / 1000).toFixed(1)} km driving + ${(walkingDistanceMetres / 1000).toFixed(1)} km walking)` : ''}
-                        {' '}({Math.round((planned.route.drivingDurationSeconds ?? planned.route.durationSeconds) / 60)} min driving)</span>
-                      {(planned.route.walkingDurationSeconds ?? 0) > 0 ? <span>🚶 <strong>{Math.round((planned.route.walkingDurationSeconds ?? 0) / 60)} min</strong> verified walking access and return</span> : null}
-                      <span>🛠️ <strong>{Math.round(planned.totalEffortSeconds / 60)} min</strong> on-site effort</span>
+                        {' '}({Math.round((planned.route.drivingDurationSeconds ?? planned.route.durationSeconds) / 60)} min driving)</span></span>
+                      {(planned.route.walkingDurationSeconds ?? 0) > 0 ? <span className={METRIC}><Footprints size={15} aria-hidden="true" /><span><strong>{Math.round((planned.route.walkingDurationSeconds ?? 0) / 60)} min</strong> verified walking access and return</span></span> : null}
+                      <span className={METRIC}><Wrench size={15} aria-hidden="true" /><span><strong>{Math.round(planned.totalEffortSeconds / 60)} min</strong> on-site effort</span></span>
                       {planned.onCallLagHours > 0 ? (
-                        <span>⏳ <strong>{planned.onCallLagHours}h</strong> mobilization lag</span>
+                        <span className={METRIC}><Hourglass size={15} aria-hidden="true" /><span><strong>{planned.onCallLagHours}h</strong> mobilization lag</span></span>
                       ) : null}
                     </div>
 
                     {/* Only an explicit route instruction adds an intermediate depot return. */}
-                    {hasExplicitBaseReturn ? <span className="dispatch-status-chip" title="A route instruction adds the intermediate depot return; vehicle load limits otherwise guide allocation.">Depot return required</span> : null}
+                    {hasExplicitBaseReturn ? <span className="dispatch-status-chip" title="A route instruction adds the intermediate depot return; vehicle load limits otherwise guide allocation."><Warehouse size={14} aria-hidden="true" />Depot return required</span> : null}
 
                     {/* Progress Bar */}
-                    <div style={{ marginBottom: '16px' }}>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          fontSize: '0.86rem',
-                          fontWeight: 600,
-                          marginBottom: '6px',
-                        }}
-                      >
+                    <div className="mb-4">
+                      <div className="mb-1.5 flex justify-between text-sm font-semibold">
                         <span>
                           Dispatch Progress: {completedStops} of {totalStops} stops completed
                         </span>
-                        <span>{progressPct}%</span>
+                        <span className="tabular-nums text-ink-quiet">{progressPct}%</span>
                       </div>
-                      <div
-                        style={{
-                          width: '100%',
-                          height: '10px',
-                          background: '#e2e8f0',
-                          borderRadius: '5px',
-                          overflow: 'hidden',
-                        }}
-                      >
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-line">
                         <div
+                          className="h-full rounded-full transition-[width] duration-300 ease-out"
+                          // Width and team colour are data, so they stay inline.
                           style={{
                             width: `${progressPct}%`,
-                            height: '100%',
-                            background:
-                              progressPct === 100
-                                ? '#16a34a'
-                                : `linear-gradient(90deg, ${planned.color || '#2563eb'}, #10b981)`,
-                            transition: 'width 0.3s ease',
+                            background: progressPct === 100 ? 'var(--tier-low)' : `linear-gradient(90deg, ${planned.color || 'var(--accent)'}, var(--tier-low))`,
                           }}
                         />
                       </div>
                     </div>
 
                     {/* Waypoint Step Tracker */}
-                    <div style={{ marginBottom: '16px' }}>
-                      <h3 style={{ fontSize: '0.95rem', marginBottom: '8px', color: '#1e293b' }}>Stops</h3>
-                      <ol
-                        style={{
-                          listStyle: 'none',
-                          padding: 0,
-                          margin: 0,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '8px',
-                        }}
-                      >
+                    <div className="mb-4">
+                      <h3 className="mt-0 mb-2 text-sm font-semibold tracking-tight text-ink">Stops</h3>
+                      <ol className="m-0 flex list-none flex-col gap-2 p-0">
                         {planned.waypointOrder.map((waypoint, index) => {
                           if (!waypoint.isHq && (!accepts(planned.teamId, waypoint.taskType) || (stopOverrides[`${selectedDay}:${planned.teamId}-${index}`] ?? waypoint.status) === 'Completed')) return null;
                           const overrideKey = `${selectedDay}:${planned.teamId}-${index}`;
@@ -687,83 +644,41 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                               key={`${waypoint.label}-${index}`}
                               data-work-order-id={!waypoint.isHq ? waypoint.workOrderId : undefined}
                               data-priority={!waypoint.isHq ? waypoint.priority : undefined}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '8px 12px',
-                                background: waypoint.isHq
-                                  ? '#f8fafc'
-                                  : isDone
-                                  ? '#f0fdf4'
-                                  : isInProg
-                                  ? '#eff6ff'
-                                  : '#ffffff',
-                                border: `1px solid ${
-                                  waypoint.isHq
-                                    ? '#e2e8f0'
-                                    : isDone
-                                    ? '#bbf7d0'
-                                    : isInProg
-                                    ? '#bfdbfe'
-                                    : '#e2e8f0'
-                                }`,
-                                borderRadius: '6px',
-                                fontSize: '0.86rem',
-                                flexWrap: 'wrap',
-                                gap: '8px',
-                              }}
+                              className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition-colors duration-150 ${
+                                waypoint.isHq ? 'border-line bg-ground'
+                                  : isDone ? 'border-tier-low/40 bg-tier-low/14'
+                                  : isInProg ? 'border-accent/40 bg-accent-quiet'
+                                  : 'border-line bg-surface hover:border-accent/40'}`}
                             >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '1.1rem' }}>
-                                  {waypoint.isHq
-                                    ? '🏢'
-                                    : waypoint.requiresBaseReturn
-                                    ? '🐍'
-                                    : isDone
-                                    ? '✅'
-                                    : isInProg
-                                    ? '⏳'
-                                    : '⚪'}
-                                </span>
-                                <div>
-                                  <img src={taskReferenceImage(waypoint.taskType, waypoint.pestType)} alt="Reference image; not incident evidence" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-                                  <strong style={{ color: isDone ? '#166534' : '#0f172a' }}>{stopDisplayName(waypoint)}
+                              <div className="flex min-w-0 items-center gap-2.5">
+                                {waypoint.isHq ? <Building2 size={18} className="shrink-0 text-ink-quiet" aria-hidden="true" />
+                                  : waypoint.requiresBaseReturn ? <PawPrint size={18} className="shrink-0 text-tier-medium" aria-hidden="true" />
+                                  : isDone ? <CircleCheck size={18} className="shrink-0 text-tier-low" aria-hidden="true" />
+                                  : isInProg ? <Hourglass size={18} className="shrink-0 text-accent" aria-hidden="true" />
+                                  : <Circle size={18} className="shrink-0 text-ink-quiet" aria-hidden="true" />}
+                                <div className="min-w-0">
+                                  <img src={taskReferenceImage(waypoint.taskType, waypoint.pestType)} alt="Reference image; not incident evidence"
+                                    className="mr-2 inline-block size-10 rounded-md object-cover align-middle outline outline-1 -outline-offset-1 outline-white/10" />
+                                  <strong className={isDone ? 'text-tier-low' : 'text-ink'}>{stopDisplayName(waypoint)}
                                   </strong>
-                                  {!waypoint.isHq ? <small style={{ display: 'block' }}>Reference · {label(waypoint.pestType ?? 'Unknown')} · {label(waypoint.taskType ?? 'Unknown')}</small> : null}
+                                  {!waypoint.isHq ? <small className="block text-xs text-ink-quiet">Reference · {label(waypoint.pestType ?? 'Unknown')} · {label(waypoint.taskType ?? 'Unknown')}</small> : null}
                                   {(() => {
                                     const task = waypoint.isHq ? undefined : routeTasks.find((t) => t.id === (waypoint.workOrderId ?? `${selectedDay}:${planned.teamId}:${index}`));
-                                    return task ? <button type="button" data-part="open-task" onClick={() => openTaskDetail(task)}>Open task</button> : null;
+                                    return task ? <button type="button" data-part="open-task" className={`${GHOST_BUTTON} mt-1 text-xs`} onClick={() => openTaskDetail(task)}><ExternalLink size={14} aria-hidden="true" />Open task</button> : null;
                                   })()}
-                                  {waypoint.isAreaAccess ? <small style={{ display: 'block', color: '#475569', marginTop: '2px' }} title="Provider-verified road entry inside the authorised service area.">Area access point</small> : null}
+                                  {waypoint.isAreaAccess ? <small className="mt-0.5 block text-xs text-ink-quiet" title="Provider-verified road entry inside the authorised service area.">Area access point</small> : null}
                                   {waypoint.priority ? (
-                                    <span
-                                      style={{
-                                        marginLeft: '8px',
-                                        padding: '1px 6px',
-                                        borderRadius: '4px',
-                                        fontSize: '0.74rem',
-                                        fontWeight: 600,
-                                        background:
-                                          waypoint.priority === 'Critical'
-                                            ? '#fee2e2'
-                                            : waypoint.priority === 'High'
-                                            ? '#ffedd5'
-                                            : '#f1f5f9',
-                                        color:
-                                          waypoint.priority === 'Critical'
-                                            ? '#991b1b'
-                                            : waypoint.priority === 'High'
-                                            ? '#9a3412'
-                                            : '#334155',
-                                      }}
-                                    >
+                                    <span className={`${CHIP} ml-2 ${
+                                      waypoint.priority === 'Critical' ? 'bg-tier-high/14 text-tier-high'
+                                        : waypoint.priority === 'High' ? 'bg-tier-medium/14 text-tier-medium'
+                                        : 'bg-line/60 text-ink-quiet'}`}>
                                       {waypoint.priority} priority
                                     </span>
                                   ) : null}
-                                  {waypoint.isDemo ? <span style={{ marginLeft: '8px' }}><Pill tone="warn">DEMO</Pill></span> : null}
+                                  {waypoint.isDemo ? <span className="ml-2"><Pill tone="warn">DEMO</Pill></span> : null}
                                   {waypoint.estimatedEffortMinutes > 0 ? (
-                                    <span style={{ marginLeft: '8px', color: '#64748b', fontSize: '0.78rem' }}>
+                                    <span className="ml-2 inline-flex items-center gap-1 text-xs text-ink-quiet">
+                                      <Timer size={12} aria-hidden="true" />
                                       Effort: {waypoint.estimatedEffortMinutes} mins
                                       {waypoint.requiredStaff ? ` · ${waypoint.requiredStaff} staff required` : ''}
                                     </span>
@@ -772,49 +687,25 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                               </div>
 
                               {!waypoint.isHq ? (
-                                <div style={{ display: 'flex', gap: '4px' }}>
+                                <div className="flex gap-1">
                                   <button
                                     type="button"
                                     onClick={() => updateStopStatus(planned.teamId, index, 'Completed')}
-                                    style={{
-                                      padding: '3px 8px',
-                                      fontSize: '0.75rem',
-                                      background: isDone ? '#16a34a' : '#f8fafc',
-                                      color: isDone ? '#ffffff' : '#334155',
-                                      border: '1px solid #cbd5e1',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                    }}
+                                    className={`${STATUS_BUTTON} ${isDone ? 'border-tier-low bg-tier-low text-ground' : 'hover:border-tier-low hover:text-tier-low'}`}
                                   >
-                                    Done ✓
+                                    <Check size={14} aria-hidden="true" />Done
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => updateStopStatus(planned.teamId, index, 'InProgress')}
-                                    style={{
-                                      padding: '3px 8px',
-                                      fontSize: '0.75rem',
-                                      background: isInProg ? '#2563eb' : '#f8fafc',
-                                      color: isInProg ? '#ffffff' : '#334155',
-                                      border: '1px solid #cbd5e1',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                    }}
+                                    className={`${STATUS_BUTTON} ${isInProg ? 'border-accent-fill bg-accent-fill text-white' : 'hover:border-accent hover:text-accent'}`}
                                   >
                                     In Progress
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => updateStopStatus(planned.teamId, index, 'Pending')}
-                                    style={{
-                                      padding: '3px 8px',
-                                      fontSize: '0.75rem',
-                                      background: !isDone && !isInProg ? '#64748b' : '#f8fafc',
-                                      color: !isDone && !isInProg ? '#ffffff' : '#334155',
-                                      border: '1px solid #cbd5e1',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                    }}
+                                    className={`${STATUS_BUTTON} ${!isDone && !isInProg ? 'border-ink-quiet bg-ink-quiet text-ground' : 'hover:border-ink-quiet hover:text-ink'}`}
                                   >
                                     Pending
                                   </button>
@@ -827,47 +718,23 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                     </div>
 
                     {/* Logistics Equipment Packing List Toggle */}
-                    <div style={{ borderTop: '1px dashed #e2e8f0', paddingTop: '10px' }}>
+                    <div className="border-t border-dashed border-line pt-2.5">
                       <button
                         type="button"
                         onClick={() => togglePackingList(planned.teamId)}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#2563eb',
-                          fontWeight: 600,
-                          fontSize: '0.88rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '4px 0',
-                        }}
+                        className="flex items-center gap-1.5 border-0 bg-transparent px-0 text-sm font-semibold text-accent transition-colors hover:text-accent-dark"
                       >
-                        <span>🎒 Logistics & Equipment Packing List ({planned.packingList?.length ?? 0} items)</span>
-                        <span>{activePackingLists[planned.teamId] ? '▲ Hide' : '▼ View checklist'}</span>
+                        <span className="inline-flex items-center gap-1.5"><Backpack size={16} aria-hidden="true" />Logistics & Equipment Packing List ({planned.packingList?.length ?? 0} items)</span>
+                        <span className="inline-flex items-center gap-0.5 font-medium text-ink-quiet">{activePackingLists[planned.teamId]
+                          ? <><ChevronUp size={14} aria-hidden="true" />Hide</> : <><ChevronDown size={14} aria-hidden="true" />View checklist</>}</span>
                       </button>
 
                       {activePackingLists[planned.teamId] ? (
-                        <div
-                          style={{
-                            background: '#f8fafc',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '8px',
-                            padding: '12px',
-                            marginTop: '8px',
-                          }}
-                        >
-                          <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 10px 0' }}>
+                        <div className="mt-2 rounded-xl border border-line bg-ground p-3">
+                          <p className="mt-0 mb-2.5 text-xs text-ink-quiet">
                             Verify quantities and cargo dimensions before departure. Provisional item values are labelled below.
                           </p>
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                              gap: '8px',
-                            }}
-                          >
+                          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] gap-2">
                             {(planned.packingList ?? []).map((item, itemIdx) => {
                               const key = `${planned.teamId}-${itemIdx}-${item.item}`;
                               const isChecked = checkedGear[key] === true;
@@ -875,31 +742,22 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                               return (
                                 <label
                                   key={key}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '8px',
-                                    background: isChecked ? '#f0fdf4' : '#ffffff',
-                                    border: `1px solid ${isChecked ? '#bbf7d0' : '#e2e8f0'}`,
-                                    padding: '8px 10px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.82rem',
-                                    cursor: 'pointer',
-                                  }}
+                                  className={`flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors duration-150 ${
+                                    isChecked ? 'border-tier-low/40 bg-tier-low/14' : 'border-line bg-surface hover:border-accent/40'}`}
                                 >
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
                                     onChange={() => toggleGearItem(key)}
-                                    style={{ marginTop: '2px' }}
+                                    className="mt-0.5"
                                   />
                                   <div>
-                                    <span style={{ marginRight: '6px' }}>{item.icon}</span>
-                                    <strong style={{ textDecoration: isChecked ? 'line-through' : 'none' }}>
+                                    <span className="mr-1.5">{item.icon}</span>
+                                    <strong className={isChecked ? 'line-through' : ''}>
                                       {item.item}
                                     </strong>{' '}
-                                    <span style={{ color: '#0369a1', fontWeight: 600 }}>({item.quantity})</span>
-                                    <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '2px' }}>
+                                    <span className="font-semibold text-accent">({item.quantity})</span>
+                                    <div className="mt-0.5 text-[0.7rem] text-ink-quiet">
                                       {item.reason}
                                     </div>
                                     {item.lengthCm != null && item.widthCm != null && item.heightCm != null ? (
@@ -928,10 +786,10 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
       ) : view === 'unassigned' ? (
         <StateView state={routesLoad.state} onRetry={routesLoad.retry}>
           <section aria-label="Horizon-wide unassigned and committed tasks" data-part="unassigned-tasks">
-            <h2>Tasks unassigned across the {horizon?.days ?? days}-day horizon ({horizonOnlyUnassigned.length})</h2>
+            <h2 className="tracking-tight">Tasks unassigned across the {horizon?.days ?? days}-day horizon ({horizonOnlyUnassigned.length})</h2>
             <p>Horizon starts {horizon?.startDate ?? date}.</p>
             {horizonOnlyUnassigned.length === 0 ? <p>No tasks remain unassigned across this horizon.</p> : null}
-            <ul data-cards className="dispatch-task-cards">{horizonOnlyUnassigned.map((job) => (
+            <ul data-cards className={`dispatch-task-cards ${CARD_LIST}`}>{horizonOnlyUnassigned.map((job) => (
               <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority} data-disposition="unassigned">
                 <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {taskLocation(job.locality, job.point)}</strong>
                 <small>Reference · {label(job.pestType ?? 'Unknown')} · {label(job.taskType ?? 'Unknown')}</small>
@@ -941,9 +799,9 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                 {existingOrderPath(job.workOrderId) ? <> <a href={existingOrderPath(job.workOrderId)} onClick={link(props, existingOrderPath(job.workOrderId)!)}>Review work order</a></> : null}
               </li>
             ))}</ul>
-            <h3>Committed work ({horizonCommitted.length})</h3>
+            <h3 className="tracking-tight">Committed work ({horizonCommitted.length})</h3>
             {horizonCommitted.length === 0 ? <p>No committed items are reported for this horizon.</p> : null}
-            <ul data-cards className="dispatch-task-cards">{horizonCommitted.map((job) => (
+            <ul data-cards className={`dispatch-task-cards ${CARD_LIST}`}>{horizonCommitted.map((job) => (
               <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority} data-disposition="committed">
                 <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {taskLocation(job.locality, job.point)}</strong>
                 <small>Reference · {label(job.pestType ?? 'Unknown')} · {label(job.taskType ?? 'Unknown')} · {committedTeam(job.workOrderId)?.label ?? (job.teamId ? cleanTitle(job.teamId, 'Field team') : 'Team not recorded')}</small>
@@ -957,7 +815,7 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
       ) : (
         <StateView state={state} onRetry={retry}>
           <p aria-live="polite">{totalItems} proposals match this filter.</p>
-          <ol data-part="proposals" data-cards className="dispatch-task-cards">
+          <ol data-part="proposals" data-cards className={`dispatch-task-cards ${CARD_LIST}`}>
             {pagedItems.map((proposal) => (
               <li key={`${proposal.sourceReportId ?? proposal.clusterId}-${proposal.pestType ?? 'Mosquito'}`} data-tier={proposal.tier} data-priority={proposal.tier} data-task-id={proposal.sourceReportId ?? proposal.clusterId}>
                 <img src={taskReferenceImage(proposal.suggestedTaskType, proposal.pestType)} alt="Reference image; not incident evidence" />
@@ -977,11 +835,11 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                     {proposal.allowedCapabilities === undefined ? 'Capability data unavailable' : `Crew capability: ${proposal.allowedCapabilities.map(specialisationLabel).join(' or ') || 'No qualified capability recorded'}`}
                   </span>
                 </div>
-                <div data-part="card-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <a href={proposalFormPath(proposal)} onClick={link(props, proposalFormPath(proposal))}>Raise a work order</a>
+                <div data-part="card-actions" className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <a href={proposalFormPath(proposal)} onClick={link(props, proposalFormPath(proposal))} className={CARD_LINK}><ClipboardPlus size={14} aria-hidden="true" />Raise a work order</a>
                   <a href={proposal.sourceReportId ? `/reports/${proposal.sourceReportId}` : `/ops/clusters/${proposal.clusterId}`}
-                    onClick={link(props, proposal.sourceReportId ? `/reports/${proposal.sourceReportId}` : `/ops/clusters/${proposal.clusterId}`)}>
-                    Why is this ranked here?
+                    onClick={link(props, proposal.sourceReportId ? `/reports/${proposal.sourceReportId}` : `/ops/clusters/${proposal.clusterId}`)} className={CARD_LINK}>
+                    <CircleHelp size={14} aria-hidden="true" />Why is this ranked here?
                   </a>
                 </div>
               </li>

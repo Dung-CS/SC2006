@@ -70,7 +70,7 @@ describe('CrewDetailScreen', () => {
       onNavigate={vi.fn()} onPrincipalChange={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('Upcoming dispatches')).toBeTruthy());
     expect(screen.getByText('Past dispatches')).toBeTruthy();
-    expect(screen.getByText('Fogging lead')).toBeTruthy();
+    expect(document.querySelector('[data-part="profile"]')?.textContent).toContain('Fogging lead');
     const upcoming = document.querySelector('[data-part="upcoming-dispatches"]')!;
     const past = document.querySelector('[data-part="past-dispatches"]')!;
     expect(upcoming.querySelectorAll('[data-part="dispatch-row"]').length).toBe(2);

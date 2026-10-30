@@ -33,7 +33,7 @@ function VehiclePhoto({ vehicle }: { vehicle: Vehicle }): JSX.Element {
       alt={recorded ? `${vehicle.model || 'Recorded vehicle'}${vehicle.isDemo ? ' reference photograph' : ' photograph'}` : 'Vehicle image placeholder'}
       onError={recorded ? () => setFailed(true) : undefined}
       style={{ display: 'block', width: '100%', height: 144, objectFit: 'cover' }} />
-    <figcaption style={{ padding: '4px 14px', fontSize: '.75rem', color: '#64748b' }}>
+    <figcaption style={{ padding: '4px 14px', fontSize: '.75rem', color: 'var(--ink-quiet)' }}>
       {recorded ? vehicle.isDemo ? 'Model reference photo' : 'Vehicle photo' : failed ? 'Vehicle photo unavailable' : 'Vehicle photo not recorded'}
     </figcaption>
   </figure>;
@@ -76,8 +76,8 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
   }
 
   return <section data-screen="VehicleRegistry" data-requirement="11.2.29">
-    <h1>Vehicle registry</h1>
-    <p>Fleet capacity and availability</p>
+    <h1 className="text-2xl font-bold tracking-tight sm:text-[2rem]">Vehicle registry</h1>
+    <p className="text-ink-quiet">Fleet capacity and availability</p>
     {message ? <p role="status">{message}</p> : null}
     <div data-part="toolbar">
       <label htmlFor="vehicle-hq-filter">Filter by HQ</label>
@@ -87,20 +87,20 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
       </select>
     </div>
     <StateView state={loaded.state} onRetry={loaded.retry}>
-      <div data-part="vehicle-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+      <div data-part="vehicle-cards" className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-4">
         {vehicles.map((vehicle) => <article key={vehicle.id} data-entity-id={vehicle.id} data-hq={vehicle.hqLocation} data-registration={vehicle.registration}
-          style={{ overflow: 'hidden', border: '1px solid #dbe3ea', borderRadius: 12, background: '#fff' }}>
+          className="overflow-hidden rounded-3xl border border-line bg-surface">
           <VehiclePhoto key={`${vehicle.id}:${vehicle.photoUrl ?? ''}`} vehicle={vehicle} />
-          <div style={{ padding: 14, display: 'grid', gap: 10 }}>
+          <div className="grid gap-3 p-4">
             <div><strong data-part="entity-title">{vehicleLabel(vehicle)}</strong><div data-part="hq">{vehicle.hqLocation}</div>
               {vehicle.model ? null : <small>{cleanTitle(vehicle.registration, 'Registration unrecorded')}</small>}{' '}{vehicle.isDemo ? <Pill tone="warn" title="Illustrative capacities; confirm before operational use">Demo vehicle</Pill> : null}</div>
             {vehicle.model ? <details><summary>Fleet record</summary><p>{cleanTitle(vehicle.name, 'Vehicle')}</p></details> : null}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: '0.9rem' }}>
+            <div className="grid grid-cols-2 gap-1.5 text-sm">
               <span>Payload <strong>{vehicle.maxPayloadKg} kg</strong></span><span>Cargo <strong>{vehicle.maxCargoVolumeM3} m³</strong></span>
               <span>Bay <strong>{vehicle.cargoLengthCm} × {vehicle.cargoWidthCm} × {vehicle.cargoHeightCm} cm</strong></span>
               <span>Seats <strong>{vehicle.seatCapacity}</strong></span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="flex items-center justify-between">
               <Pill tone={vehicle.isAvailable ? 'good' : 'neutral'}>{vehicle.isAvailable ? 'Available' : 'Unavailable'}</Pill>
               <button type="button" aria-label={`Edit ${vehicle.registration}`} onClick={() => edit(vehicle)}>Edit vehicle</button>
             </div>
@@ -112,7 +112,7 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
     <h2>{editingId ? 'Edit vehicle' : 'Add vehicle'}</h2>
     <form onSubmit={submit}>
       {failure ? <p role="alert">{failure}</p> : null}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3">
         <label>Registration<input required maxLength={60} value={form.registration} onChange={(event) => change('registration', event.target.value)} /></label>
         <label>Vehicle name<input required maxLength={120} value={form.name} onChange={(event) => change('name', event.target.value)} /></label>
         <label>Make and model<input maxLength={120} value={form.model} onChange={(event) => change('model', event.target.value)} /></label>
@@ -126,7 +126,7 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
       <small>Enter usable capacity after fixed fittings; volume must fit inside the cargo bay.</small>
       <label><input type="checkbox" checked={form.isAvailable} onChange={(event) => change('isAvailable', event.target.checked)} /> Available for dispatch</label>{' '}
       <label><input type="checkbox" checked={form.isDemo} onChange={(event) => change('isDemo', event.target.checked)} /> Demo data (illustrative vehicle)</label>
-      <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+      <div className="mt-3 flex flex-wrap gap-2.5">
         <button type="submit" disabled={busy}>{busy ? 'Saving...' : editingId ? 'Save vehicle' : 'Add vehicle'}</button>
         {editingId ? <button type="button" disabled={busy} onClick={() => { setEditingId(null); setForm(blank()); setFailure(null); }}>Cancel edit</button> : null}
       </div>

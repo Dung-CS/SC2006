@@ -10,6 +10,7 @@
  * the dialog says how many, since that is the consequence the user cannot see from the card.
  */
 import { useState } from 'react';
+import { MapPin, Plus, Trash2 } from 'lucide-react';
 import { useLoad } from '../../lib/useLoad';
 import { ConfirmDialog, StateView, Toast } from '../../components/States';
 import { link } from '../../components/Link';
@@ -61,26 +62,31 @@ export function MyLocationsScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="MyLocations" data-requirement="11.2.6">
-      <h1>My locations</h1>
-      <a href="/locations/new" onClick={link(props, '/locations/new')}>
+      <h1 className="flex items-center gap-3">
+        <MapPin aria-hidden="true" className="size-7 shrink-0 text-accent" />
+        My locations
+      </h1>
+      <a href="/locations/new" onClick={link(props, '/locations/new')} className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-accent-fill px-5 font-bold text-white no-underline hover:bg-accent-dark">
+        <Plus aria-hidden="true" className="size-4" />
         Add a location
       </a>
 
       <StateView state={state} onRetry={retry}>
-        <ul data-part="locations">
+        <ul data-part="locations" className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2">
           {pagedItems.map((location) => (
-            <li key={location.id} data-status={location.status}>
-              <h2>{location.name}</h2>
-              <p data-part="label">{location.label}</p>
+            <li key={location.id} data-status={location.status} className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
+              <h2 className="mt-0">{location.name}</h2>
+              <p data-part="label" className="text-sm font-semibold text-ink-quiet">{location.label}</p>
               <p data-part="address">{location.address}</p>
               {/* 11.7.5 — the status is a word, never a colour on its own. */}
-              <p data-part="status">{describe(location)}</p>
-              <p data-part="evaluated">
+              <p data-part="status" className="font-semibold">{describe(location)}</p>
+              <p data-part="evaluated" className="text-sm text-ink-quiet">
                 {location.evaluatedAt === null
                   ? 'Not yet checked against the cluster feed.'
                   : `Checked ${new Date(location.evaluatedAt).toISOString().slice(0, 16).replace('T', ' ')}.`}
               </p>
-              <button type="button" onClick={() => setPendingDelete(location)}>
+              <button type="button" onClick={() => setPendingDelete(location)} className="inline-flex items-center gap-2">
+                <Trash2 aria-hidden="true" className="size-4" />
                 Remove {location.name}
               </button>
             </li>

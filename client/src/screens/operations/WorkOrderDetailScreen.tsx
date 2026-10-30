@@ -21,6 +21,7 @@
  * screen showed a status with no account of how it got there.
  */
 import { useState } from 'react';
+import { ArrowLeft, Ban, Check, X } from 'lucide-react';
 import { ApiError } from '../../lib/ApiClient';
 import { useLoad } from '../../lib/useLoad';
 import { ConfirmDialog, StateView } from '../../components/States';
@@ -138,14 +139,15 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="WODetail" data-requirement="11.2.18">
-      <a href="/ops/dispatches" onClick={link(props, '/ops/dispatches')}>
+      <a href="/ops/dispatches" onClick={link(props, '/ops/dispatches')} className="mb-3 inline-flex min-h-11 items-center gap-1.5 font-medium no-underline hover:underline">
+        <ArrowLeft size={16} aria-hidden="true" />
         Back to dispatches
       </a>
 
       <StateView state={detail.state} onRetry={detail.retry}>
         {order === undefined ? null : (
           <article data-entity-id={order.id}>
-            <h1>
+            <h1 className="text-2xl sm:text-[2rem]">
               <span data-part="entity-title">{displayTaskName(order.taskType, order.pestType ?? undefined, order.location ?? 'Site visit')}</span>{' '}
               <Pill tone={statusTone(order.status)}>{label(order.status)}</Pill>
             </h1>
@@ -200,20 +202,20 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
 
             {/* 8.3.8 — an issue raised by the crew is the reason this order stopped moving. */}
             {order.issueFlag ? (
-              <p role="status" data-part="issue">
+              <p role="status" data-part="issue" className="rounded-2xl border border-tier-high/40 bg-tier-high/14 p-4 font-medium">
                 Issue raised: {order.issueReason ?? 'no reason recorded'}
               </p>
             ) : null}
             {order.cancellationReason === null ? null : (
-              <p data-part="cancelled">Cancelled: {order.cancellationReason}</p>
+              <p data-part="cancelled" className="rounded-2xl border border-line bg-ground p-4">Cancelled: {order.cancellationReason}</p>
             )}
             {order.verifiedAt === null ? null : (
-              <p data-part="verified">
+              <p data-part="verified" className="rounded-2xl border border-tier-low/40 bg-tier-low/14 p-4 font-medium">
                 Verified {new Date(order.verifiedAt).toISOString().slice(0, 16).replace('T', ' ')}
               </p>
             )}
 
-            <section data-part="assign">
+            <section data-part="assign" className="flex flex-col gap-3 my-4 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6 [&_button]:self-start [&_h2]:m-0">
               <h2>Assignment</h2>
               {/*
                 This line read "Assigned to 282c0058-ce23-4556-a2f3-033aa2938f49." — a primary key
@@ -265,7 +267,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                   </div>
                 </div>
               ) : top === undefined ? (
-                <div role="status" data-part="no-eligible-crew">
+                <div role="status" data-part="no-eligible-crew" className="rounded-2xl border border-tier-medium/40 bg-tier-medium/14 p-4 [&_p]:m-0">
                   <p>
                   No active crew member has a recorded capability that covers {label(order.taskType)} for{' '}
                     {label(order.pestType ?? 'Unknown pest')}.
@@ -359,7 +361,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
               evidence invites the decision to be taken without it.
             */}
             {detail.value?.evidence === null || detail.value?.evidence === undefined ? null : (
-              <section data-part="evidence">
+              <section data-part="evidence" className="my-4 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
                 <h2>What the crew recorded</h2>
                 <Facts
                   items={[
@@ -379,7 +381,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
               </section>
             )}
 
-            <section data-part="actions">
+            <section data-part="actions" className="flex flex-wrap items-start gap-3 my-4 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6 [&_h2]:m-0 [&_h2]:w-full [&_.field]:w-full">
               <h2>Actions</h2>
               <Field
                 id="reason"
@@ -391,12 +393,12 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                 hint="Required to cancel or to reject a completion; ignored when verifying."
                 onChange={(v) => setReason({ value: v, touched: reason.touched })}
               />
-              <button type="button" data-variant="primary" disabled={busy} onClick={() => setConfirming('verify')}>
-                Verify completion
+              <button type="button" data-variant="primary" className="inline-flex min-h-11 items-center gap-2" disabled={busy} onClick={() => setConfirming('verify')}>
+                <Check size={18} aria-hidden="true" />Verify completion
               </button>
               <button
                 type="button"
-                data-variant="danger"
+                data-variant="danger" className="inline-flex min-h-11 items-center gap-2"
                 disabled={busy}
                 onClick={() => {
                   setReason((f) => ({ ...f, touched: true }));
@@ -405,11 +407,11 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                   }
                 }}
               >
-                Reject completion
+                <X size={18} aria-hidden="true" />Reject completion
               </button>
               <button
                 type="button"
-                data-variant="danger"
+                data-variant="danger" className="inline-flex min-h-11 items-center gap-2"
                 disabled={busy}
                 onClick={() => {
                   setReason((f) => ({ ...f, touched: true }));
@@ -419,7 +421,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                   }
                 }}
               >
-                Cancel work order
+                <Ban size={18} aria-hidden="true" />Cancel work order
               </button>
             </section>
 
@@ -428,7 +430,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
               * read top to bottom, one line per event, and a table would promise columns worth
               * sorting by.
               */}
-            <section data-part="history">
+            <section data-part="history" className="my-4 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
               <h2>History</h2>
               <StateView state={history.state} onRetry={history.retry}>
                 {history.value == null ? null : history.value.entries.length === 0 ? (
@@ -436,7 +438,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                   // genuinely has no history yet.
                   <p data-part="history-empty">Nothing has been recorded against this job yet.</p>
                 ) : (
-                  <ol data-part="history-list">
+                  <ol data-part="history-list" className="m-0 flex list-none flex-col gap-2 p-0 [&_li]:rounded-2xl [&_li]:border [&_li]:border-line [&_li]:px-4 [&_li]:py-2 [&_li]:text-sm">
                     {history.value.entries.map((entry) => (
                       <li key={`${entry.occurredAt}-${entry.action}`} data-refused={entry.refused}>
                         <span data-part="when">{new Date(entry.occurredAt).toLocaleString()}</span>{' '}
@@ -455,7 +457,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
             </section>
 
             {failure === null ? null : (
-              <div role="alert" data-part="error">
+              <div role="alert" data-part="error" className="rounded-2xl border border-tier-high/40 bg-tier-high/14 p-4 text-tier-high [&_p]:m-0">
                 <p>{failure.cause}</p>
                 <p>{failure.remedy}</p>
               </div>

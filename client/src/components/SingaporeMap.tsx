@@ -54,8 +54,8 @@ const SINGAPORE_CENTRE: [number, number] = [1.3521, 103.8198];
 export const ONEMAP_ATTRIBUTION =
   '<a href="https://www.onemap.gov.sg/" rel="noreferrer">OneMap</a> © Singapore Land Authority';
 
-/** Two basemaps: the plain one for residents finding their street, grey where colour must carry. */
-export type Basemap = 'Default_HD' | 'Grey_HD';
+/** Basemaps: night is the default on the dark site; plain and grey stay for a screen that needs a street-readable or colour-free map. */
+export type Basemap = 'Night_HD' | 'Default_HD' | 'Grey_HD';
 
 export interface MapCluster {
   clusterId: string;
@@ -164,12 +164,12 @@ export interface SingaporeMapProps {
  * they are the same three the stylesheet uses for `--tier-high`, `--tier-medium` and `--tier-low`,
  * and the swatches in the legend take theirs from the stylesheet rather than from here.
  */
-const DEFAULT_TIER = { stroke: '#047857', fill: '#10B981' };
+const DEFAULT_TIER = { stroke: '#6EE7B7', fill: '#10B981' };
 
 const TIER_COLOURS: Record<string, { stroke: string; fill: string }> = {
-  Critical: { stroke: '#7F1D1D', fill: '#DC2626' },
-  High: { stroke: '#B91C1C', fill: '#EF4444' },
-  Medium: { stroke: '#C2410C', fill: '#F97316' },
+  Critical: { stroke: '#FECACA', fill: '#DC2626' },
+  High: { stroke: '#FCA5A5', fill: '#EF4444' },
+  Medium: { stroke: '#FDBA74', fill: '#F97316' },
   Low: DEFAULT_TIER,
 };
 
@@ -249,7 +249,7 @@ function getMarkerVisual(marker: MapMarker): { emoji: string; color: string; lab
 function tierStyle(tier: string, selected: boolean): PathOptions {
   const palette = TIER_COLOURS[tier] ?? DEFAULT_TIER;
   return {
-    color: selected ? '#0F172A' : palette.stroke,
+    color: selected ? '#FFFFFF' : palette.stroke,
     weight: selected ? 6 : 4,
     opacity: 1,
     fillColor: palette.fill,
@@ -407,7 +407,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           scrollWheelZoom: true,
           tap: true,
         });
-        L.tileLayer(`https://www.onemap.gov.sg/maps/tiles/${props.basemap ?? 'Grey_HD'}/{z}/{x}/{y}.png`, {
+        L.tileLayer(`https://www.onemap.gov.sg/maps/tiles/${props.basemap ?? 'Night_HD'}/{z}/{x}/{y}.png`, {
           attribution: ONEMAP_ATTRIBUTION,
           maxZoom: 18,
           // OneMap serves Singapore alone; beyond it the tiles are blank, and blank tiles look
@@ -889,6 +889,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         ref={container}
         className="map-canvas"
         data-size={props.size ?? 'tall'}
+        data-basemap={props.basemap ?? 'Night_HD'}
         role="application"
         aria-label={`${props.tasks !== undefined ? `Dispatch tasks map. ${props.tasks.length} task(s).` : `Map of active dengue clusters. ${props.clusters.length} cluster(s).`} Arrow keys pan, plus and minus zoom.`}
         aria-describedby={legendId}

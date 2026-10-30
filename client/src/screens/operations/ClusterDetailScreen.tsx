@@ -12,6 +12,7 @@
  * drivers excluded" tells a manager the score is unreliable; "rainfall excluded" tells them *how*,
  * which is what decides whether to trust the rank today.
  */
+import { ArrowLeft, ClipboardPlus } from 'lucide-react';
 import { useLoad } from '../../lib/useLoad';
 import { StateView, StatTile } from '../../components/States';
 import { link } from '../../components/Link';
@@ -59,14 +60,15 @@ export function ClusterDetailScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="ClusterDetail" data-requirement="11.2.13">
-      <a href="/ops" onClick={link(props, '/ops')}>
+      <a href="/ops" onClick={link(props, '/ops')} className="mb-3 inline-flex min-h-11 items-center gap-1.5 font-medium no-underline hover:underline">
+        <ArrowLeft size={16} aria-hidden="true" />
         Back to the dashboard
       </a>
 
       <StateView state={state} onRetry={retry}>
         {value === null ? null : (
           <article>
-            <h1>{value.locality}</h1>
+            <h1 className="text-2xl sm:text-[2rem]">{value.locality}</h1>
 
             {/*
               The three headline facts were three unlabelled paragraphs — "73 case(s)", "Stable",
@@ -91,12 +93,12 @@ export function ClusterDetailScreen(props: ScreenProps): JSX.Element {
 
             {/* 4.1.12, 7.2.8, 7.2.9 — named, not counted. */}
             {value.isDegraded ? (
-              <p role="status" data-part="degraded">
+              <p role="status" data-part="degraded" className="rounded-2xl border border-tier-medium/40 bg-tier-medium/14 p-4">
                 This score is degraded. Excluded drivers: {value.excludedDrivers.map(driverLabel).join(', ')}.
               </p>
             ) : null}
 
-            <section data-part="breakdown">
+            <section data-part="breakdown" className="overflow-x-auto my-4 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
               <h2>How this score was reached</h2>
               {value.breakdown.length === 0 ? (
                 <p data-state="empty">No breakdown was recorded for this cluster.</p>
@@ -144,7 +146,7 @@ export function ClusterDetailScreen(props: ScreenProps): JSX.Element {
               )}
             </section>
 
-            <section data-part="history">
+            <section data-part="history" className="my-4 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
               <h2>Case history</h2>
               {value.series.length === 0 ? (
                 <p data-state="empty">No history has accumulated yet.</p>
@@ -177,7 +179,7 @@ export function ClusterDetailScreen(props: ScreenProps): JSX.Element {
               )}
             </section>
 
-            <section data-part="work">
+            <section data-part="work" className="my-4 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
               <h2>Work</h2>
               <p>{value.openReports} open verified report(s)</p>
               {value.openWorkOrders.length === 0 ? (
@@ -205,8 +207,9 @@ export function ClusterDetailScreen(props: ScreenProps): JSX.Element {
               <a
                 href={`/ops/work-orders/new?clusterId=${value.clusterId}`}
                 onClick={link(props, `/ops/work-orders/new?clusterId=${value.clusterId}`)}
+                className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-full bg-accent-fill px-5 font-semibold text-white no-underline transition-colors hover:bg-accent-dark"
               >
-                Raise a work order
+                <ClipboardPlus size={18} aria-hidden="true" />Raise a work order
               </a>
             </section>
           </article>

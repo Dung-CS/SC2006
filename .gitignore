@@ -25,3 +25,7 @@ bash.exe.stackdump
 screen-shots/
 screen-shots-after/
 demo-shots/
+
+# UI sweep output (npm run ui:check)
+ui-report/
+test-results/

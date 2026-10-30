@@ -12,6 +12,7 @@
  * Collapsing them would tell a resident their real address does not exist.
  */
 import { useState } from 'react';
+import { MapPin, Search } from 'lucide-react';
 import { ApiError } from '../../lib/ApiClient';
 import { Field, field, FormField } from '../../components/Field';
 import { evaluate, formIsValid, maxLength, required } from '../../components/FieldValidation';
@@ -95,9 +96,12 @@ export function AddLocationScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="AddLocation" data-requirement="11.2.7">
-      <h1>Add a location</h1>
+      <h1 className="flex items-center gap-3">
+        <MapPin aria-hidden="true" className="size-7 shrink-0 text-accent" />
+        Add a location
+      </h1>
 
-      <form onSubmit={search} noValidate>
+      <form onSubmit={search} noValidate className="max-w-xl rounded-3xl border border-line bg-surface p-5 shadow-sm">
         <Field
           id="query"
           label="Address or postal code"
@@ -107,13 +111,14 @@ export function AddLocationScreen(props: ScreenProps): JSX.Element {
           hint="For example: 117 Ho Ching Road, or 610117."
           onChange={(v) => setQuery({ value: v, touched: query.touched })}
         />
-        <button type="submit" disabled={busy}>
+        <button type="submit" disabled={busy} className="mt-3 inline-flex items-center gap-2">
+          <Search aria-hidden="true" className="size-4" />
           {busy ? 'Searching…' : 'Search'}
         </button>
       </form>
 
       {failure === null ? null : (
-        <div role="alert" data-part="error">
+        <div role="alert" data-part="error" className="mt-4 max-w-xl rounded-2xl border border-tier-high p-4 text-tier-high">
           <p>{failure.cause}</p>
           <p>{failure.remedy}</p>
         </div>
@@ -121,20 +126,21 @@ export function AddLocationScreen(props: ScreenProps): JSX.Element {
 
       {/* 3.1.5 — an address that genuinely does not exist is an empty result, not a failure. */}
       {candidates !== null && candidates.length === 0 ? (
-        <p data-state="empty">
+        <p data-state="empty" className="mt-4 max-w-xl rounded-2xl bg-accent-quiet p-4">
           No match for that address. Check the spelling, or try the postal code on its own.
         </p>
       ) : null}
 
       {candidates !== null && candidates.length > 0 ? (
-        <fieldset data-part="candidates">
+        <fieldset data-part="candidates" className="mt-4 max-w-xl rounded-3xl border border-line bg-surface p-5 shadow-sm">
           {/* 3.1.4 — the resident chooses; the system proposes. */}
           <legend>Which one is it?</legend>
           {candidates.map((candidate, index) => (
-            <label key={`${candidate.address}-${index}`}>
+            <label key={`${candidate.address}-${index}`} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-2 py-2 hover:bg-accent-quiet">
               <input
                 type="radio"
                 name="candidate"
+                className="size-5 w-5 shrink-0 accent-accent"
                 checked={chosen?.address === candidate.address}
                 onChange={() => setChosen(candidate)}
               />
@@ -146,7 +152,7 @@ export function AddLocationScreen(props: ScreenProps): JSX.Element {
       ) : null}
 
       {chosen === null ? null : (
-        <div data-part="details">
+        <div data-part="details" className="mt-4 max-w-xl rounded-3xl border border-line bg-surface p-5 shadow-sm">
           <Field
             id="name"
             label="Name this location"
@@ -164,7 +170,7 @@ export function AddLocationScreen(props: ScreenProps): JSX.Element {
               </option>
             ))}
           </select>
-          <button type="button" onClick={() => void save()} disabled={busy}>
+          <button type="button" data-variant="primary" onClick={() => void save()} disabled={busy} className="mt-4">
             {busy ? 'Saving…' : 'Save location'}
           </button>
         </div>

@@ -36,6 +36,37 @@ describe('dispatch assignment editor', () => {
     expect(posts[0]).toMatchObject({ url: '/api/ops/dispatch/assign', body: { workOrderIds: ['c', 'b'], crewIds: ['crew-1'], vehicleId: 'van-1', computedAt: 'at' } });
   });
 
+  it('reorders by drag and drop, removes with the bin button, and saves the new order', async () => {
+    const { client, posts } = api({ '/api/ops/dispatch/assignment-options': options, '/api/ops/dispatch/assign': { id: 'saved', workOrderIds: [] } });
+    render(<DispatchAssignmentEditor api={client} date="2099-01-01" teamId="t" proposedCrewIds={['crew-1']} proposedVehicleId="van-1"
+      stops={[{ workOrderId: 'a', label: 'Stop A' }, { workOrderId: 'b', label: 'Stop B' }, { workOrderId: 'c', label: 'Stop C' }]} onAssigned={vi.fn()} />);
+    fireEvent.click(screen.getByText('Choose crew and vehicle'));
+    await screen.findByText('Assign dispatch');
+    const items = () => screen.getAllByRole('listitem');
+    fireEvent.dragStart(items()[2]!);
+    fireEvent.dragOver(items()[0]!);
+    fireEvent.drop(items()[0]!);
+    expect(items().map((li) => li.textContent)).toEqual([expect.stringContaining('Stop C'), expect.stringContaining('Stop A'), expect.stringContaining('Stop B')]);
+    const bin = screen.getByLabelText('Remove Stop A');
+    expect(bin.getAttribute('title')).toBe('Remove Stop A');
+    expect(bin.textContent).toBe('');
+    fireEvent.click(bin);
+    expect(screen.queryByLabelText('Remove Stop A')).toBeNull();
+    fireEvent.click(screen.getByText('Assign dispatch'));
+    await waitFor(() => expect(posts[0]?.body.workOrderIds).toEqual(['c', 'b']));
+  });
+
+  it('labels add-task options as locality - task type - pest', async () => {
+    const { client } = api({ '/api/ops/dispatch/assignment-options': options });
+    render(<DispatchAssignmentEditor api={client} date="2099-01-01" teamId="t" proposedCrewIds={['crew-1']} proposedVehicleId="van-1"
+      stops={[{ workOrderId: 'a', label: 'Stop A' }]}
+      candidates={[{ workOrderId: 'c', label: 'Bishan', taskType: 'Fogging', pestType: 'Mosquito' }, { workOrderId: 'd', label: '1.35000, 103.80000' }]} onAssigned={vi.fn()} />);
+    fireEvent.click(screen.getByText('Choose crew and vehicle'));
+    await screen.findByText('Assign dispatch');
+    expect(screen.getByRole('option', { name: 'Bishan - Fogging - Mosquito' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: '1.35000, 103.80000' })).toBeTruthy();
+  });
+
   it('raises the crew minimum when a Fogging stop is added, using the server rule', async () => {
     const { client } = api({ '/api/ops/dispatch/assignment-options': { ...options, stopStaff: { a: 1, f: 3 } } });
     render(<DispatchAssignmentEditor api={client} date="2099-01-01" teamId="t" proposedCrewIds={['crew-1']} proposedVehicleId="van-1"

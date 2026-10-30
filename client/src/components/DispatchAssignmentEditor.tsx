@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { GripVertical, Trash2 } from 'lucide-react';
 import { ApiClient, ApiError } from '../lib/ApiClient';
 import { staffDisplayName, staffPhotoUrl, vehicleLabel } from '../lib/staffVisuals';
 import { cleanTitle } from '../../../src/presentation/DisplayNames';
@@ -11,7 +12,14 @@ interface AssignmentOptions {
   stopStaff?: Record<string, number>;
 }
 /** One stop the manager can order, add or remove. */
-export interface DispatchStop { workOrderId: string; label: string }
+export interface DispatchStop { workOrderId: string; label: string; taskType?: string; pestType?: string }
+
+/** "<locality> - <task type> - <pest>", leaving out what the client does not have. */
+const optionLabel = (task: DispatchStop): string =>
+  [task.label, cleanTitle(task.taskType, ''), cleanTitle(task.pestType, '')].filter(Boolean).join(' - ');
+
+const BinIcon = (): JSX.Element => <Trash2 size={18} strokeWidth={1.5} aria-hidden="true" focusable="false" />;
+const GripIcon = (): JSX.Element => <GripVertical size={18} strokeWidth={1.5} aria-hidden="true" focusable="false" />;
 interface SavedAssignment {
   id: string; teamId: string; crewIds: string[]; vehicleId: string; workOrderIds: string[]; status: string; needsRoadCheck?: boolean;
   crew?: CrewOption[];
@@ -36,6 +44,8 @@ export function DispatchAssignmentEditor(props: {
   const [vehicleId, setVehicleId] = useState('');
   const [stops, setStops] = useState<DispatchStop[]>(props.stops ?? []);
   const [adding, setAdding] = useState('');
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [assigned, setAssigned] = useState(false);
@@ -64,6 +74,17 @@ export function DispatchAssignmentEditor(props: {
       return next;
     });
   }
+  function drop(target: number): void {
+    const from = dragFrom;
+    setDragFrom(null); setDragOver(null);
+    if (from === null || from === target) return;
+    setStops((previous) => {
+      const next = [...previous];
+      const [moved] = next.splice(from, 1);
+      next.splice(target, 0, moved!);
+      return next;
+    });
+  }
   async function save(): Promise<void> {
     if (!options) return;
     setBusy(true); setFailure(null);
@@ -85,17 +106,23 @@ export function DispatchAssignmentEditor(props: {
       <button type="button" disabled={busy} onClick={() => void load()}>{options ? 'Reload assignment options' : editing ? 'Edit this dispatch' : 'Choose crew and vehicle'}</button>
       {options ? <>
         {props.stops ? <fieldset><legend>Stops · in visit order</legend>
-          <ol className="dispatch-stop-list">{stops.map((stop, index) => <li key={stop.workOrderId}>
-            <span>{stop.label}</span>
+          <ol className="dispatch-stop-list">{stops.map((stop, index) => <li key={stop.workOrderId} draggable={!busy}
+            data-dragging={dragFrom === index || undefined} data-drop-target={dragOver === index && dragFrom !== index || undefined}
+            onDragStart={(event) => { setDragFrom(index); event.dataTransfer?.setData('text/plain', stop.workOrderId); }}
+            onDragOver={(event) => { if (dragFrom === null) return; event.preventDefault(); setDragOver(index); }}
+            onDrop={(event) => { event.preventDefault(); drop(index); }}
+            onDragEnd={() => { setDragFrom(null); setDragOver(null); }}>
+            <span className="dispatch-drag-handle" title="Drag to reorder" aria-hidden="true"><GripIcon /></span>
+            <span className="dispatch-stop-label">{stop.label}</span>
             <button type="button" aria-label={`Move ${stop.label} up`} disabled={busy || index === 0} onClick={() => move(index, -1)}>Up</button>
             <button type="button" aria-label={`Move ${stop.label} down`} disabled={busy || index === stops.length - 1} onClick={() => move(index, 1)}>Down</button>
-            <button type="button" aria-label={`Remove ${stop.label}`} disabled={busy || stops.length === 1}
-              onClick={() => setStops((previous) => previous.filter((item) => item.workOrderId !== stop.workOrderId))}>Remove</button>
+            <button type="button" className="dispatch-bin" aria-label={`Remove ${stop.label}`} title={`Remove ${stop.label}`} disabled={busy || stops.length === 1}
+              onClick={() => setStops((previous) => previous.filter((item) => item.workOrderId !== stop.workOrderId))}><BinIcon /></button>
           </li>)}</ol>
-          {addable.length ? <label>Add task{' '}
+          {addable.length ? <label className="dispatch-add-task">Add task{' '}
             <select value={adding} disabled={busy} onChange={(event) => setAdding(event.target.value)}>
               <option value="">Choose an unassigned task</option>
-              {addable.map((task) => <option key={task.workOrderId} value={task.workOrderId}>{task.label}</option>)}
+              {addable.map((task) => <option key={task.workOrderId} value={task.workOrderId}>{optionLabel(task)}</option>)}
             </select>
             <button type="button" disabled={busy || !adding} onClick={() => {
               const task = addable.find((item) => item.workOrderId === adding);

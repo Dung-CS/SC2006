@@ -146,6 +146,9 @@ describe('The route guard — §11.1.9, §11.1.10, §2.3.3 to §2.3.5', () => {
     // Otherwise a crew member is dumped on Not Authorised one step after signing in successfully.
     expect(landingAfterSignIn(Role.CleaningCrew, '/ops/work-orders')).toBe('/crew');
     expect(landingAfterSignIn(Role.Resident, '/nonsense')).toBe('/map');
+    // An expired token once produced `returnTo=/signin`, which stranded the user on the form.
+    expect(landingAfterSignIn(Role.OperationsManager, '/signin')).toBe('/ops');
+    expect(landingAfterSignIn(Role.CleaningCrew, '/')).toBe('/crew');
   });
 
   it('G8 — each role lands on the screen the map sends it to', () => {

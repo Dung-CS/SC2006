@@ -26,7 +26,7 @@ export function DispatchRowView(props: { screen: ScreenProps; row: DispatchRow; 
   const { row, screen } = props;
   const crew = row.crew.filter((member) => member.id !== props.hideCrewId);
   return (
-    <li data-entity-id={row.id} data-part="dispatch-row">
+    <li data-entity-id={row.id} data-part="dispatch-row" className="rounded-3xl border border-line bg-surface p-4">
       <strong data-part="dispatch-date">{row.date}</strong>{' '}
       <Pill tone={statusTone(row.status)}>{row.status}</Pill>
       {row.hqLocation ? <span data-part="dispatch-hq"> · {row.hqLocation}</span> : null}
@@ -72,9 +72,9 @@ export function DispatchListScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="DispatchList" data-requirement="11.2.25">
-      <h1>Dispatches</h1>
-      <a href="/ops/work-orders/new" onClick={link(props, '/ops/work-orders/new')}>New work order</a>
-      <div data-part="filters">
+      <h1 className="text-2xl font-bold tracking-tight sm:text-[2rem]">Dispatches</h1>
+      <a href="/ops/work-orders/new" onClick={link(props, '/ops/work-orders/new')} className="inline-flex min-h-11 items-center rounded-full bg-accent-fill px-5 font-bold text-white no-underline hover:bg-accent-dark">New work order</a>
+      <div data-part="filters" className="my-4 flex flex-wrap items-center gap-2">
         <label htmlFor="from">From</label>
         <input id="from" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         <label htmlFor="to">To</label>

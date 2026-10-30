@@ -12,6 +12,7 @@
  * names, and the two would drift.
  */
 import { useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { useLoad } from '../../lib/useLoad';
 import { Freshness, QUEUE_REFRESH_MS, StateView } from '../../components/States';
 import { link } from '../../components/Link';
@@ -62,16 +63,17 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="MyJobs" data-requirement="11.2.19">
-      <h1>My jobs</h1>
+      <h1 className="text-2xl font-bold tracking-tight md:text-[2rem]">My jobs</h1>
       <Freshness at={lastLoadedAt} everyMs={QUEUE_REFRESH_MS} onRefresh={retry} />
 
       {/* 11.6.x — large, separate controls rather than a dropdown: this screen is used one-handed,
           outdoors, on a phone. */}
-      <div role="group" aria-label="Filter" data-part="filters">
+      <div role="group" aria-label="Filter" data-part="filters" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {FILTERS.map((option) => (
           <button
             key={option}
             type="button"
+            className="min-h-12 text-base"
             aria-pressed={filter === option}
             onClick={() => {
               setFilter(option);
@@ -84,22 +86,23 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
       </div>
 
       <StateView state={state} onRetry={retry}>
-        <ol data-part="jobs">
+        <ol data-part="jobs" className="m-0 grid list-none gap-3 p-0">
           {/* Rendered in the order the server returned (8.4.2). */}
           {pagedItems.map((job) => (
-            <li key={job.id} data-status={job.status} data-priority={job.priority}>
-              <a href={`/crew/jobs/${job.id}`} onClick={link(props, `/crew/jobs/${job.id}`)}>
+            <li key={job.id} data-status={job.status} data-priority={job.priority} className="relative grid gap-1 rounded-3xl border border-line bg-surface p-4 shadow-sm">
+              <a href={`/crew/jobs/${job.id}`} onClick={link(props, `/crew/jobs/${job.id}`)} className="flex min-h-11 items-center justify-between gap-2 text-lg font-bold text-ink no-underline">
                 <span data-part="entity-title">{displayTaskName(job.taskType, job.pestType ?? undefined, job.location ?? 'Reported location')}</span>
+                <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-accent" />
               </a>
               <p className="job-card-location" data-part="location">
                 📍 {job.location ?? (job.point == null ? 'Singapore' : `${job.point.latitude}, ${job.point.longitude}`)}
               </p>
               {job.clusterId === null ? <p data-part="target">Verified report target</p> : null}
-              <p data-part="scheduled">{job.scheduledDate}</p>
+              <p data-part="scheduled" className="m-0 text-sm font-semibold text-ink-quiet">{job.scheduledDate}</p>
               <div className="job-card-meta">
                 <span data-part="status">
                   <Pill tone={statusTone(job.status)}>{label(job.status)}</Pill>
-                  {job.issueFlag ? <span style={{ marginLeft: '6px', fontSize: '0.8rem', color: '#A4342B' }}>⚠️ Issue</span> : null}
+                  {job.issueFlag ? <span className="ml-1.5 text-sm font-semibold text-tier-high">⚠️ Issue</span> : null}
                 </span>
                 <span data-part="priority">
                   <Pill tone={tierTone(job.priority)} tier={job.priority}>

@@ -148,6 +148,29 @@ describe('dispatch assignment: manual set before saving', () => {
   });
 });
 
+describe('dispatch assignment: report-sourced stop', () => {
+  it('books a planned report-<uuid> stop without calling findById on it (Postgres rejects non-uuid ids)', async () => {
+    const f = await fixture();
+    const id = '11111111-0000-4000-8000-000000000013';
+    const report = Object.assign(new Report(), { id, pestType: PestType.Mosquito, clusterId: null, workOrderId: null,
+      point: new GeoPoint(1.3200, 103.8600), localityBinding: 'new', type: ReportType.StandingWater, description: 'Standing water', submittedAt: new Date() });
+    report.applyStatus(ReportStatus.Verified);
+    await f.reports.save(report);
+    const realFind = f.workOrders.findById.bind(f.workOrders);
+    const original = Object.getPrototypeOf(f.workOrders).findById;
+    // Staged copies of the store inherit this override, so it must use `this`, not the first store.
+    f.workOrders.findById = async function (this: unknown, key: string) {
+      if (/^(report|prop)-/.test(key)) throw new Error(`invalid input syntax for type uuid: "${key}"`);
+      return original.call(this, key);
+    };
+    const saved = await set(f, [`report-${id}`]);
+    expect(saved.workOrderIds).toHaveLength(1);
+    const created = await realFind(saved.workOrderIds[0]!);
+    expect(created?.sourceReportId).toBe(id);
+    expect(created?.currentStatus()).toBe(WorkOrderStatus.Assigned);
+  });
+});
+
 describe('dispatch assignment: edit after saving', () => {
   it('changes crew, vehicle and stops; a removed task returns to unassigned', async () => {
     const f = await fixture();

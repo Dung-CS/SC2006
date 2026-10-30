@@ -33,12 +33,13 @@ const SHELL = [
   '/icon-512.png',
   '/icon-maskable-512.png',
   '/apple-touch-icon.png',
-  // 11.8.4 - the typefaces belong to the shell, not to the data. 104 kB for all five faces, and
+  // 11.8.4 - the typefaces belong to the shell, not to the data. the Inter and Plex Mono faces, and
   // without them an installed application opened offline falls back to a system font and stops
   // looking like the product the user installed.
-  '/fonts/ibm-plex-sans-latin-400-normal.woff2',
-  '/fonts/ibm-plex-sans-latin-500-normal.woff2',
-  '/fonts/ibm-plex-sans-latin-600-normal.woff2',
+  '/fonts/inter-latin-400-normal.woff2',
+  '/fonts/inter-latin-500-normal.woff2',
+  '/fonts/inter-latin-600-normal.woff2',
+  '/fonts/inter-latin-700-normal.woff2',
   '/fonts/ibm-plex-mono-latin-400-normal.woff2',
   '/fonts/ibm-plex-mono-latin-500-normal.woff2',
 ];

@@ -31,7 +31,7 @@ describe('staff and fleet display cards', () => {
     expect(card).toBeTruthy();
     expect(card?.getAttribute('data-entity-id')).toBe(demoStaff.id);
     expect(card?.getAttribute('data-email')).toBe(demoStaff.email);
-    expect(within(card as HTMLElement).getByText('Field crew · South West')).toBeTruthy();
+    expect(within(card as HTMLElement).getByText('South-West Regional Office')).toBeTruthy();
     const image = card?.querySelector('img');
     expect(image?.getAttribute('src')).toMatch(/^\/visuals\/staff\/crew-.*\.jpg$/);
     expect(title.textContent).not.toMatch(/DEMO|20261029|opaque-id/i);

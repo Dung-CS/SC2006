@@ -14,6 +14,7 @@
  * because the person clicking the button is the person who would otherwise expect a crew to turn up.
  */
 import { useState } from 'react';
+import { CircleCheck, Info, Send } from 'lucide-react';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { ApiError } from '../../lib/ApiClient';
@@ -92,10 +93,10 @@ export function ReferralScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="Referral" data-requirement="11.2.28">
-      <h1>Refer to an external authority</h1>
+      <h1 className="text-2xl sm:text-[2rem]">Refer to an external authority</h1>
 
       <StateView state={state} onRetry={retry}>
-        <dl data-part="destination">
+        <dl data-part="destination" className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6 [&_dt]:font-semibold [&_dt]:text-ink-quiet [&_dd]:m-0">
           <dt>Pest</dt>
           <dd>{readable(value?.pestType ?? '')}</dd>
           {/* 8.6.2 — read from the pest profile, not chosen here. */}
@@ -111,14 +112,15 @@ export function ReferralScreen(props: ScreenProps): JSX.Element {
         </dl>
 
         {/* 8.6.10, 8.6.11 — stated on the screen, not only in the requirement. */}
-        <p data-part="not-a-work-order">
+        <p data-part="not-a-work-order" className="flex items-start gap-2 rounded-2xl bg-accent-quiet p-4 text-sm"><Info size={18} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" /><span>
           A referral does not create a work order and does not record a treatment. No D-Fence crew is
-          sent, and the locality is not counted as treated.
+          sent, and the locality is not counted as treated.</span>
         </p>
 
         {existing === null ? (
           <form
             data-part="refer"
+            className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6"
             onSubmit={(e) => {
               e.preventDefault();
               void refer();
@@ -135,12 +137,12 @@ export function ReferralScreen(props: ScreenProps): JSX.Element {
               minLength={10}
               required
             />
-            <button type="submit" disabled={busy} data-action="refer">
+            <button type="submit" disabled={busy} data-action="refer" className="inline-flex min-h-11 items-center justify-center gap-2 self-start"><Send size={18} aria-hidden="true" />
               {busy ? 'Referring…' : `Refer to ${value?.destinationAuthority ?? 'the authority'}`}
             </button>
           </form>
         ) : (
-          <div data-part="referred">
+          <div data-part="referred" className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
             <p>
               Referred to {value?.destinationAuthority} on{' '}
               {existing.referredAt.slice(0, 16).replace('T', ' ')}.
@@ -150,6 +152,7 @@ export function ReferralScreen(props: ScreenProps): JSX.Element {
             {existing.outcomeRecordedAt === null ? (
               <form
                 data-part="outcome"
+                className="flex flex-col gap-3"
                 onSubmit={(e) => {
                   e.preventDefault();
                   void record(existing.id);
@@ -164,7 +167,7 @@ export function ReferralScreen(props: ScreenProps): JSX.Element {
                   rows={3}
                   required
                 />
-                <button type="submit" disabled={busy} data-action="record-outcome">
+                <button type="submit" disabled={busy} data-action="record-outcome" className="inline-flex min-h-11 items-center justify-center gap-2 self-start"><CircleCheck size={18} aria-hidden="true" />
                   {busy ? 'Recording…' : 'Record outcome and close'}
                 </button>
               </form>
@@ -179,7 +182,7 @@ export function ReferralScreen(props: ScreenProps): JSX.Element {
 
         {/* 11.7.5, 11.4.x — the result in words, and announced. */}
         {message === null ? null : (
-          <p role="status" data-part="message">
+          <p role="status" data-part="message" className="rounded-2xl border border-line bg-surface p-4">
             {message}
           </p>
         )}

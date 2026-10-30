@@ -13,18 +13,38 @@ import { pathToFileURL } from 'node:url';
 import { ConfigLoader } from '../config/ConfigLoader';
 import { Database, Row } from '../persistence/Database';
 import { demoVehicleIdentity, DemoVehicleKind } from '../persistence/VehicleRepository';
-import { demoGoodsPlate } from '../entity/SingaporePlate';
+import { demoGoodsPlate, isValidPlate } from '../entity/SingaporePlate';
 
-const NAMES = [
-  'Tan Wei Ming', 'Lim Hui Ling', 'Lee Jun Jie', 'Ng Siew Hwee', 'Chua Kai Xiang', 'Goh Mei Qi',
-  'Wong Zhi Hao', 'Teo Shu Fen', 'Ong Boon Kiat', 'Koh Li Ting', 'Yeo Chee Keong', 'Chan Pei Shan',
-  'Muhammad Faris bin Ismail', 'Nur Aisyah binte Rahman', 'Ahmad Hafiz bin Yusof', 'Siti Nurhaliza binte Osman',
-  'Mohamed Irfan bin Abdullah', 'Nurul Huda binte Salleh', 'Hakim bin Zainal', 'Farhana binte Mahmud',
-  'Rajesh Kumar s/o Pillai', 'Priya d/o Subramaniam', 'Arun s/o Krishnan', 'Kavitha d/o Muthusamy',
-  'Suresh s/o Nair', 'Deepa d/o Raman', 'Vikram s/o Chandran', 'Lakshmi d/o Govindasamy',
-  'Daniel Pereira', 'Sharon De Souza', 'Marcus Rozario', 'Jacqueline Sequeira',
-  'Gabriel Oliveiro', 'Natalie Westerhout', 'Ryan Shepherdson', 'Corinne Xavier',
-];
+const words = (text: string): string[] => text.split(/\s+/);
+const CN_SURNAME = words('Tan Lim Lee Ng Chua Goh Wong Teo Ong Koh Yeo Chan Lau Low Sim Chew Foo Heng Seah Toh Phua Quek Ho Yap');
+const CN_GIVEN = words('Wei Ming Hui Ling Jun Jie Siew Hwee Kai Xiang Mei Qi Zhi Hao Shu Fen Boon Kiat Li Ting Chee Keong Pei Shan Yi Xuan Jia Wen Xin Zi Han');
+const MALE = ['Muhammad Faris', 'Ahmad Hafiz', 'Mohamed Irfan', 'Hakim', 'Zulkifli', 'Azman', 'Razali', 'Muhammad Syafiq', 'Danish', 'Aiman', 'Haziq', 'Amir'];
+const FEMALE = ['Nur Aisyah', 'Siti Nurhaliza', 'Nurul Huda', 'Farhana', 'Aminah', 'Zahra', 'Liyana', 'Balqis', 'Sofia', 'Khadijah', 'Rahimah', 'Atiqah'];
+const MY_FATHER = words('Ismail Rahman Yusof Osman Abdullah Salleh Zainal Mahmud Hamid Latiff Ibrahim Jaafar');
+const IN_MALE = words('Rajesh Arun Suresh Vikram Kumar Ravi Anand Dinesh Mohan Karthik Gopal Vijay');
+const IN_FEMALE = words('Priya Kavitha Deepa Lakshmi Anita Meena Revathi Sangeetha Devi Malathi Shanti Uma');
+const IN_FATHER = words('Pillai Krishnan Subramaniam Muthusamy Nair Raman Chandran Govindasamy Rajan Suppiah Balakrishnan Naidu');
+const EU_GIVEN = words('Daniel Sharon Marcus Jacqueline Gabriel Natalie Ryan Corinne Joshua Vanessa Dominic Clarice');
+const EU_SURNAME = words('Pereira De-Souza Rozario Sequeira Oliveiro Westerhout Shepherdson Xavier Fernandez Rodrigues Gomes Lazaroo');
+
+/** Mixes a number so that neighbouring inputs pick unrelated names. */
+function mix(n: number): number {
+  let x = Math.imul(n ^ (n >>> 16), 0x45d9f3b) >>> 0;
+  x = Math.imul(x ^ (x >>> 16), 0x45d9f3b) >>> 0;
+  return (x ^ (x >>> 16)) >>> 0;
+}
+const pick = <T>(list: readonly T[], n: number): T => list[n % list.length]!;
+
+/** Nth candidate name: one of four communities, built from given names and surnames. No digits. */
+function candidate(seed: number): string {
+  const a = mix(seed), b = mix(a + 1), c = mix(b + 1), d = mix(c + 1);
+  switch (a % 4) {
+    case 0: return `${pick(CN_SURNAME, b)} ${pick(CN_GIVEN, c)} ${pick(CN_GIVEN, d)}`;
+    case 1: { const f = b % 2 === 1; return `${pick(f ? FEMALE : MALE, c)} ${f ? 'binte' : 'bin'} ${pick(MY_FATHER, d)}`; }
+    case 2: { const f = b % 2 === 1; return `${pick(f ? IN_FEMALE : IN_MALE, c)} ${f ? 'd/o' : 's/o'} ${pick(IN_FATHER, d)}`; }
+    default: return `${pick(EU_GIVEN, b)} ${pick(EU_SURNAME, c).replace('-', ' ')}`;
+  }
+}
 
 export interface VehicleRow { id: string; registration: string; name: string; model: string | null; photo_url: string | null;
   hq_location: string; is_demo: boolean }
@@ -38,11 +58,9 @@ function hash(text: string): number {
   return h;
 }
 
-export function kindOf(row: VehicleRow): DemoVehicleKind | null {
-  const text = `${row.id} ${row.name}`.toLowerCase();
-  if (/pickup/.test(text)) return 'pickup';
-  if (/van/.test(text)) return 'van';
-  return null;
+/** Pickup if the id, name or plate says so; otherwise van (the usual response vehicle). */
+export function kindOf(row: VehicleRow): DemoVehicleKind {
+  return /pickup/i.test(`${row.id} ${row.name} ${row.registration}`) ? 'pickup' : 'van';
 }
 
 export function planVehicles(rows: VehicleRow[]): { changes: VehicleChange[]; skipped: string[] } {
@@ -51,23 +69,22 @@ export function planVehicles(rows: VehicleRow[]): { changes: VehicleChange[]; sk
   const skipped: string[] = [];
   for (const row of rows) {
     if (!row.id.startsWith('demo-vehicle-') && !row.is_demo) continue;
-    if (!/^DEMO/i.test(row.registration)) { skipped.push(`${row.id}: already has plate ${row.registration}`); continue; }
-    const kind = kindOf(row);
-    if (!kind) { skipped.push(`${row.id}: cannot tell van from pickup`); continue; }
+    if (isValidPlate(row.registration)) { skipped.push(`${row.id}: already has plate ${row.registration}`); continue; }
     const registration = demoGoodsPlate(row.id, taken);
     taken.add(registration);
-    changes.push({ id: row.id, old: `${row.name} / ${row.registration}`, registration, ...demoVehicleIdentity(kind, row.hq_location) });
+    const identity = demoVehicleIdentity(kindOf(row), row.hq_location);
+    changes.push({ id: row.id, old: `${row.name} / ${row.registration}`, registration, ...identity, name: identity.model });
   }
   return { changes, skipped };
 }
 
 export function crewNameFor(accountId: string, taken: ReadonlySet<string> = new Set()): string {
-  const start = hash(accountId) % NAMES.length;
-  for (let i = 0; i < NAMES.length; i += 1) {
-    const name = NAMES[(start + i) % NAMES.length]!;
+  const start = hash(accountId);
+  for (let i = 0; i < 100000; i += 1) {
+    const name = candidate(start + i);
     if (!taken.has(name)) return name;
   }
-  return `${NAMES[start]!} ${hash(accountId) % 90 + 10}`;
+  throw new Error('no free crew name');
 }
 
 export function planCrew(rows: CrewRow[]): CrewChange[] {

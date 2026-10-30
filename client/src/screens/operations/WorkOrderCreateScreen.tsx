@@ -12,6 +12,7 @@
  * cluster detail hand a suggestion over (8.1.8) without either of them creating anything.
  */
 import { useState } from 'react';
+import { ClipboardPlus } from 'lucide-react';
 import { ApiError } from '../../lib/ApiClient';
 import { Field, field, FormField } from '../../components/Field';
 import { evaluate, formIsValid, maxLength, required } from '../../components/FieldValidation';
@@ -90,8 +91,8 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="WOCreate" data-requirement="11.2.17">
-      <h1>New work order</h1>
-      <form onSubmit={submit} noValidate>
+      <h1 className="text-2xl sm:text-[2rem]">New work order</h1>
+      <form onSubmit={submit} noValidate className="flex max-w-2xl flex-col gap-3 rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-8">
         {sourceReportId === null ? <Field
           id="clusterId"
           label="Cluster"
@@ -101,7 +102,7 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
           hint="Pre-filled when you arrive from the dispatch list or a cluster."
           onChange={(v) => setClusterId({ value: v, touched: clusterId.touched })}
         /> : (
-          <p data-part="report-target">This work order will target verified report {sourceReportId}. Its recorded location and pest type are the source of truth.</p>
+          <p data-part="report-target" className="m-0 rounded-2xl bg-accent-quiet p-4 text-sm">This work order will target verified report {sourceReportId}. Its recorded location and pest type are the source of truth.</p>
         )}
 
         <label htmlFor="taskType">Task</label>
@@ -150,7 +151,7 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
         />
 
         {failure === null ? null : (
-          <div role="alert" data-part="error">
+          <div role="alert" data-part="error" className="rounded-2xl border border-tier-high/40 bg-tier-high/14 p-4 text-tier-high [&_p]:m-0 [&_a]:font-semibold">
             <p>{failure.cause}</p>
             <p>{failure.remedy}</p>
             {duplicate === null ? null : (
@@ -167,7 +168,8 @@ export function WorkOrderCreateScreen(props: ScreenProps): JSX.Element {
           </div>
         )}
 
-        <button type="submit" disabled={busy}>
+        <button type="submit" disabled={busy} className="mt-2 inline-flex min-h-11 items-center justify-center gap-2 self-start">
+          <ClipboardPlus size={18} aria-hidden="true" />
           {busy ? 'Creating…' : 'Create work order'}
         </button>
       </form>

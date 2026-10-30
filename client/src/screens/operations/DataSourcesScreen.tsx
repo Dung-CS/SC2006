@@ -81,7 +81,7 @@ export function DataSourcesScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="DataSources" data-requirement="11.2.23">
-      <h1>Data sources</h1>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-[2rem]">Data sources</h1>
 
       {/* 1.1.18 — outside StateView on purpose: a source health request that failed is one of the
           moments the manager most wants this button, and hiding it behind its own error would
@@ -104,6 +104,7 @@ export function DataSourcesScreen(props: ScreenProps): JSX.Element {
       )}
 
       <StateView state={state} onRetry={retry}>
+        <div className="overflow-x-auto rounded-3xl border border-line bg-surface p-2">
         <table>
           <thead>
             <tr>
@@ -136,6 +137,7 @@ export function DataSourcesScreen(props: ScreenProps): JSX.Element {
             ))}
           </tbody>
         </table>
+        </div>
       </StateView>
     </section>
   );

@@ -13,6 +13,7 @@
  * cannot distinguish the fills.
  */
 import { useEffect, useState } from 'react';
+import { MapPinned, Plus } from 'lucide-react';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
@@ -89,12 +90,14 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="ResidentMap" data-requirement="11.2.5">
-      <h1>Dengue map</h1>
+      <h1 className="flex items-center gap-3">
+        <MapPinned aria-hidden="true" className="size-7 shrink-0 text-accent" />
+        Dengue map
+      </h1>
 
       <StateView state={state} onRetry={retry}>
         <SingaporeMap
           label="resident-map"
-          basemap="Grey_HD"
           clusters={value?.clusters ?? []}
           markers={markers}
           size="short"
@@ -115,13 +118,13 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
           <h2>Active clusters</h2>
           {/* `data-part="list"` is the card treatment the stylesheet already defines for exactly
               this shape — a list where each entry is a thing rather than a line. */}
-          <ul data-part="list">
+          <ul data-part="list" className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
             {clustersPaging.pagedItems.map((cluster) => (
               <li
                 key={cluster.clusterId}
                 data-tier={cluster.tier}
                 data-selected={selectedClusterId === cluster.clusterId ? 'true' : undefined}
-                className="cluster-card"
+                className="cluster-card min-h-11 rounded-3xl"
                 onClick={() => setSelectedClusterId((prev) => (prev === cluster.clusterId ? null : cluster.clusterId))}
                 tabIndex={0}
                 role="button"
@@ -154,9 +157,9 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
         {(value?.savedLocations ?? []).length === 0 ? null : (
           <section data-part="saved">
             <h2>Your saved locations</h2>
-            <ul data-cards>
+            <ul data-cards className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
               {(value?.savedLocations ?? []).map((location) => (
-                <li key={location.savedLocationId} data-status={location.exposureStatus}>
+                <li key={location.savedLocationId} data-status={location.exposureStatus} className="rounded-3xl border border-line bg-surface p-4 shadow-sm">
                   <div data-part="card-head">
                     <strong>{location.label}</strong>
                     {/*
@@ -196,9 +199,9 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
             </p>
             {/* 5.2.9 — a resident sees the markers anonymised; the server decided that, not this
                 screen, which is why nothing here strips a field. */}
-            <ul data-cards>
+            <ul data-cards className="m-0 grid list-none gap-3 p-0">
               {reportsPaging.pagedItems.map((report) => (
-                <li key={report.reportId} className="report-card" onClick={() => setFocusRequest({ id: report.reportId })}>
+                <li key={report.reportId} className="report-card overflow-hidden rounded-3xl border border-line bg-surface shadow-sm" onClick={() => setFocusRequest({ id: report.reportId })}>
                   <div className="report-card-layout">
                     <img
                       src={reportPhotoUrl(report.type, report.pestType)}
@@ -238,7 +241,8 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
       </StateView>
 
       <nav aria-label="Map actions">
-        <a href="/report" onClick={link(props, '/report')}>
+        <a href="/report" onClick={link(props, '/report')} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent-fill px-5 font-bold text-white no-underline hover:bg-accent-dark">
+          <Plus aria-hidden="true" className="size-4" />
           Report a site
         </a>
         <a href="/locations" onClick={link(props, '/locations')}>

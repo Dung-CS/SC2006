@@ -26,7 +26,7 @@ export function RejectedReportsScreen(props: ScreenProps): JSX.Element {
   });
   return (
     <section data-screen="RejectedReports" data-requirement="11.2.14">
-      <h1>Rejected reports</h1>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-[2rem]">Rejected reports</h1>
       <StateView state={state} onRetry={retry}>
         <ol data-part="rejected-list" data-cards>
           {(value?.rejected ?? []).map((row) => (

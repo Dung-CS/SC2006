@@ -17,6 +17,7 @@
 import { build, context } from 'esbuild';
 import { copyFile, cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -71,24 +72,19 @@ for (const name of await readdir(leafletImages)) {
 }
 
 /**
- * IBM Plex, self-hosted.
+ * Inter and IBM Plex Mono, self-hosted.
  *
- * `styles.css` has named IBM Plex Sans and IBM Plex Mono in `--font` and `--mono` since the tokens
- * were fixed in `lab1/FIGMA-PROMPTS.md`, but nothing ever loaded them - so every screen has been
- * rendering in whatever the system fallback happened to be, and the build did not match the
- * mockups it was written from. The Figma screens use the same two families, so this closes the gap
- * rather than introducing a new dependency.
+ * Inter (400/500/600/700) is the interface face, per client/DESIGN.md. IBM Plex Mono (400/500)
+ * stays for code-like values (`--mono`).
  *
  * Copied from npm and served from our own origin, for the same reason Leaflet is: the CSP names no
- * external font host, and `@import url(https://fonts.googleapis.com/...)` - which is what the Figma
- * source does - would need one. Self-hosting keeps `font-src 'self'` intact.
+ * external font host, so `font-src 'self'` must stay intact.
  *
- * Latin only, and only the weights the stylesheet actually asks for (400/500/600 sans, 400/500
- * mono). woff2 alone: every browser in the `target` list above has supported it for years, and the
- * woff fallback would double the bytes for nobody.
+ * Latin only, and only the weights the stylesheet asks for. woff2 alone: every browser in the
+ * `target` list above has supported it for years, and the woff fallback would double the bytes.
  */
 const FONT_FACES = [
-  { family: 'IBM Plex Sans', pkg: 'ibm-plex-sans', weights: [400, 500, 600] },
+  { family: 'Inter', pkg: 'inter', weights: [400, 500, 600, 700] },
   { family: 'IBM Plex Mono', pkg: 'ibm-plex-mono', weights: [400, 500] },
 ];
 
@@ -131,11 +127,25 @@ if (openBraces !== closeBraces) {
   throw new Error(`CSS brace balance error in styles.css: ${openBraces} opening vs ${closeBraces} closing braces. Unclosed rule would corrupt Leaflet styles.`);
 }
 
+/**
+ * Tailwind v4 utilities, from `client/tailwind.css` (no Preflight; see that file). The CLI is run
+ * as a child process and its stdout appended to the same one stylesheet, after ours, so the build
+ * gains one step and no plugin.
+ */
+const tailwindCss = execFileSync(
+  process.execPath,
+  [resolve(here, '..', 'node_modules', '@tailwindcss', 'cli', 'dist', 'index.mjs'), '-i', resolve(here, 'tailwind.css'), '--minify'],
+  { cwd: here, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
+);
+
 await writeFile(
   resolve(outdir, 'styles.css'),
-  `/* --- IBM Plex, self-hosted rather than fetched from Google Fonts --- */
+  `/* --- Inter and IBM Plex Mono, self-hosted rather than fetched from Google Fonts --- */
 ${fontCss}
 ${ourCss}
+
+/* --- Tailwind utilities (client/tailwind.css) --- */
+${tailwindCss}
 
 /* --- Leaflet 1.9.4, bundled rather than fetched from a CDN --- */
 ${leafletCss}

@@ -69,6 +69,10 @@ function App(): JSX.Element {
           setPrincipal(null);
           setToken(null);
           rememberToken(storage, null);
+          // Already on the form (a stale token found by the restore): there is no journey to carry.
+          if (window.location.pathname === '/signin') {
+            return;
+          }
           const returnTo = window.location.pathname + window.location.search;
           const next = `/signin?returnTo=${encodeURIComponent(returnTo)}`;
           window.history.pushState({}, '', next);

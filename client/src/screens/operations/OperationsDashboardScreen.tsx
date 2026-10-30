@@ -81,10 +81,10 @@ export function OperationsDashboardScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="OpsDashboard" data-requirement="11.2.12">
-      <h1>Operations</h1>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-[2rem]">Operations</h1>
       <DispatchProposalScreen {...props} embedded />
-      <details data-part="operations-summary">
-        <summary>Operations summary</summary>
+      <details data-part="operations-summary" className="mt-4 rounded-3xl border border-line bg-surface p-4 sm:p-6">
+        <summary className="min-h-11 cursor-pointer text-lg font-bold tracking-tight">Operations summary</summary>
 
         <StateView state={dashboard.state} onRetry={dashboard.retry}>
           {overview === undefined ? null : (

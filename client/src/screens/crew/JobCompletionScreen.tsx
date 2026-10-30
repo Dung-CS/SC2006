@@ -12,6 +12,7 @@
  * what is being recorded without inviting a change that would be ignored.
  */
 import { useState } from 'react';
+import { ArrowLeft, Camera, X } from 'lucide-react';
 import { ApiError } from '../../lib/ApiClient';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
@@ -74,16 +75,17 @@ export function JobCompletionScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="JobCompletion" data-requirement="11.2.21">
-      <a href={`/crew/jobs/${id}`} onClick={link(props, `/crew/jobs/${id}`)}>
+      <a href={`/crew/jobs/${id}`} onClick={link(props, `/crew/jobs/${id}`)} className="inline-flex min-h-11 items-center gap-1.5 font-semibold">
+        <ArrowLeft aria-hidden="true" className="size-5" />
         Back to the job
       </a>
 
       <StateView state={state} onRetry={retry}>
         {job === undefined ? null : (
-          <form onSubmit={submit} noValidate>
-            <h1>Record completion</h1>
+          <form onSubmit={submit} noValidate className="grid gap-4">
+            <h1 className="text-2xl font-bold tracking-tight md:text-[2rem]">Record completion</h1>
             {/* 8.3.7 — read-only: the server takes this from the order, not from the request. */}
-            <p data-part="task">Task performed: {cleanTitle(job.taskType, 'Inspection')}</p>
+            <p data-part="task" className="m-0 rounded-2xl bg-accent-quiet p-3 font-semibold text-ink">Task performed: {cleanTitle(job.taskType, 'Inspection')}</p>
 
             <Field
               id="notes"
@@ -96,11 +98,11 @@ export function JobCompletionScreen(props: ScreenProps): JSX.Element {
               onChange={(v) => setNotes({ value: v, touched: notes.touched })}
             />
 
-            <fieldset data-part="photos">
-              <legend>Photographs</legend>
+            <fieldset data-part="photos" className="grid gap-3 rounded-3xl border border-line bg-surface p-4">
+              <legend className="flex items-center gap-2 px-1 text-lg font-bold"><Camera aria-hidden="true" className="size-5 text-accent" />Photographs</legend>
               {/* Stated before the button is pressed, not discovered by pressing it. */}
               <p data-part="requirement">At least one photograph is required.</p>
-              <label htmlFor="photo">Add a photograph</label>
+              <label htmlFor="photo" className="font-semibold">Add a photograph</label>
               <input
                 id="photo"
                 type="file"
@@ -137,16 +139,17 @@ export function JobCompletionScreen(props: ScreenProps): JSX.Element {
                   Uploading the photograph…
                 </p>
               ) : null}
-              <ul>
+              <ul className="m-0 grid list-none gap-2 p-0">
                 {photos.map((photo, index) => (
                   // The file's own name, not the key: a crew member has no use for a UUID.
-                  <li key={photo.key} data-key={photo.key}>
+                  <li key={photo.key} data-key={photo.key} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-accent-quiet p-2 pl-4">
                     {photo.label}
                     <button
                       type="button"
+                      className="min-h-11"
                       onClick={() => setPhotos(photos.filter((_, i) => i !== index))}
                     >
-                      Remove {photo.label}
+                      <X aria-hidden="true" className="mr-1 inline size-4 align-text-bottom" />Remove {photo.label}
                     </button>
                   </li>
                 ))}
@@ -159,13 +162,13 @@ export function JobCompletionScreen(props: ScreenProps): JSX.Element {
             </fieldset>
 
             {failure === null ? null : (
-              <div role="alert" data-part="error">
+              <div role="alert" data-part="error" className="rounded-2xl border border-tier-high p-3 font-semibold text-tier-high">
                 <p>{failure.cause}</p>
                 <p>{failure.remedy}</p>
               </div>
             )}
 
-            <button type="submit" disabled={busy || uploading}>
+            <button type="submit" data-variant="primary" className="min-h-14 w-full text-lg" disabled={busy || uploading}>
               {busy ? 'Recording…' : 'Submit completion'}
             </button>
           </form>

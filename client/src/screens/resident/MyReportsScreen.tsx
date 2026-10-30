@@ -7,6 +7,7 @@
  * "Verified" and an operations manager reading "Verified" on the same report must be reading about
  * the same thing, or the two cannot discuss it.
  */
+import { ClipboardList, Plus } from 'lucide-react';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
@@ -39,15 +40,19 @@ export function MyReportsScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="MyReports" data-requirement="11.2.9">
-      <h1>My reports</h1>
-      <a href="/report" onClick={link(props, '/report')}>
+      <h1 className="flex items-center gap-3">
+        <ClipboardList aria-hidden="true" className="size-7 shrink-0 text-accent" />
+        My reports
+      </h1>
+      <a href="/report" onClick={link(props, '/report')} className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-accent-fill px-5 font-bold text-white no-underline hover:bg-accent-dark">
+        <Plus aria-hidden="true" className="size-4" />
         Report a site
       </a>
 
       <StateView state={state} onRetry={retry}>
-        <ul data-part="reports" data-cards>
+        <ul data-part="reports" data-cards className="m-0 grid list-none gap-4 p-0">
           {pagedItems.map((report) => (
-            <li key={report.id} data-entity-id={report.id} data-status={report.status} className="report-card">
+            <li key={report.id} data-entity-id={report.id} data-status={report.status} className="report-card overflow-hidden rounded-3xl border border-line bg-surface shadow-sm">
               <div className="report-card-layout">
                 <img
                   src={reportPhotoUrl(report.type, report.pestType)}
