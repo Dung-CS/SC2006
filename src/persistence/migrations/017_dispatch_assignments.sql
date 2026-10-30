@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS dispatch_assignment (
   scheduled_date date NOT NULL,
   source_team_id text NOT NULL,
   crew_ids uuid[] NOT NULL CHECK (cardinality(crew_ids) > 0),
-  vehicle_id uuid NOT NULL REFERENCES vehicle(id),
+  vehicle_id text NOT NULL REFERENCES vehicle(id),
   computed_at timestamptz NOT NULL,
   created_by uuid NOT NULL REFERENCES account(id),
   created_at timestamptz NOT NULL DEFAULT now(),
