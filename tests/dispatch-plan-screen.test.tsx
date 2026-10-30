@@ -11,7 +11,7 @@ vi.mock('../client/src/components/SingaporeMap', () => ({
     <div data-testid="dispatch-map" data-routes={routes.map((route) => route.teamId).join(',')}
       data-geometry={JSON.stringify(routes.map((route) => route.coordinates))}>
       {tasks.map((task) => <button key={task.id} data-task-id={task.id} data-point={`${task.point.latitude},${task.point.longitude}`}
-        data-team-state={task.assignmentState} data-photo={task.photoUrl} data-reference={String(task.photoIsReference)}
+        data-team-state={task.assignmentState} data-pest={task.pestType} data-task-type={task.taskType} data-photo={task.photoUrl} data-reference={String(task.photoIsReference)}
         onClick={() => onTaskOpen(task)}>{task.location}</button>)}
     </div>,
 }));
@@ -68,7 +68,7 @@ describe('Dispatch map views and filters', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Unassigned/ }));
     expect(map().querySelectorAll('[data-task-id]')).toHaveLength(1);
     expect(within(map()).getByText('Candidate site')).toBeTruthy();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Central Sanitation Available' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Central' }));
     expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
   });
 
@@ -88,17 +88,19 @@ describe('Dispatch map views and filters', () => {
     expect(document.querySelector<HTMLDetailsElement>('.dispatch-details')?.open).toBe(false);
   });
 
-  it('uses Team and Job Type multi-checkboxes, with All and explicit none', async () => {
-    mount({ routes: [route, { ...route, teamId: 'Second', waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, workOrderId: 'second', taskType: 'Fogging' }) }] }, [proposal]);
-    const second = await screen.findByRole('checkbox', { name: 'Second' });
+  it('groups crews by HQ and supports HQ/Job Type All, multiple and none', async () => {
+    mount({ routes: [route, { ...route, teamId: 'Central-VectorControl', waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, workOrderId: 'same-hq' }) }, { ...route, teamId: 'Second', depotLocation: 'NorthEast', waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, workOrderId: 'second', taskType: 'Fogging' }) }] }, [proposal]);
+    const second = await screen.findByRole('checkbox', { name: 'North east' });
+    expect(screen.queryByRole('group', { name: 'Team' })).toBeNull();
+    expect(screen.getAllByRole('checkbox', { name: 'Central' })).toHaveLength(1);
     fireEvent.click(second);
-    expect(map().getAttribute('data-routes')).toBe(route.teamId);
+    expect(map().getAttribute('data-routes')).toBe(`${route.teamId},Central-VectorControl`);
     fireEvent.click(second);
     expect(map().getAttribute('data-routes')).toContain('Second');
-    fireEvent.click(all('Team'));
+    fireEvent.click(all('HQ'));
     expect(map().getAttribute('data-routes')).toBe('');
     expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
-    fireEvent.click(all('Team'));
+    fireEvent.click(all('HQ'));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Inspection' }));
     expect(map().getAttribute('data-routes')).toBe('Second');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Fogging' }));
@@ -107,6 +109,19 @@ describe('Dispatch map views and filters', () => {
     expect(map().querySelectorAll('[data-task-id]')).toHaveLength(0);
     fireEvent.click(all('Job Type'));
     expect(within(map()).getByText('Candidate site')).toBeTruthy();
+  });
+
+  it('preserves pest and task codes for icons and photo fallbacks in every map view', async () => {
+    const pest = 'BeeWasp';
+    mount({ routes: [{ ...route, waypointOrder: route.waypointOrder.map((wp) => wp.isHq ? wp : { ...wp, pestType: pest }) }],
+      unassigned: [{ ...unassigned, pestType: pest, taskType: 'DrainClearance' }] }, [{ ...proposal, pestType: pest, suggestedTaskType: 'DrainClearance' }]);
+    await waitFor(() => expect(map().querySelector('[data-task-id]')?.getAttribute('data-pest')).toBe(pest));
+    expect(map().querySelector('[data-task-id]')?.getAttribute('data-task-type')).toBe('Inspection');
+    for (const view of [/Unassigned \/ committed/, /Proposals/]) {
+      tab(view);
+      expect(map().querySelector('[data-task-id]')?.getAttribute('data-pest')).toBe(pest);
+      expect(map().querySelector('[data-task-id]')?.getAttribute('data-task-type')).toBe('DrainClearance');
+    }
   });
 
   it('keeps original full road geometry when job filters hide other stops', async () => {

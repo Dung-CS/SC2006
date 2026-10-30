@@ -35,6 +35,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import * as L from 'leaflet';
 import type { Map as LeafletMap, LayerGroup, PathOptions } from 'leaflet';
 import { reportPhotoUrl } from '../lib/reportVisuals';
+import { label } from '../lib/labels';
 
 /** Roughly the Republic, with enough margin that a cluster on the coast is not against the edge. */
 const SINGAPORE_BOUNDS: [[number, number], [number, number]] = [
@@ -101,6 +102,7 @@ export interface MapRoute {
 export interface MapTask {
   id: string;
   point: { latitude: number; longitude: number };
+  /** Source enum keys; format only at the visible-text boundary, never before icon/photo lookup. */
   pestType?: string;
   taskType?: string;
   priority?: string;
@@ -272,8 +274,8 @@ export function createTaskCallout(task: MapTask): HTMLElement {
     row.append(name, document.createTextNode(value));
     card.append(row);
   };
-  add('Pest', task.pestType ?? 'Not recorded');
-  add('Task', task.taskType ?? 'Not recorded');
+  add('Pest', task.pestType ? label(task.pestType) : 'Not recorded');
+  add('Task', task.taskType ? label(task.taskType) : 'Not recorded');
   add('Priority', task.priority ?? 'Not recorded');
   add('Location', task.location);
   const team = task.teamLabel ?? (task.teamId ? `Team ${task.teamId}` : 'Team not recorded');
@@ -291,7 +293,7 @@ export function createTaskCallout(task: MapTask): HTMLElement {
     const image = document.createElement('img');
     image.className = 'report-reference-img';
     image.src = url.href;
-    image.alt = task.photoIsReference ? `${task.pestType ?? 'Pest'} reference` : 'Reported site';
+    image.alt = task.photoIsReference ? `${task.pestType ? label(task.pestType) : 'Pest'} reference` : 'Reported site';
     image.width = 240;
     image.height = 140;
     let isReference = task.photoIsReference;
@@ -299,7 +301,7 @@ export function createTaskCallout(task: MapTask): HTMLElement {
       if (!isReference) {
         isReference = true;
         image.src = reportPhotoUrl(task.taskType ?? 'StandingWater', task.pestType);
-        image.alt = `${task.pestType ?? 'Pest'} reference`;
+        image.alt = `${task.pestType ? label(task.pestType) : 'Pest'} reference`;
         caption.textContent = 'Reference photo';
       } else {
         image.remove();
@@ -630,11 +632,11 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       if (!Number.isFinite(task.point.latitude) || !Number.isFinite(task.point.longitude)) continue;
       const icon = L.divIcon({
         className: 'custom-route-marker',
-        html: `<div class="route-stop-pin ${getMapPriorityClass(task.priority)}" data-task-id="${escapeHtml(task.id)}" data-assignment-state="${escapeHtml(task.assignmentState ?? 'unknown')}"><span aria-hidden="true">${getMapPestIcon(task.pestType)}</span></div>`,
+        html: `<div class="route-stop-pin ${getMapPriorityClass(task.priority)}" data-task-id="${escapeHtml(task.id)}" data-pest-type="${escapeHtml(task.pestType ?? '')}" data-assignment-state="${escapeHtml(task.assignmentState ?? 'unknown')}"><span aria-hidden="true">${getMapPestIcon(task.pestType)}</span></div>`,
         iconSize: [36, 36], iconAnchor: [18, 18],
       });
       L.marker([task.point.latitude, task.point.longitude], {
-        icon, title: `${task.pestType ?? 'Pest'}: ${task.location}`, keyboard: true,
+        icon, title: `${task.pestType ? label(task.pestType) : 'Pest'}: ${task.location}`, keyboard: true,
       }).on('click', () => {
         setActiveTaskId(task.id);
         props.onTaskOpen?.(task);

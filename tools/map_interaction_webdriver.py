@@ -40,14 +40,15 @@ SNAPSHOT = r"""
 const root=document.querySelector('[data-part="dispatch-routes-map"]');
 const canvas=root?.querySelector('.map-canvas');
 const checked=(name)=>[...document.querySelectorAll(`[data-filter="${name}"] input[value]:checked`)].map(i=>i.value);
-const teams=checked('team'), types=checked('job-type');
-const accepts=(team,type)=>teams.includes(team||'__unassigned')&&types.includes(type||'__unknown');
+const hqs=checked('hq'), types=checked('job-type');
 const located=p=>p&&Number.isFinite(p.latitude)&&Number.isFinite(p.longitude);
 const day=document.querySelector('#dispatch-day')?.value;
 const active=[...document.querySelectorAll('[data-part="dispatch-tabs"] button')].findIndex(b=>b.getAttribute('aria-pressed')==='true');
 const horizon=window.__demoUiHorizon;
+const hqKey=team=>(horizon?.plans||[]).flatMap(p=>p.routes||[]).find(r=>r.teamId===team)?.depotLocation||'__unassigned';
+const accepts=(team,type)=>hqs.includes(hqKey(team))&&types.includes(type||'__unknown');
 const plan=horizon?.plans?.find(p=>p.date===day);
-let expected=[], expectedLines=0;
+let expected=[], expectedLines=0, expectedPests={};
 if(active===0){
   for(const route of plan?.routes||[]){
     if(route.route?.source!=='onemap')continue;
@@ -56,12 +57,15 @@ if(active===0){
     for(const visit of route.route?.walkingVisits||[])
       for(const leg of [visit.outbound,visit.return])if((leg?.coordinates||[]).length>=2)expectedLines++;
     (route.waypointOrder||[]).forEach((w,i)=>{
-      if(!w.isHq&&w.status!=='Completed'&&accepts(route.teamId,w.taskType)&&located(w.targetPoint||w.point))
-        expected.push(w.workOrderId||`${day}:${route.teamId}:${i}`);
+      if(!w.isHq&&w.status!=='Completed'&&accepts(route.teamId,w.taskType)&&located(w.targetPoint||w.point)){
+        const id=w.workOrderId||`${day}:${route.teamId}:${i}`;
+        expected.push(id); expectedPests[id]=w.pestType||'';
+      }
     });
   }
 }else if(active===1){
   expected=(horizon?.unassigned||[]).filter(w=>accepts(w.teamId,w.taskType)&&located(w.point)).map(w=>w.workOrderId);
+  for(const w of horizon?.unassigned||[])expectedPests[w.workOrderId]=w.pestType||'';
 }else{
   const proposalTeam=p=>{
     const mapId=p.mapClusterId||(p.sourceReportId?`pest-${p.sourceReportId}`:p.clusterId);
@@ -72,8 +76,10 @@ if(active===0){
   expected=(window.__mapProposalSnapshot?.body.proposals||[])
     .filter(p=>accepts(proposalTeam(p),p.suggestedTaskType)&&located(p.point||p.mapPoint))
     .map(p=>`proposal:${p.sourceReportId||p.clusterId}:${p.pestType||'Mosquito'}`);
+  for(const p of window.__mapProposalSnapshot?.body.proposals||[])expectedPests[`proposal:${p.sourceReportId||p.clusterId}:${p.pestType||'Mosquito'}`]=p.pestType||'Mosquito';
 }
 return {active,day,expected,expectedLines,
+  expectedPests,pins:[...root.querySelectorAll('.route-stop-pin[data-task-id]')].map(e=>({id:e.dataset.taskId,pest:e.dataset.pestType,icon:e.textContent})),
   actual:[...root.querySelectorAll('.route-stop-pin[data-task-id]')].map(e=>e.dataset.taskId),
   lines:root.querySelectorAll('svg path.leaflet-interactive').length,
   zoom:Number(canvas?.dataset.mapZoom),minZoom:Number(canvas?.dataset.mapMinZoom),
@@ -87,6 +93,18 @@ return {active,day,expected,expectedLines,
 
 def matching(snapshot: dict) -> bool:
     return bool(snapshot.get('ready')) and sorted(snapshot['actual']) == sorted(snapshot['expected']) and snapshot['lines'] == snapshot['expectedLines']
+
+
+def assert_icons(snapshot: dict) -> None:
+    icons = {'Mosquito': '\U0001f99f', 'BeeWasp': '\U0001f41d', 'Rat': '\U0001f400',
+             'Cockroach': '\U0001fab3', 'Snake': '\U0001f40d', 'HouseCrow': '\U0001f985',
+             'WildBoar': '\U0001f417', 'Macaque': '\U0001f412', 'Pigeon': '\U0001f426',
+             'JavanMyna': '\U0001f426', 'MonitorLizard': '\U0001f98e', 'Otter': '\U0001f9a6'}
+    for pin in snapshot['pins']:
+        if pin['pest'] != snapshot['expectedPests'][pin['id']]:
+            raise AssertionError('map pest code differs from API source')
+        if pin['pest'] in icons and pin['icon'] != icons[pin['pest']]:
+            raise AssertionError(f"wrong pest icon for {pin['pest']}")
 
 
 def assert_bounds(snapshot: dict) -> None:
@@ -127,9 +145,10 @@ class MapInteractionRun(DemoRun):
         return next(box for box in boxes if value is None or box.get_attribute('value') == value)
 
     def filters(self) -> None:
-        for group in ('team', 'job-type'):
+        for group in ('hq', 'job-type'):
             self.checkbox(group).click()  # Explicit none, then two independent categories.
             state = self.settle()
+            assert_icons(state)
             if state['actual'] or state['lines']:
                 raise AssertionError(f'{group} none still draws tasks or lines')
             values = [box.get_attribute('value') for box in self.driver.find_elements('css selector', f'[data-filter="{group}"] input[value]')]
@@ -241,6 +260,7 @@ class MapInteractionRun(DemoRun):
         for index in range(3):
             self.driver.find_elements('css selector', '[data-part="dispatch-tabs"] button')[index].click()
             state = self.settle()
+            assert_icons(state)
             states.append((tuple(sorted(state['actual'])), state['lines']))
             if index and state['lines']:
                 raise AssertionError('non-route view retains executable lines')
@@ -248,6 +268,12 @@ class MapInteractionRun(DemoRun):
         if len(set(states)) != 3:
             raise AssertionError('three live views did not produce three distinct pin/line sets; fixture coverage required')
         self.record('map-three-views', 'PASS', 'All three source task sets match; route polylines absent from disposition/proposals')
+        assert_icons(self.snapshot())
+        hq_options = [box.get_attribute('value') for box in self.driver.find_elements('css selector', '[data-filter="hq"] input[value]')]
+        allowed_hqs = {'NorthWest', 'NorthEast', 'Central', 'SouthEast', 'SouthWest', '__unassigned'}
+        if not hq_options or len(hq_options) > 6 or not set(hq_options).issubset(allowed_hqs):
+            raise AssertionError(f'HQ filter contains crew options: {hq_options}')
+        self.record('hq-and-pest-icons', 'PASS', f'{len(hq_options)} HQ categories; raw pest codes and species icons match actual API tasks')
         self.driver.find_elements('css selector', '[data-part="dispatch-tabs"] button')[0].click()
         self.settle()
         self.filters()
@@ -331,6 +357,13 @@ class MapInteractionRun(DemoRun):
 
 
 class Checks(unittest.TestCase):
+    def test_icons_require_raw_source_code_and_species_icon(self):
+        good = {'pins': [{'id': 'a', 'pest': 'BeeWasp', 'icon': '\U0001f41d'}], 'expectedPests': {'a': 'BeeWasp'}}
+        assert_icons(good)
+        for pin in ({'id': 'a', 'pest': 'Bee or wasp', 'icon': '\U0001f41d'}, {'id': 'a', 'pest': 'BeeWasp', 'icon': '\U0001f41b'}):
+            with self.assertRaises(AssertionError):
+                assert_icons({**good, 'pins': [pin]})
+
     def test_mobile_width_must_be_actual_390_not_edge_minimum_500(self):
         assert_viewport('mobile', 390, 390)
         assert_viewport('desktop', 1440, 1425)

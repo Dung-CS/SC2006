@@ -1,11 +1,18 @@
 # Dengue Prioritiser — Feature Backlog
 
-## Current delivery delta - 2026-10-30 (dispatch map interaction)
+## Current delivery delta - 2026-10-30 (dispatch map correction in progress)
+
+### Use HQ filtering and preserve icon lookup keys
+- **Status:** In progress; root implementation and validation are pending.
+- **Correction:** Replace the Team categorical checkbox filter with an HQ filter. Preserve raw pest and task enum keys in `MapTask` for icon/photo lookup; format only visible labels.
+- **Verification:** None claimed for this correction until root confirms.
+
+## Previous delivery delta - 2026-10-30 (dispatch map interaction)
 
 ### Make map controls and task callouts operational
-- **Status:** Done (d1ebbbe deployed; Actions 40892029275 and live Edge verification passed).
+- **Status:** Prior v0.19 release baseline (d1ebbbe); superseded by the in-progress correction above for the categorical filter and enum-key fields.
 - **Acceptance:** Team/Job Type checkbox All/multiple/none; three map views; six-field callout and authenticated on-open photo; labelled references; no synthetic task heading; collapsed details; Singapore zoom/pan boundary; poll-stable popup/zoom. Preserve full verified route geometry and source-point/area-access semantics.
-- **Validation:** 1,152 local tests passed / 58 SQL skipped; typecheck/build/clean release smoke and full CI passed. Seven live map flows passed; desktop and actual 390px mobile visual checks passed. Requirements v0.19: 759 unique definitions.
+- **Validation:** Prior release checks are historical baseline evidence only; they do not verify the current correction.
 - **Evidence:** scratchpad/map-interaction-20261029/DEPLOYMENT.md and webdriver-warm/results.json. No operational record mutations.
 
 ## Current delivery delta - 2026-10-29 (unified authority operations and concise cards)

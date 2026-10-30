@@ -37,6 +37,24 @@ const TASK: MapTask = {
 };
 
 describe('Dispatch task callouts', () => {
+  it('renders the species icon from its code while formatting only visible callout text', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
+    const task = { ...TASK, pestType: 'BeeWasp', taskType: 'DrainClearance' };
+    render(<SingaporeMap label="tasks" clusters={[]} tasks={[task]} />);
+    const pin = await waitFor(() => {
+      const found = document.querySelector('.route-stop-pin[data-task-id="source-task"]');
+      expect(found?.textContent).toBe('\uD83D\uDC1D');
+      return found!;
+    });
+    fireEvent.click(pin);
+    await waitFor(() => expect(document.querySelector('[data-part="task-callout"]')?.textContent).toContain('Bee or wasp'));
+    const card = createTaskCallout({ ...task, photoIsReference: false });
+    expect(card.textContent).toContain('Drain clearance');
+    fireEvent.error(card.querySelector('img')!);
+    expect(card.querySelector('img')?.getAttribute('src')).toBe('/visuals/pests/asian-hornet-wasp.webp');
+  });
+
   it('uses safe text and photo URLs, and records assignment uncertainty', () => {
     const card = createTaskCallout({ ...TASK, location: '<img src=x onerror=alert(1)>', photoUrl: 'javascript:alert(1)', assignmentState: 'unknown' });
     expect(card.textContent).toContain('<img src=x onerror=alert(1)>');

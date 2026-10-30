@@ -195,7 +195,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
 
   const [view, setView] = useState<'proposals' | 'routes' | 'unassigned'>('routes');
   // null means All, while [] deliberately selects nothing. New polling options join All only.
-  const [selectedTeams, setSelectedTeams] = useState<string[] | null>(null);
+  const [selectedHqs, setSelectedHqs] = useState<string[] | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<string[] | null>(null);
   const [activePackingLists, setActivePackingLists] = useState<Record<string, boolean>>({});
   const [checkedGear, setCheckedGear] = useState<Record<string, boolean>>({});
@@ -213,15 +213,16 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
     // Only an unambiguous recorded plan match supplies a preview team.
     return new Set(teams).size === 1 ? teams[0] : undefined;
   };
-  const teamKey = (teamId?: string) => teamId || '__unassigned';
+  const horizonRoutes = (horizon?.plans ?? []).flatMap((item) => item.routes);
+  const hqKey = (teamId?: string) => horizonRoutes.find((route) => route.teamId === teamId)?.depotLocation || '__unassigned';
   const typeKey = (taskType?: string) => taskType || '__unknown';
   const accepts = (teamId?: string, taskType?: string) =>
-    (selectedTeams === null || selectedTeams.includes(teamKey(teamId))) &&
+    (selectedHqs === null || selectedHqs.includes(hqKey(teamId))) &&
     (selectedTypes === null || selectedTypes.includes(typeKey(taskType)));
-  const teamOptions = [...new Set([
-    ...(horizon?.plans ?? []).flatMap((item) => item.routes.map((route) => route.teamId)),
-    ...(horizon?.unassigned ?? []).map((job) => teamKey(job.teamId)),
-    ...(value?.proposals ?? []).map((proposal) => teamKey(proposalTeam(proposal))),
+  const hqOptions = [...new Set([
+    ...horizonRoutes.map((route) => hqKey(route.teamId)),
+    ...(horizon?.unassigned ?? []).map((job) => hqKey(job.teamId)),
+    ...(value?.proposals ?? []).map((proposal) => hqKey(proposalTeam(proposal))),
   ])].sort();
   const typeOptions = [...new Set([
     ...(horizon?.plans ?? []).flatMap((item) => item.routes.flatMap((route) => route.waypointOrder.filter((wp) => !wp.isHq).map((wp) => typeKey(wp.taskType)))),
@@ -267,12 +268,12 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   const routeTasks: MapTask[] = displayedRoutes.flatMap((route) => route.waypointOrder.flatMap((wp, index) => {
     if (wp.isHq || !accepts(route.teamId, wp.taskType) || (stopOverrides[`${selectedDay}:${route.teamId}-${index}`] ?? wp.status) === 'Completed') return [];
     return [{ id: wp.workOrderId ?? `${selectedDay}:${route.teamId}:${index}`, point: wp.targetPoint ?? wp.point,
-      pestType: label(wp.pestType ?? 'Unknown'), taskType: label(wp.taskType ?? 'Unknown'), priority: wp.priority,
+      pestType: wp.pestType, taskType: wp.taskType, priority: wp.priority,
       location: stopDisplayName(wp), photoUrl: taskReferenceImage(wp.taskType, wp.pestType), photoIsReference: true,
       sourceReportId: wp.sourceReportId, teamId: route.teamId, teamLabel: cleanTitle(route.teamId, 'Field team'), assignmentState: 'planned' }];
   }));
   const dispositionTasks = horizonUnassigned.map((job) => ({
-    id: job.workOrderId, point: job.point, pestType: label(job.pestType ?? 'Unknown'), taskType: label(job.taskType ?? 'Unknown'),
+    id: job.workOrderId, point: job.point, pestType: job.pestType, taskType: job.taskType,
     priority: job.priority, location: taskLocation(job.locality, job.point),
     photoUrl: taskReferenceImage(job.taskType, job.pestType), photoIsReference: true,
     sourceReportId: job.sourceReportId ?? job.reportIds?.[0], teamId: job.teamId,
@@ -281,7 +282,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   }));
   const proposalTasks = visibleProposals.map((proposal) => ({
     id: `proposal:${proposal.sourceReportId ?? proposal.clusterId}:${proposal.pestType ?? 'Mosquito'}`, point: proposal.point ?? proposal.mapPoint,
-    pestType: label(proposal.pestType ?? 'Mosquito'), taskType: label(proposal.suggestedTaskType), priority: proposal.tier,
+    pestType: proposal.pestType ?? 'Mosquito', taskType: proposal.suggestedTaskType, priority: proposal.tier,
     location: taskLocation(proposal.locality, proposal.point ?? proposal.mapPoint), photoUrl: taskReferenceImage(proposal.suggestedTaskType, proposal.pestType),
     photoIsReference: true, sourceReportId: proposal.sourceReportId,
     teamId: proposalTeam(proposal), teamLabel: proposalTeam(proposal) ? cleanTitle(proposalTeam(proposal), 'Field team') : undefined,
@@ -293,7 +294,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   const unavailableTasks = candidates.filter((task) => !locatedTasks.some((located) => located.id === task.id));
   const [photos, setPhotos] = useState<Record<string, { url: string; expiresAt: number }>>({});
   const photoSequence = useRef(0);
-  const photoScope = `${view}:${selectedDay}:${date}:${days}:${JSON.stringify(selectedTeams)}:${JSON.stringify(selectedTypes)}`;
+  const photoScope = `${view}:${selectedDay}:${date}:${days}:${JSON.stringify(selectedHqs)}:${JSON.stringify(selectedTypes)}`;
   useEffect(() => { photoSequence.current += 1; }, [photoScope]);
   useEffect(() => {
     setPhotos({});
@@ -375,17 +376,17 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
       </div>
       <div className="dispatch-filters">
         {([
-          ['Team', teamOptions, selectedTeams, setSelectedTeams],
+          ['HQ', hqOptions, selectedHqs, setSelectedHqs],
           ['Job Type', typeOptions, selectedTypes, setSelectedTypes],
         ] as const).map(([title, options, selection, setSelection]) => (
-          <fieldset key={title} data-filter={title === 'Team' ? 'team' : 'job-type'}>
+          <fieldset key={title} data-filter={title === 'HQ' ? 'hq' : 'job-type'}>
             <legend>{title}</legend>
             <label><input type="checkbox" checked={selection === null || (options.length > 0 && options.every((option) => selection.includes(option)))}
               onChange={(event) => { setSelection(event.target.checked ? null : []); setCurrentPage(1); }} /> All</label>
             {options.map((option) => <label key={option}><input type="checkbox" value={option}
               checked={selection === null || selection.includes(option)}
               onChange={(event) => { setSelection(event.target.checked ? [...(selection ?? options), option] : (selection ?? options).filter((item) => item !== option)); setCurrentPage(1); }} />
-              {option === '__unassigned' ? 'Unassigned / team not recorded' : option === '__unknown' ? 'Type not recorded' : title === 'Team' ? cleanTitle(option, 'Field team') : label(option)}
+              {option === '__unassigned' ? 'Unassigned / HQ not recorded' : option === '__unknown' ? 'Type not recorded' : label(option)}
             </label>)}
           </fieldset>
         ))}
