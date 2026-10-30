@@ -71,7 +71,12 @@ describe('Only verified driving routes enter dispatch', () => {
   it('does not manufacture routes on timeout, an exhausted budget, missing configuration or a direct estimate', async () => {
     const stalled = { calculateRoute: vi.fn(async () => new Promise<never>(() => {})) };
     const unverified = new Set<string>();
-    expect(await new RouteOptimizationService(stalled, 5).plan([team], [job('one', mainland), job('two', offshore)], [vehicle], unverified)).toEqual([]);
+    // Fake clock: a real timer can fire just before the deadline's millisecond and admit a second call.
+    vi.useFakeTimers();
+    const stalledPlan = new RouteOptimizationService(stalled, 5).plan([team], [job('one', mainland), job('two', offshore)], [vehicle], unverified);
+    await vi.advanceTimersByTimeAsync(5);
+    expect(await stalledPlan).toEqual([]);
+    vi.useRealTimers();
     expect(stalled.calculateRoute).toHaveBeenCalledTimes(1);
     expect(unverified).toEqual(new Set(['one', 'two']));
     for (const roads of [RouteStrategyFactory.create(null), new DirectDistanceRoutingStrategy()]) {
