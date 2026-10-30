@@ -35,12 +35,14 @@ import { PestReferenceScreen } from '../screens/shared/PestReferenceScreen';
 import { OperationsDashboardScreen } from '../screens/operations/OperationsDashboardScreen';
 import { ClusterDetailScreen } from '../screens/operations/ClusterDetailScreen';
 import { ModerationQueueScreen } from '../screens/operations/ModerationQueueScreen';
+import { RejectedReportsScreen } from '../screens/operations/RejectedReportsScreen';
 import { ReportReviewScreen } from '../screens/operations/ReportReviewScreen';
-import { DispatchProposalScreen } from '../screens/operations/DispatchProposalScreen';
 import { WorkOrderCreateScreen } from '../screens/operations/WorkOrderCreateScreen';
 import { WorkOrderListScreen } from '../screens/operations/WorkOrderListScreen';
 import { WorkOrderDetailScreen } from '../screens/operations/WorkOrderDetailScreen';
 import { StaffAccountsScreen } from '../screens/operations/StaffAccountsScreen';
+import { CrewDetailScreen } from '../screens/operations/CrewDetailScreen';
+import { DispatchListScreen } from '../screens/operations/DispatchListScreen';
 import { VehicleRegistryScreen } from '../screens/operations/VehicleRegistryScreen';
 import { DataSourcesScreen } from '../screens/operations/DataSourcesScreen';
 import { AnalyticsScreen } from '../screens/operations/AnalyticsScreen';
@@ -75,11 +77,14 @@ export const SCREENS: Record<string, Screen> = {
   ClusterDetail: ClusterDetailScreen,
   ModQueue: ModerationQueueScreen,
   ReportReview: ReportReviewScreen,
-  DispatchProposal: DispatchProposalScreen,
+  RejectedReports: RejectedReportsScreen,
+  DispatchProposal: OperationsDashboardScreen,
   WOCreate: WorkOrderCreateScreen,
   WOList: WorkOrderListScreen,
   WODetail: WorkOrderDetailScreen,
   StaffAccounts: StaffAccountsScreen,
+  CrewDetail: CrewDetailScreen,
+  DispatchList: DispatchListScreen,
   VehicleRegistry: VehicleRegistryScreen,
   DataSources: DataSourcesScreen,
   Analytics: AnalyticsScreen,

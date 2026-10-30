@@ -33,6 +33,8 @@ import { RoutingDecision, specialisationLabel } from '../../lib/dispatchRouting'
 import { staffDisplayName, staffPhotoUrl } from '../../lib/staffVisuals';
 import { ScreenProps } from '../ScreenProps';
 import { displayTaskName } from '../../../../src/presentation/DisplayNames';
+import type { TaskScoreExplanation } from '../../../../src/presentation/TaskScoreExplanation';
+import { ScoreBreakdown } from '../../components/ScoreBreakdown';
 
 interface DetailPayload {
   workOrder: {
@@ -55,6 +57,8 @@ interface DetailPayload {
   };
   /** StaffRoutingPolicy's answer. Absent from an older server, in which case nothing is recommended. */
   routing?: RoutingDecision;
+  /** Stored score evidence only; null when nothing is stored. */
+  scoreExplanation?: TaskScoreExplanation | null;
 }
 
 interface HistoryPayload {
@@ -84,7 +88,7 @@ interface EvidencePayload {
 }
 
 interface CrewPayload {
-  crew: Array<{ crewId: string; email: string; isActive: boolean; openWorkOrders: number; specialisation?: string | null }>;
+  crew: Array<{ crewId: string; email: string; displayName?: string | null; isActive: boolean; openWorkOrders: number; specialisation?: string | null }>;
 }
 
 export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
@@ -134,8 +138,8 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section data-screen="WODetail" data-requirement="11.2.18">
-      <a href="/ops/work-orders" onClick={link(props, '/ops/work-orders')}>
-        Back to work orders
+      <a href="/ops/dispatches" onClick={link(props, '/ops/dispatches')}>
+        Back to dispatches
       </a>
 
       <StateView state={detail.state} onRetry={detail.retry}>
@@ -190,6 +194,9 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                 { label: 'Instructions', value: order.instructions, part: 'instructions', wide: true },
               ]}
             />
+
+            {/* The score breakdown is shown only here, in the opened task, never in a popup or list row. */}
+            <ScoreBreakdown explanation={detail.value?.scoreExplanation} />
 
             {/* 8.3.8 — an issue raised by the crew is the reason this order stopped moving. */}
             {order.issueFlag ? (
@@ -282,7 +289,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                   <div className="dispatch-assistant-body">
                     <img src={staffPhotoUrl(top.email)} alt="" className="dispatch-assistant-avatar" />
                     <div className="dispatch-assistant-info">
-                      <div className="dispatch-assistant-name">{staffDisplayName(top.email)}</div>
+                      <div className="dispatch-assistant-name">{staffDisplayName(top.email, undefined, top.displayName)}</div>
                       <div className="dispatch-assistant-meta">
                         <span className="dispatch-spec-pill">{specialisationLabel(top.specialisation)}</span>
                         <span className="dispatch-load-pill">{top.openWorkOrders} open jobs</span>
@@ -320,7 +327,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                       disabled={ineligible.has(member.crewId)}
                       title={ineligible.get(member.crewId) ?? specialisationLabel(member.specialisation)}
                     >
-                      {`${member.email} — ${member.openWorkOrders} open${member.isActive ? '' : ' (deactivated)'}`}
+                      {`${member.displayName?.trim() || member.email} — ${member.openWorkOrders} open${member.isActive ? '' : ' (deactivated)'}`}
                     </option>
                   ))}
                 </select>

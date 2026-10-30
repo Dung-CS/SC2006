@@ -37,6 +37,7 @@ interface Layers {
 
 export function ResidentMapScreen(props: ScreenProps): JSX.Element {
   const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ id: string } | null>(null);
   const { state, value, retry } = useLoad<Layers>(props.api, '/api/map/layers', {
     isEmpty: (v) => v.clusters.length === 0,
     emptyMessage: 'There are no active dengue clusters in the current feed.',
@@ -97,6 +98,7 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
           clusters={value?.clusters ?? []}
           markers={markers}
           size="short"
+          focusRequest={focusRequest}
           selectedClusterId={selectedClusterId}
           onSelectCluster={(id) => setSelectedClusterId((prev) => (prev === id ? null : id))}
           onSelectMarker={(m) => {
@@ -196,7 +198,7 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
                 screen, which is why nothing here strips a field. */}
             <ul data-cards>
               {reportsPaging.pagedItems.map((report) => (
-                <li key={report.reportId} className="report-card">
+                <li key={report.reportId} className="report-card" onClick={() => setFocusRequest({ id: report.reportId })}>
                   <div className="report-card-layout">
                     <img
                       src={reportPhotoUrl(report.type, report.pestType)}
@@ -206,13 +208,19 @@ export function ResidentMapScreen(props: ScreenProps): JSX.Element {
                     />
                     <div className="report-card-content">
                       <div data-part="card-head">
-                        <span>
+                        <button type="button" className="report-card-focus" onClick={() => setFocusRequest({ id: report.reportId })}>
                           {report.pestType && report.pestType !== 'Mosquito'
                             ? `${label(report.pestType)} · ${label(report.type)}`
                             : label(report.type)}
-                        </span>
+                        </button>
                         <Pill tone={statusTone(report.status)}>{label(report.status)}</Pill>
                       </div>
+                      <a
+                        href={`/reports/${report.reportId}`}
+                        onClick={(e) => { e.stopPropagation(); link(props, `/reports/${report.reportId}`)(e); }}
+                      >
+                        View full report details
+                      </a>
                     </div>
                   </div>
                 </li>

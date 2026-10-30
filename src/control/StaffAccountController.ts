@@ -14,6 +14,7 @@ import { AccountStore, AuditStore, SessionStore } from '../ports/Stores';
 import { AccessControlService } from './AccessControlService';
 import { AuthenticationController, AuthenticationRefused } from './AuthenticationController';
 import { Principal } from './Principal';
+import type { DispatchListController, DispatchRow } from './DispatchListController';
 
 export class StaffAccountController {
   constructor(
@@ -23,6 +24,18 @@ export class StaffAccountController {
     private readonly sessions: SessionStore,
     private readonly audit: AuditStore | null = null,
   ) {}
+
+  /** Set once the dispatch stores exist; until then a crew detail lists no dispatches. */
+  dispatches: DispatchListController | null = null;
+  linkDispatches(list: DispatchListController): void { this.dispatches = list; }
+
+  /** One staff member's stored profile and every dispatch they are on. Manager only. */
+  async staffDetail(id: Uuid, by: Principal): Promise<{ account: Account; dispatches: DispatchRow[] }> {
+    await this.ac.authorise(by, 'staff:manage', { kind: 'account', id });
+    const account = await this.accounts.findById(id);
+    if (account === null || account.role === Role.Resident) throw new AuthenticationRefused('no such staff account');
+    return { account, dispatches: (await this.dispatches?.forCrew(id, by)) ?? [] };
+  }
 
   /**
    * 2.2.3. Manager only. Creates the provider identity and the Account row together.
@@ -42,6 +55,8 @@ export class StaffAccountController {
     /** Crew only. Null records "not set yet", which `StaffRoutingPolicy` dispatches nothing to. */
     specialisation: StaffSpecialisation | null = null,
     hqLocation: HqLocation | null = null,
+    displayName: unknown = null,
+    profileDescription: unknown = null,
   ): Promise<Account> {
     await this.ac.authorise(by, 'staff:manage', { kind: 'account' });
     if (role === Role.Resident) {
@@ -54,6 +69,8 @@ export class StaffAccountController {
     }
     const effectiveSpecialisation = role === Role.CleaningCrew ? specialisation : null;
     const effectiveHqLocation = hqLocation;
+    const recordedName = StaffAccountController.nameValue(displayName);
+    const recordedDescription = StaffAccountController.descriptionValue(profileDescription);
     const address = AuthenticationController.normaliseEmail(email);
     if ((await this.accounts.findByEmail(address)) !== null) {
       throw new AuthenticationRefused('that email address is already registered');
@@ -65,6 +82,8 @@ export class StaffAccountController {
 
     const account = new Account();
     account.email = address;
+    account.displayName = recordedName;
+    account.profileDescription = recordedDescription;
     account.authUserId = await this.auth.createUser({ email: address, password });
     account.emailVerified = true;
     account.role = role;
@@ -78,6 +97,36 @@ export class StaffAccountController {
     if (effectiveSpecialisation !== null) {
       await this.audit?.appendAction(by.accountId, `account:specialisation:Unknown -> ${effectiveSpecialisation}`, 'Account', saved.id);
     }
+    return saved;
+  }
+
+  private static nameValue(value: unknown): string | null {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string' || value.trim().length > 120 || /[\u0000-\u001f\u007f]/.test(value)) {
+      throw new AuthenticationRefused('Name must be text of no more than 120 characters, without control characters.');
+    }
+    return value.trim() || null;
+  }
+
+  private static descriptionValue(value: unknown): string | null {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string' || value.trim().length > 500 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
+      throw new AuthenticationRefused('Staff notes must be text of no more than 500 characters.');
+    }
+    return value.trim() || null;
+  }
+
+  /** Record a human name without changing login identity, readiness or capability. */
+  async setDisplayName(id: Uuid, displayName: unknown, by: Principal, profileDescription?: unknown): Promise<Account> {
+    await this.ac.authorise(by, 'staff:manage', { kind: 'account', id });
+    const account = await this.accounts.findById(id);
+    if (account === null || account.role === Role.Resident) throw new AuthenticationRefused('no such staff account');
+    const recordedName = displayName === undefined ? account.displayName : StaffAccountController.nameValue(displayName);
+    const recordedDescription = profileDescription === undefined ? account.profileDescription : StaffAccountController.descriptionValue(profileDescription);
+    account.displayName = recordedName;
+    account.profileDescription = recordedDescription;
+    const saved = await this.accounts.save(account);
+    await this.audit?.appendAction(by.accountId, 'account:display-name', 'Account', saved.id);
     return saved;
   }
 

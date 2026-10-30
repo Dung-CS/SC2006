@@ -217,7 +217,8 @@ export class SourceHealthController {
       // An authentication failure is a warning on its own: unlike a 503, a lapsed token does not
       // clear itself, and 3.1.16 exists because the token has a hard expiry date on it.
       isWarning: !health.healthy || (silentFor !== null && silentFor >= CONSECUTIVE_FAILURES_FOR_WARNING * interval),
-      isStale: lastSuccessAt === null || (silentFor as number) > interval,
+      // On-demand: a healthy geocoder that has never been needed is not stale. A failed one is.
+      isStale: lastSuccessAt === null ? !health.healthy : (silentFor as number) > interval,
       reason: health.healthy
         ? lastSuccessAt === null
           ? 'configured, but has not been used yet'

@@ -44,7 +44,7 @@ import { Response as HandlerResponse } from '../src/boundary/http/RouteHandler';
 import { ReportLifecycleController } from '../src/control/ReportLifecycleController';
 import { ReportTransitionTable } from '../src/control/ReportTransitionTable';
 import { InMemoryClusterLocator, InMemoryReportStore } from '../src/persistence/memory/InMemoryReportStores';
-import { PestType, ReportType } from '../src/entity/enums';
+import { PestType, ReportStatus, ReportType } from '../src/entity/enums';
 import { Cluster } from '../src/entity/Cluster';
 import { CompletionEvidence } from '../src/entity/CompletionEvidence';
 import { GeoPoint, PremisesMix } from '../src/entity/valueTypes';
@@ -468,6 +468,12 @@ describe('A photograph can be looked at — §5.3.4, §5.3.5, §10.3.5', () => {
       RESIDENT,
     )) as { id: string };
     const moderation = new ModerationController(ac(), reports, lifecycle);
+    // New reports are verified by default; an unmoderated one is a legacy row still Submitted.
+    const stored2 = await reports.findById(report.id);
+    if (stored2 !== null) {
+      stored2.applyStatus(ReportStatus.Submitted);
+      await reports.save(stored2);
+    }
     if (options.moderated) {
       await moderation.verify(report.id, MANAGER);
     }

@@ -69,6 +69,8 @@ const OVERVIEW = {
   totalActiveCases: 458,
   highTierClusters: 2,
   openVerifiedReports: null,
+  reportHotspots: 0,
+  reportHighPriority: 0,
   openWorkOrders: 4,
   overdueWorkOrders: 0,
   tierDistribution: { High: 2, Medium: 3, Low: 10 },
@@ -103,6 +105,20 @@ describe('Operations Dashboard — §11.2.12, §7.1.x, §7.2.x, §1.4.4', () => 
 
     const notice = await screen.findByText(/Some figures are out of date/);
     expect(notice.textContent).toContain('Rainfall');
+  });
+
+  it('O2b — cluster and report-case priority are two separately named tiles', async () => {
+    const { fetcher } = router({
+      '/api/ops/dashboard': {
+        body: { overview: { ...OVERVIEW, reportHotspots: 5, reportHighPriority: 3 }, attention: [] },
+      },
+      '/api/ops/priority': { body: { rows: [] } },
+    });
+    render(<OperationsDashboardScreen {...props({}, fetcher)} />);
+
+    await waitFor(() => expect(screen.getByText('Cluster priority')).toBeTruthy());
+    expect(screen.getByText('Cluster priority').nextSibling?.textContent).toBe('2');
+    expect(screen.getByText('Report case priority').nextSibling?.textContent).toBe('3');
   });
 
   it('O3 — the data timestamp is the data’s, and its absence is said plainly (7.1.9)', async () => {

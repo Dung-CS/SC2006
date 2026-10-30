@@ -55,7 +55,7 @@ export class InMemoryWorkOrderStore implements WorkOrderStore {
   }
 
   async findForAssignee(assigneeId: Uuid): Promise<WorkOrder[]> {
-    return [...this.orders.values()].filter((w) => w.assigneeId === assigneeId);
+    return [...this.orders.values()].filter((w) => w.assigneeId === assigneeId || w.assignedCrewIds.includes(assigneeId));
   }
 
   async findAllOpen(): Promise<WorkOrder[]> {

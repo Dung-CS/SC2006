@@ -106,7 +106,7 @@ describe('10.1.1 — the operations dashboard, first complete view', () => {
     const started = performance.now();
     render(
       <OperationsDashboardScreen
-        {...props({ overview: OVERVIEW, attention: [], rows: [] }, Role.OperationsManager)}
+        {...props({ overview: OVERVIEW, attention: [], rows: [], plans: [], proposals: [] }, Role.OperationsManager)}
       />,
     );
 

@@ -273,7 +273,30 @@ describe('The map on a screen — §11.2.5, §11.2.12', () => {
     expect(document.querySelectorAll('[data-part="reports"] li')).toHaveLength(10);
   });
 
-  it('N9 — the manager gets the map above the priority table, with both marker layers', async () => {
+  it('N8b — clicking a Recent reports card opens its marker popup and offers the details link', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
+    const reports = [{ reportId: 'r-77', type: 'StandingWater', status: 'Verified', latitude: 1.375, longitude: 103.848 }];
+    const fetcher = router({
+      '/api/map/layers': { body: { clusters: [{ ...CLUSTERS[0], ring: [] }], reports, savedLocations: [] } },
+    });
+    const screenProps = props(Role.Resident, fetcher);
+    render(<ResidentMapScreen {...screenProps} />);
+
+    const cardButton = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>('[data-part="reports"] .report-card-focus');
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    expect(document.querySelector('.map-popup-card')).toBeNull();
+    fireEvent.click(cardButton);
+    await waitFor(() => expect(document.querySelector('.map-popup-card')?.textContent).toContain('View full report details'));
+
+    fireEvent.click(screen.getByRole('link', { name: 'View full report details' }));
+    expect(screenProps.onNavigate).toHaveBeenCalledWith('/reports/r-77');
+  });
+
+  it('N9 — the manager gets one dispatch map in the merged Operations workspace', async () => {
     const fetcher = router({
       '/api/ops/dashboard': {
         body: {
@@ -305,11 +328,9 @@ describe('The map on a screen — §11.2.5, §11.2.12', () => {
     });
     render(<OperationsDashboardScreen {...props(Role.OperationsManager, fetcher)} />);
 
-    await waitFor(() => expect(document.querySelector('[data-part="ops-map"]')).toBeTruthy());
-    // 9.1.4 — a manager sees work orders, so the switch for them exists here and not on the
-    // resident's screen.
-    expect(screen.getByLabelText('Work orders')).toBeTruthy();
-    expect(screen.getByLabelText('Reports')).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('[data-part="dispatch-routes-map"]')).toBeTruthy());
+    expect(document.querySelector('[data-part="ops-map"]')).toBeNull();
+    expect(document.querySelectorAll('.map-canvas')).toHaveLength(1);
   });
 
   it('N10 — an attention item shows its detail and the place it is resolved (7.5.2, 7.5.4)', async () => {
@@ -349,5 +370,33 @@ describe('The map on a screen — §11.2.5, §11.2.12', () => {
     );
     const open = document.querySelector('[data-part="attention-list"] a');
     expect(open?.getAttribute('href')).toBe('/ops/moderation');
+  });
+});
+
+describe('Task popup survives refresh and unmount', () => {
+  it('keeps typed reject text across a refresh, and unmounts without a Leaflet error', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
+    const reject = vi.fn(async () => undefined);
+    const task = { ...TASK, sourceReportId: 'r1' };
+    const view = (tasks: MapTask[]) => <SingaporeMap label="tasks" clusters={[]} tasks={tasks} onRejectReport={reject} />;
+    const { rerender, unmount } = render(view([task]));
+    const pin = await waitFor(() => { const found = document.querySelector('[data-task-id="source-task"]'); expect(found).toBeTruthy(); return found!; });
+    fireEvent.click(pin);
+    await waitFor(() => expect(document.querySelector('[data-part="task-callout"]')).toBeTruthy());
+    fireEvent.click(screen.getByText('Reject report'));
+    const box = document.querySelector('textarea')!;
+    fireEvent.change(box, { target: { value: 'Duplicate of another report' } });
+    vi.useFakeTimers();
+    try {
+      rerender(view([{ ...task }]));
+      await vi.advanceTimersByTimeAsync(4000);
+      rerender(view([{ ...task }]));
+      await vi.advanceTimersByTimeAsync(4000);
+    } finally { vi.useRealTimers(); }
+    expect(document.querySelector('textarea')).toBe(box);
+    expect(document.querySelector('textarea')!.value).toBe('Duplicate of another report');
+    expect(document.querySelector('form')!.hidden).toBe(false);
+    unmount();
   });
 });

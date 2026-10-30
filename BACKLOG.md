@@ -1,6 +1,16 @@
 # Dengue Prioritiser — Feature Backlog
 
-## Current delivery delta - 2026-10-30 (dispatch map HQ and icon correction)
+## Current delivery delta - 2026-10-30 (dispatch score details and group assignment)
+
+### Expand the unified Operations and Dispatch workflow
+- **Status:** In progress; implementation and integration checks are under way. No release or deployment claim.
+- **Scope:** Score explanations use existing stored contributions for the same locality and pest; report triage remains separate, and missing locality scores stay absent. The routing explainer is 2,012 words, uses lines of no more than 25 words, and makes no certification claim. Consolidate Operations and Dispatch under `/ops`, retain `/ops/dispatch` as an alias, and remove WorkOrders from primary navigation while keeping historical URLs.
+- **Profiles and route metadata:** Add optional manager-maintained account display names and profile descriptions, plus vehicle model and photo URL. DEMO examples are illustrative. Planned routes expose their distinct crew members and vehicle display metadata.
+- **Assignment:** Managers select crew members with checkboxes and one vehicle with radio cards. A backend transaction revalidates manager access, route freshness, crew capability/headcount, resource availability and access before it saves the group assignment. Saved assignments are retrievable.
+- **Limits:** No operational assignment has been made. Migration 016/017 have not been applied. Full-suite and root live checks remain pending. Focused checks have passed (score 54; profiles 33 plus auth 39; merged 66; root 65; subsets overlap and must not be summed).
+- **Requirements:** v0.21 draft; 777 anchored numbered definitions and 777 unique IDs.
+
+## Previous delivery delta - 2026-10-30 (dispatch map HQ and icon correction)
 
 ### Use HQ filtering and preserve icon lookup keys
 - **Status:** Done (`5fde7891a11005c98c444638e9286d94d1b10696` deployed; Actions 40993118609 passed).

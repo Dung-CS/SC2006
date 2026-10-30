@@ -164,7 +164,9 @@ describe('Navigation — §11.1.1 to §11.1.7', () => {
       '/reports',
       '/alerts',
     ]);
-    expect(navigationFor(Role.OperationsManager).map((i) => i.route)).toContain('/ops/work-orders');
+    expect(navigationFor(Role.OperationsManager).map((i) => i.route)).toContain('/ops');
+    expect(navigationFor(Role.OperationsManager).map((i) => i.route)).not.toContain('/ops/work-orders');
+    expect(navigationFor(Role.OperationsManager).map((i) => i.route)).not.toContain('/ops/dispatch');
   });
 
   it('N2 — no navigation item leads to a screen its own role may not open', () => {
@@ -176,9 +178,11 @@ describe('Navigation — §11.1.1 to §11.1.7', () => {
     }
   });
 
-  it('N3 — the Work Orders item opens the list, not the create form (11.1.3)', () => {
-    const item = navigationFor(Role.OperationsManager).find((i) => i.label === 'Work orders');
-    expect(item?.screenId).toBe('WOList');
+  it('N3 — Operations owns dispatch assignment while task-record URLs remain available', () => {
+    const item = navigationFor(Role.OperationsManager).find((i) => i.label === 'Operations')!;
+    expect(item.screenId).toBe('OpsDashboard');
+    expect(isCurrent(item, '/ops/work-orders/record')).toBe(true);
+    expect(matchRoute('/ops/work-orders/record')?.route.screenId).toBe('WODetail');
   });
 
   it('N4 — the current screen is indicated, including on a detail URL beneath it (11.1.4)', () => {

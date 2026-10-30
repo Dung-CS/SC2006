@@ -16,6 +16,20 @@ function props(fetcher: Fetcher): ScreenProps {
 }
 
 describe('Vehicle registry manager screen', () => {
+  it('uses the recorded model title and photo, with an honest fallback if the photo fails', async () => {
+    const vehicle = { ...demo, model: 'Toyota Hiace', photoUrl: '/visuals/vehicles/toyota-hiace.jpg' };
+    const fetcher: Fetcher = async () => ({ ok: true, status: 200, json: async () => ({ vehicles: [vehicle] }) }) as Response;
+    render(<VehicleRegistryScreen {...props(fetcher)} />);
+    expect(await screen.findByText('Toyota Hiace')).toBeTruthy();
+    const photo = screen.getByRole('img', { name: 'Toyota Hiace reference photograph' });
+    expect(photo.getAttribute('src')).toBe(vehicle.photoUrl);
+    expect(screen.getByText('Model reference photo')).toBeTruthy();
+    fireEvent.error(photo);
+    expect(screen.getByText('Vehicle photo unavailable')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit DEMO-CENTRAL-VAN' }));
+    expect(screen.getByLabelText('Make and model')).toHaveProperty('value', vehicle.model);
+    expect(screen.getByLabelText('Photo URL or local path')).toHaveProperty('value', vehicle.photoUrl);
+  });
   it('shows demo status, capacity, dimensions and an HQ filter', async () => {
     const fetcher: Fetcher = async () => ({ ok: true, status: 200, json: async () => ({ vehicles: [demo] }) }) as Response;
     render(<VehicleRegistryScreen {...props(fetcher)} />);

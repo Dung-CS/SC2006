@@ -48,7 +48,8 @@ describe('Background dispatch horizon', () => {
 
   it('carries unplanned jobs forward, honours scheduled dates and keeps referrals and committed work distinct', async () => {
     const load = vi.fn(async () => ({ ...input([
-      job('blocked', { mapClusterId: 'pest-report-1' }), job('tomorrow', { scheduledDate: '2099-01-02' }),
+      job('blocked', { mapClusterId: 'pest-report-1', scoreExplanation: { workOrderPriority: 'High',
+        reportTriage: { priority: 'Critical', rationale: 'Injury reported.' } } }), job('tomorrow', { scheduledDate: '2099-01-02' }),
       job('assigned', { status: 'Assigned', reportIds: ['committed-report'] }),
       job('alias', { sourceReportId: 'committed-report' }),
     ]), referrals: [{ reportId: 'external', priority: 'High', authority: 'NParks' }] }));
@@ -64,7 +65,8 @@ describe('Background dispatch horizon', () => {
     expect(result.unassigned).toEqual([
       expect.objectContaining({ workOrderId: 'assigned', disposition: 'committed', status: 'Assigned' }),
       expect.objectContaining({ workOrderId: 'blocked', disposition: 'unassigned',
-        point: { latitude: 1.3, longitude: 103.8 }, mapClusterId: 'pest-report-1' }),
+        point: { latitude: 1.3, longitude: 103.8 }, mapClusterId: 'pest-report-1',
+        scoreExplanation: { workOrderPriority: 'High', reportTriage: { priority: 'Critical', rationale: 'Injury reported.' } } }),
     ]);
     expect(result.referrals).toHaveLength(1);
     expect(planner.plan.mock.calls.every((call) => call[1].some((item) => item.workOrderId === 'blocked'))).toBe(true);

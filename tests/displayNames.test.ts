@@ -4,6 +4,7 @@ import { staffDisplayName, staffRoleLocationLabel } from '../client/src/lib/staf
 
 describe('presentation names', () => {
   it('keeps fixture login identities out of staff names without inventing a person', () => {
+    expect(staffDisplayName('demo-number-1@example.test', 'CleaningCrew', 'Siti Rahman')).toBe('Siti Rahman');
     expect(staffDisplayName('walkthrough-crew1@uat.d-fence.local', 'CleaningCrew')).toBe('Field crew');
     expect(staffDisplayName('crew-northwest-2@example.test', 'CleaningCrew')).toBe('Field crew');
     expect(staffDisplayName('demo-manager@example.test', 'OperationsManager')).toBe('Operations manager');

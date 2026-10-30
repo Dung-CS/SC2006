@@ -27,11 +27,13 @@ import { TreatmentRecordStore, WorkOrderStore } from '../ports/Stores';
 const SELECT_WORK_ORDERS = `
   SELECT w.id, w.cluster_id, w.assignee_id, w.source_report_id, w.task_type, w.scheduled_date, w.priority,
          w.instructions, w.status, w.started_at, w.created_at, w.verified_at, w.cancellation_reason,
-         w.issue_flag, w.issue_reason, w.pest_type,
+         w.issue_flag, w.issue_reason, w.pest_type, w.dispatch_assignment_id,
+         da.crew_ids AS assigned_crew_ids, da.vehicle_id AS assigned_vehicle_id,
          COALESCE(c.locality, r.locality_binding, 'Singapore') AS location,
          ST_Y(r.point::geometry) AS target_latitude, ST_X(r.point::geometry) AS target_longitude
   FROM work_order w
   LEFT JOIN cluster c ON c.id = w.cluster_id
+  LEFT JOIN dispatch_assignment da ON da.id = w.dispatch_assignment_id
   LEFT JOIN report r ON r.id = w.source_report_id`;
 
 /** `WorkOrder.isTerminal()`, expressed once for SQL. The two must not drift. */
@@ -68,8 +70,8 @@ export class WorkOrderRepository implements WorkOrderStore {
       `INSERT INTO work_order (
          id, cluster_id, assignee_id, source_report_id, task_type, scheduled_date, priority,
          instructions, status, started_at, created_at, verified_at, cancellation_reason,
-         issue_flag, issue_reason, pest_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         issue_flag, issue_reason, pest_type, dispatch_assignment_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        ON CONFLICT (id) DO UPDATE SET
          cluster_id          = EXCLUDED.cluster_id,
          pest_type           = EXCLUDED.pest_type,
@@ -84,7 +86,8 @@ export class WorkOrderRepository implements WorkOrderStore {
          verified_at         = EXCLUDED.verified_at,
          cancellation_reason = EXCLUDED.cancellation_reason,
          issue_flag          = EXCLUDED.issue_flag,
-         issue_reason        = EXCLUDED.issue_reason`,
+         issue_reason        = EXCLUDED.issue_reason,
+         dispatch_assignment_id = EXCLUDED.dispatch_assignment_id`,
       [
         workOrder.id,
         workOrder.clusterId,
@@ -102,6 +105,7 @@ export class WorkOrderRepository implements WorkOrderStore {
         workOrder.issueFlag,
         workOrder.issueReason,
         workOrder.pestType,
+        workOrder.dispatchAssignmentId,
       ],
     );
     return workOrder;
@@ -132,7 +136,7 @@ export class WorkOrderRepository implements WorkOrderStore {
   /** 8.4.1 — a crew member sees only what is assigned to them. */
   async findForAssignee(assigneeId: Uuid): Promise<WorkOrder[]> {
     const rows = await this.db.query(
-      `${SELECT_WORK_ORDERS} WHERE w.assignee_id = $1 ORDER BY w.scheduled_date`,
+      `${SELECT_WORK_ORDERS} WHERE w.assignee_id = $1 OR $1 = ANY(da.crew_ids) ORDER BY w.scheduled_date`,
       [assigneeId],
     );
     return rows.map((r) => WorkOrderRepository.toWorkOrder(r));
@@ -237,6 +241,9 @@ export class WorkOrderRepository implements WorkOrderStore {
   private static toWorkOrder(row: Row): WorkOrder {
     const order = new WorkOrder();
     order.id = row.id as Uuid;
+    order.dispatchAssignmentId = (row.dispatch_assignment_id as Uuid | null) ?? null;
+    order.assignedCrewIds = (row.assigned_crew_ids as Uuid[] | null) ?? [];
+    order.assignedVehicleId = (row.assigned_vehicle_id as Uuid | null) ?? null;
     order.clusterId = (row.cluster_id as Uuid | null) ?? null;
     // Null stays null: an unresolved legacy pest is unknown, never Mosquito by default.
     order.pestType = (row.pest_type as PestType | null) ?? null;

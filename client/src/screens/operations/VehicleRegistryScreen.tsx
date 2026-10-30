@@ -6,6 +6,7 @@ import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { Pill } from '../../components/Presentation';
 import { ScreenProps } from '../ScreenProps';
+import { vehicleLabel } from '../../lib/staffVisuals';
 import { cleanTitle } from '../../../../src/presentation/DisplayNames';
 
 const NUMBER_FIELDS = [
@@ -18,11 +19,25 @@ const NUMBER_FIELDS = [
 ] as const;
 type NumberKey = typeof NUMBER_FIELDS[number][0];
 type FormValues = Record<NumberKey, string> & {
-  registration: string; name: string; hqLocation: HqLocation; isAvailable: boolean; isDemo: boolean;
+  registration: string; name: string; model: string; photoUrl: string; hqLocation: HqLocation; isAvailable: boolean; isDemo: boolean;
 };
-const blank = (): FormValues => ({ registration: '', name: '', hqLocation: HqLocation.Central,
+const blank = (): FormValues => ({ registration: '', name: '', model: '', photoUrl: '', hqLocation: HqLocation.Central,
   maxPayloadKg: '', maxCargoVolumeM3: '', cargoLengthCm: '', cargoWidthCm: '', cargoHeightCm: '',
   seatCapacity: '', isAvailable: true, isDemo: false });
+
+function VehiclePhoto({ vehicle }: { vehicle: Vehicle }): JSX.Element {
+  const [failed, setFailed] = useState(false);
+  const recorded = !!vehicle.photoUrl && !failed;
+  return <figure style={{ margin: 0 }}>
+    <img src={recorded ? vehicle.photoUrl! : '/visuals/vehicle-van.svg'}
+      alt={recorded ? `${vehicle.model || 'Recorded vehicle'}${vehicle.isDemo ? ' reference photograph' : ' photograph'}` : 'Vehicle image placeholder'}
+      onError={recorded ? () => setFailed(true) : undefined}
+      style={{ display: 'block', width: '100%', height: 144, objectFit: 'cover' }} />
+    <figcaption style={{ padding: '4px 14px', fontSize: '.75rem', color: '#64748b' }}>
+      {recorded ? vehicle.isDemo ? 'Model reference photo' : 'Vehicle photo' : failed ? 'Vehicle photo unavailable' : 'Vehicle photo not recorded'}
+    </figcaption>
+  </figure>;
+}
 
 export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
   const loaded = useLoad<{ vehicles: Vehicle[] }>(props.api, '/api/ops/vehicles', {
@@ -40,7 +55,7 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
 
   function edit(vehicle: Vehicle): void {
     setEditingId(vehicle.id);
-    setForm({ ...vehicle, maxPayloadKg: String(vehicle.maxPayloadKg), maxCargoVolumeM3: String(vehicle.maxCargoVolumeM3),
+    setForm({ ...vehicle, model: vehicle.model ?? '', photoUrl: vehicle.photoUrl ?? '', maxPayloadKg: String(vehicle.maxPayloadKg), maxCargoVolumeM3: String(vehicle.maxCargoVolumeM3),
       cargoLengthCm: String(vehicle.cargoLengthCm), cargoWidthCm: String(vehicle.cargoWidthCm),
       cargoHeightCm: String(vehicle.cargoHeightCm), seatCapacity: String(vehicle.seatCapacity) });
     setFailure(null); setMessage(null);
@@ -64,19 +79,22 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
     <h1>Vehicle registry</h1>
     <p>Fleet capacity and availability</p>
     {message ? <p role="status">{message}</p> : null}
-    <label htmlFor="vehicle-hq-filter">Filter by HQ</label>{' '}
-    <select id="vehicle-hq-filter" value={filter} onChange={(event) => setFilter(event.target.value as HqLocation | 'All')}>
-      <option value="All">All HQs</option>
-      {Object.values(HqLocation).map((hq) => <option key={hq} value={hq}>{hq}</option>)}
-    </select>
+    <div data-part="toolbar">
+      <label htmlFor="vehicle-hq-filter">Filter by HQ</label>
+      <select id="vehicle-hq-filter" value={filter} onChange={(event) => setFilter(event.target.value as HqLocation | 'All')}>
+        <option value="All">All HQs</option>
+        {Object.values(HqLocation).map((hq) => <option key={hq} value={hq}>{hq}</option>)}
+      </select>
+    </div>
     <StateView state={loaded.state} onRetry={loaded.retry}>
       <div data-part="vehicle-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
         {vehicles.map((vehicle) => <article key={vehicle.id} data-entity-id={vehicle.id} data-hq={vehicle.hqLocation} data-registration={vehicle.registration}
           style={{ overflow: 'hidden', border: '1px solid #dbe3ea', borderRadius: 12, background: '#fff' }}>
-          <img src="/visuals/vehicle-van.svg" alt="Illustrative service van" style={{ display: 'block', width: '100%', height: 112, objectFit: 'cover' }} />
+          <VehiclePhoto key={`${vehicle.id}:${vehicle.photoUrl ?? ''}`} vehicle={vehicle} />
           <div style={{ padding: 14, display: 'grid', gap: 10 }}>
-            <div><strong data-part="entity-title">{cleanTitle(vehicle.name, 'Vehicle')}</strong><div data-part="hq">{vehicle.hqLocation}</div>
-              <small>{cleanTitle(vehicle.registration, 'Registration unrecorded')}</small>{' '}{vehicle.isDemo ? <Pill tone="warn" title="Illustrative capacities; confirm before operational use">Demo vehicle</Pill> : null}</div>
+            <div><strong data-part="entity-title">{vehicleLabel(vehicle)}</strong><div data-part="hq">{vehicle.hqLocation}</div>
+              {vehicle.model ? null : <small>{cleanTitle(vehicle.registration, 'Registration unrecorded')}</small>}{' '}{vehicle.isDemo ? <Pill tone="warn" title="Illustrative capacities; confirm before operational use">Demo vehicle</Pill> : null}</div>
+            {vehicle.model ? <details><summary>Fleet record</summary><p>{cleanTitle(vehicle.name, 'Vehicle')}</p></details> : null}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: '0.9rem' }}>
               <span>Payload <strong>{vehicle.maxPayloadKg} kg</strong></span><span>Cargo <strong>{vehicle.maxCargoVolumeM3} m³</strong></span>
               <span>Bay <strong>{vehicle.cargoLengthCm} × {vehicle.cargoWidthCm} × {vehicle.cargoHeightCm} cm</strong></span>
@@ -97,6 +115,8 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <label>Registration<input required maxLength={60} value={form.registration} onChange={(event) => change('registration', event.target.value)} /></label>
         <label>Vehicle name<input required maxLength={120} value={form.name} onChange={(event) => change('name', event.target.value)} /></label>
+        <label>Make and model<input maxLength={120} value={form.model} onChange={(event) => change('model', event.target.value)} /></label>
+        <label>Photo URL or local path<input maxLength={2048} value={form.photoUrl} onChange={(event) => change('photoUrl', event.target.value)} /></label>
         <label>Vehicle HQ<select value={form.hqLocation} onChange={(event) => change('hqLocation', event.target.value as HqLocation)}>
           {Object.values(HqLocation).map((hq) => <option key={hq} value={hq}>{hq}</option>)}
         </select></label>

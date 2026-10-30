@@ -94,24 +94,28 @@ async function fixture(): Promise<{
     audit,
   );
 
+  const moderation = new ModerationController(ac, reportStore, reportLifecycle);
+  const dispatch = new DispatchController(
+    ac,
+    lifecycle,
+    workOrders,
+    clusters,
+    { saveAll: async () => undefined, historyFor: async () => [], latest: async () => [] },
+    notifier,
+    reportLifecycle,
+    10,
+    audit,
+    null,
+    null,
+    reportStore,
+  );
+  moderation.linkWorkOrders(workOrders, dispatch); // as server.ts does
+
   return {
     audit,
     reports: new ReportController(ac, reportStore, new InMemoryClusterLocator(clusters), reportLifecycle, audit),
-    moderation: new ModerationController(ac, reportStore, reportLifecycle),
-    dispatch: new DispatchController(
-      ac,
-      lifecycle,
-      workOrders,
-      clusters,
-      { saveAll: async () => undefined, historyFor: async () => [], latest: async () => [] },
-      notifier,
-      reportLifecycle,
-      10,
-      audit,
-      null,
-      null,
-      reportStore,
-    ),
+    moderation,
+    dispatch,
     lifecycle,
     reportStore,
     clusterId: stored.id,
@@ -135,10 +139,10 @@ describe('2.4.1 — the two operations US-2.5 names by hand', () => {
   it('A1 — report moderation produces an entry naming the moderator and the report', async () => {
     const f = await fixture();
     const reportId = await submitReport(f);
-    await f.moderation.verify(reportId, MANAGER);
+    await f.moderation.reject(reportId, 'Photograph shows a covered drain.', MANAGER);
 
     const entries = await f.audit.recent(50);
-    const verified = entries.find((e) => e.action.includes('Verified'));
+    const verified = entries.find((e) => e.action.includes('Rejected'));
     expect(verified).toBeDefined();
     // All four fields of 2.4.1: who, what, which thing, when.
     expect(verified?.accountId).toBe('manager-1');
@@ -211,8 +215,7 @@ describe('2.4.1 — the single write path is the single audit point', () => {
 
   it('A6 — a system-initiated status change is attributed to the system, not to a bystander', async () => {
     const f = await fixture();
-    const reportId = await submitReport(f);
-    await f.moderation.verify(reportId, MANAGER);
+    const reportId = await submitReport(f); // verified by default
 
     // 5.2.6 — a work order raised from the report moves it to Actioned with no user in the loop.
     const workOrder = await f.dispatch.createWorkOrder(
@@ -257,7 +260,8 @@ describe('2.3.8, 2.4.1 — refusals and changes are tellable apart', () => {
     expect(denial?.accountId).toBe('resident-1');
     // They mean opposite things. An unprefixed list of action names could not tell them apart,
     // and a reviewer counting "report:moderate" rows would count refusals as decisions.
-    expect(entries.some((e) => e.action.includes('Verified'))).toBe(false);
+    // The only Verified row is the system's automatic one; the refused resident made no change.
+    expect(entries.filter((e) => e.action.includes('Verified')).map((e) => e.accountId)).toEqual([SYSTEM_ACTOR_ID]);
   });
 });
 

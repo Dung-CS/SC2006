@@ -11,7 +11,7 @@ import { Cluster } from '../src/entity/Cluster';
 import { PriorityScore } from '../src/entity/PriorityScore';
 import { WorkOrder } from '../src/entity/WorkOrder';
 import { GeoPoint, Polygon, PremisesMix } from '../src/entity/valueTypes';
-import { HqLocation, LocationContext, PestType, PriorityTier, ReportStatus, ReportType, Role, StaffSpecialisation, StaffStatus, TaskType, WorkOrderStatus } from '../src/entity/enums';
+import { Driver, HqLocation, LocationContext, PestType, PriorityTier, ReportStatus, ReportType, Role, StaffSpecialisation, StaffStatus, TaskType, WorkOrderStatus } from '../src/entity/enums';
 import { Account } from '../src/entity/Account';
 import { buildDispatchRouteInputs } from '../src/control/DispatchRouteInputs';
 import { taskForReport } from '../src/control/ReportTriagePolicy';
@@ -50,6 +50,41 @@ async function cluster(f: ReturnType<typeof fixture>): Promise<Cluster> {
 }
 
 describe('Daily dispatch combines report triage and locality scores', () => {
+  it('returns stored locality breakdowns and separate report triage on proposals for matching pest/locality', async () => {
+    const f = fixture();
+    const c = await cluster(f);
+    const reportScore = Object.assign(new PriorityScore(), {
+      clusterId: 'legacy-rat-score-key', localityId: c.id, pestType: PestType.Rat,
+      computedAt: new Date('2026-10-29T12:00:00.000Z'), score: 47.2, tier: PriorityTier.Medium,
+      severityMultiplier: 0.8, urgency: 0.59, isDegraded: false, excludedDrivers: [], overrideRuleName: '',
+      contributions: [{ driver: Driver.CaseSize, rawValue: 4, normalisedValue: 0.4, weight: 0.2, contribution: 0.08 }],
+    });
+    const mosquitoScore = Object.assign(new PriorityScore(), { ...reportScore, clusterId: c.id, pestType: PestType.Mosquito,
+      score: 78.4, tier: PriorityTier.High, urgency: 0.784 });
+    await f.scores.saveAll([reportScore, mosquitoScore]);
+    const source = report('rat-injury', PestType.Rat, { clusterId: c.id, injuryReported: true });
+    await f.reports.save(source);
+
+    const proposals = await f.dispatch.proposeDailyList(date, manager);
+    const reportProposal = proposals.find((proposal) => proposal.sourceReportId === source.id)!;
+    expect(reportProposal.scoreExplanation).toEqual({
+      reportTriage: { priority: 'Critical', rationale: 'Injury reported. Seek urgent medical help where needed.' },
+      localityScore: {
+        value: 47.2, tier: PriorityTier.Medium, computedAt: '2026-10-29T12:00:00.000Z', severity: 0.8, urgency: 0.59,
+        isDegraded: false, excludedDrivers: [], overrideRuleName: '',
+        breakdown: [{ driver: Driver.CaseSize, rawValue: 4, normalisedValue: 0.4, weight: 0.2, contribution: 0.08 }],
+      },
+    });
+    const officialProposal = proposals.find((proposal) => !proposal.sourceReportId)!;
+    expect(officialProposal.scoreExplanation?.localityScore).toMatchObject({
+      value: 78.4, tier: PriorityTier.High, computedAt: '2026-10-29T12:00:00.000Z',
+    });
+    const routeInputs = buildDispatchRouteInputs({ date, crew: [], reports: [source], orders: [], clusters: [c], proposals: [officialProposal],
+      profiles: ConfigLoader.load().pestProfiles, scores: [reportScore, mosquitoScore] });
+    expect(routeInputs.jobs.find((job) => job.workOrderId === `prop-${c.id}-${PestType.Mosquito}`)?.scoreExplanation)
+      .toEqual(officialProposal.scoreExplanation);
+  });
+
   it('serialises official cluster map points from the boundary centroid and preserves exact report points', async () => {
     const f = fixture();
     const c = await cluster(f);

@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.20 · drafted 2026-09-02, revised 2026-10-30 · status: DRAFT for team review; deployment evidence recorded separately
+Version 0.22 · drafted 2026-09-02, revised 2026-10-30 · status: DRAFT for team review; deployment evidence recorded separately
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -13,7 +13,7 @@ and entity titles omit fixture tokens and identifiers while metadata retains ide
 This amendment supersedes earlier authority-only exclusions. Historical referral records and frozen
 submissions remain intact. The v0.18 full-suite, deployment and live verification evidence is recorded in the unified-operations release report.
 
-Definition audit for v0.20: 759 anchored numbered definitions, 759 unique IDs, zero duplicates.
+Definition audit for v0.22: 818 anchored numbered definitions, 818 unique IDs, zero duplicates.
 
 **v0.20 replaces crew filtering with HQ filtering and fixes species icons.** HQ and Job Type
 checkboxes support All, multiple selections and none. Crew groups use recorded depot locations;
@@ -23,6 +23,20 @@ keys for icons and photo fallback; visible text uses readable labels. Routing is
 Verification: release `5fde789` passed CI deployment and eight live Edge map checks, including HQ
 grouping, API-matched species icons and an actual 390px mobile viewport. Local full suite passed
 1,154 tests with 58 SQL tests skipped. Evidence: `scratchpad/hq-icons-20261030/DEPLOYMENT.md`.
+
+**v0.22 records the report-rejection and manual-dispatch round.** Reports are Verified by default (5.2.10-5.2.12).
+A manager may reject a Verified report from the dispatch review; the rejection removes the report from
+dispatch routes atomically (5.2.13-5.2.22) and appears in a rejected list (5.3.8-5.3.10). Dispatches can be set
+and edited by hand (8.2.17-8.2.21). The Dispatches list and Crew Detail screens are specified in 11.2.30-11.2.43.
+Amended: 5.2.2, 5.2.3, 5.3.1, 7.5.3, 11.1.3, 11.2.25. Not yet verified in code: plate validation on manual vehicle entry.
+
+**v0.21 specifies a unified Operations and Dispatch workflow and group assignment.** It adds
+stored score explanations with report triage kept separate, optional manager-maintained profile
+and vehicle display metadata, planned crew display data, and an atomic group assignment contract.
+Operations uses `/ops`; `/ops/dispatch` remains an alias and historical WorkOrders URLs remain
+available. The routing explainer is user-facing documentation and makes no certification claim.
+This expanded batch is in progress. No operational assignment was made, and migrations 016/017
+have not been applied.
 
 **v0.19 adds dispatch map task metadata.** Unplanned task responses carry their recorded target
 coordinates and optional map-cluster identity. Official cluster proposals expose a display-only
@@ -364,6 +378,10 @@ live feed — see 1.6.7 and §13.)*
 - **2.5.17** The system shall treat a legacy crew account with no recorded specialisation as ineligible for dispatch.
 - **2.5.18** The system shall exclude a crew account with no recorded outpost from route-planning capacity.
 - **2.5.19** The system shall require an explicit Operations Manager capability selection before treating a staff member as qualified for Authority Response.
+- **2.5.20** The system shall allow an Operations Manager to record an optional display name and profile description for a staff account.
+- **2.5.21** The system shall persist accepted staff display names and profile descriptions across a server restart when PostgreSQL storage is configured.
+- **2.5.22** The system shall show a crew member's display name, where one is recorded, in preference to a name derived from the email address. *(Added in v0.22.)*
+- **2.5.23** The demo-identity tool shall give each Cleaning Crew account that has no display name a distinct display name, and shall leave an existing display name unchanged.
 
 ## 2.6 HQ vehicle registry
 
@@ -388,7 +406,13 @@ remain stored so that a manager can restore them without recreating the vehicle.
 - **2.6.16** The system shall store whether each vehicle is demo data.
 - **2.6.17** The system shall seed two explicitly labelled demo vehicles with different load limits at each HQ only when the vehicle registry is empty.
 - **2.6.18** The demo seeder shall preserve an existing registry, including unavailable or edited demo vehicles.
+- **2.6.20** The system shall allow an Operations Manager to record an optional model and photo URL for a vehicle.
+- **2.6.21** The system shall persist accepted vehicle models and photo URLs across a server restart when PostgreSQL storage is configured.
 - **2.6.19** An accepted vehicle change shall trigger a background dispatch-plan refresh.
+- **2.6.22** The demo seeder shall give each demo vehicle a model name and a photo URL. *(Added in v0.22.)*
+- **2.6.23** The demo seeder shall give each demo vehicle a distinct Singapore goods-vehicle plate, with a valid check letter, as its registration.
+- **2.6.24** The demo-identity tool shall replace a placeholder `DEMO-` registration with a plate under 2.6.23 and shall leave any other registration unchanged.
+- **2.6.25** A dispatch vehicle label shall show the vehicle's model and registration, and the model alone for a placeholder `DEMO-` registration.
 
 ---
 
@@ -521,8 +545,8 @@ exists so that it is not asked to — see `PEST-PRIORITY-MODEL.md` §6.)*
 ## 5.2 Lifecycle
 
 - **5.2.1** The system shall assign every report a status from the set {Submitted, Verified, Rejected, Actioned, Closed}.
-- **5.2.2** The system shall set a newly submitted report's status to Submitted.
-- **5.2.3** The system shall allow only an Operations Manager to change a report's status to Verified or Rejected.
+- **5.2.2** The system shall set a newly submitted report's status to Submitted. *(Amended in v0.22: Submitted is the recorded starting status; 5.2.11 then moves the report to Verified.)*
+- **5.2.3** The system shall allow only an Operations Manager to change a report's status to Rejected, and to Verified from Submitted. *(Amended in v0.22: the system also moves a new report from Submitted to Verified under 5.2.11.)*
 - **5.2.4** The system shall require a reason of at least ten characters when a report is set to Rejected.
 - **5.2.5** The system shall include only reports with status Verified or Actioned in the open verified report count used by requirement 4.1.3.
 - **5.2.6** The system shall set a report's status to Actioned when it is linked to a work order that has been assigned.
@@ -530,15 +554,34 @@ exists so that it is not asked to — see `PEST-PRIORITY-MODEL.md` §6.)*
 - **5.2.8** The system shall notify the reporting Resident on every change to their report's status.
 - **5.2.9** The system shall present reports submitted by other Residents without the reporter's identity.
 
+*(Added in v0.22. Reports are Verified by default; moderation is now an exception path. A manager may still reject a Verified report, and a rejection takes the report off the dispatch routes.)*
+
+- **5.2.10** The system shall record each submitted report with status Submitted before the system verifies it.
+- **5.2.11** The system shall move each newly submitted report from Submitted to Verified by a system action, without a moderator decision.
+- **5.2.12** The system shall retain both the Submitted and the Verified rows in the status history of a report verified under 5.2.11.
+- **5.2.13** The system shall allow an Operations Manager to reject a Verified report from the dispatch review.
+- **5.2.14** The system shall refuse to reject a Verified report when the reason is shorter than ten characters, and shall cancel and remove nothing when it refuses.
+- **5.2.15** The system shall remove a rejected report's linked work orders from every saved dispatch route.
+- **5.2.16** The system shall cancel each work order linked to a rejected report whose status is Created, Assigned, Accepted, In Progress or Rejected.
+- **5.2.17** The system shall not cancel a work order linked to a rejected report whose status is Completed, Verified or Cancelled.
+- **5.2.18** The system shall cancel a saved dispatch when the removal under 5.2.15 takes its only stop.
+- **5.2.19** The system shall re-verify the remaining stops of an affected dispatch on roads within the four-hour cap after a removal under 5.2.15.
+- **5.2.20** The system shall keep the remaining stops of an affected dispatch in their existing order, and flag the dispatch for a road check, when they cannot be re-routed under 5.2.19.
+- **5.2.21** The system shall not refuse a report rejection because the road re-check under 5.2.19 failed.
+- **5.2.22** The system shall commit the removal under 5.2.15, the cancellations under 5.2.16, any dispatch cancellation under 5.2.18 and the report rejection together, or none of them.
+
 ## 5.3 Moderation
 
-- **5.3.1** The system shall present an Operations Manager with a moderation queue of all reports with status Submitted.
+- **5.3.1** The system shall present an Operations Manager with a moderation queue of all reports with status Submitted. *(Amended in v0.22: under 5.2.11 a report leaves Submitted at once, so the queue holds only a report not yet verified. It is no longer the normal path for a new report.)*
 - **5.3.2** The system shall sort the moderation queue by submission time, oldest first, by default.
 - **5.3.3** The system shall allow the moderation queue to be filtered by cluster and by report type.
 - **5.3.4** The system shall record the moderating user id, timestamp and reason on every moderation decision, where a reason is as defined in the definitions table.
 - **5.3.5** The system shall withhold a report's photographs from all Residents other than the reporter until the report is Verified.
 - **5.3.6** The system shall allow the moderation queue to be filtered by pest type. *(Added in v0.9.)*
 - **5.3.7** The system shall sort the moderation queue so that reports matching a critical override rule appear first, ahead of the order defined by 5.3.2. *(Added in v0.9. A verified snake-indoors report that waits its turn in an oldest-first queue defeats 4.4.)*
+- **5.3.8** The system shall provide an Operations Manager, and no other role, with a list of rejected reports.
+- **5.3.9** The system shall show, for each rejected report, its pest type, locality, reason, the name of the rejecting user and the rejection time. *(Added in v0.22.)*
+- **5.3.10** The system shall sort the rejected-report list by rejection time, newest first.
 
 ## 5.4 Photo-assisted pest recognition and confirmed counts
 
@@ -660,7 +703,7 @@ separate validation questions.)*
 
 - **7.5.1** The dashboard shall display every open source-health warning raised under requirement 1.4.3.
 - **7.5.2** The dashboard shall display every overdue work order.
-- **7.5.3** The dashboard shall display the count of reports awaiting moderation.
+- **7.5.3** The dashboard shall display the count of reports awaiting moderation. *(Reads Submitted reports only; under 5.2.11 the count is normally zero.)*
 - **7.5.4** The system shall link each attention item to the screen on which it can be resolved.
 - **7.5.5** The dashboard shall display every work order carrying an issue flag raised under requirement 8.3.8. *(Added in v0.4. Use case 6.7 surfaced issue-flagged work orders to the manager, but no requirement obliged the dashboard to show them, so a raised issue could be recorded and never seen. Found by adversarial review of the Lab 2 model.)*
 
@@ -702,6 +745,17 @@ separate validation questions.)*
 - **8.2.8** The system shall refuse assignment to a crew member whose recorded specialisation does not cover both the task and the pest class under §8.8.
 - **8.2.9** The system shall display an ineligibility reason for each staff member excluded from the assignment recommendation.
 - **8.2.10** The system shall rank eligible assignment candidates by primary specialisation first, then by open work-order count ascending, then by email address ascending.
+- **8.2.11** The Dispatch screen shall allow an Operations Manager to select multiple eligible crew members for a planned route.
+- **8.2.12** The Dispatch screen shall allow an Operations Manager to select exactly one vehicle for a planned route.
+- **8.2.13** The system shall save a planned route's crew and vehicle assignment as one atomic operation.
+- **8.2.14** Before saving an assignment, the system shall revalidate the manager's access, route freshness, task access, crew capability and headcount, and vehicle availability and capacity.
+- **8.2.15** The system shall reject a stale or ineligible group assignment without saving any part of it.
+- **8.2.16** The Dispatch screen shall retrieve and display the saved crew and vehicle assignment for a planned route.
+- **8.2.17** The Dispatch screen shall allow an Operations Manager to add an unassigned task to, remove a task from, and reorder the stops of a dispatch before saving it. *(Added in v0.22.)*
+- **8.2.18** The system shall allow an Operations Manager to edit a saved dispatch's crew, vehicle and stops only while every work order in it is still Assigned to it, that is, while none is Accepted or later.
+- **8.2.19** The system shall re-verify a manually set or edited route on roads within the four-hour cap, and shall save no part of the change when it cannot.
+- **8.2.20** The system shall return a task removed from a saved dispatch to status Created, with no dispatch link, crew or vehicle.
+- **8.2.21** The system shall refuse to save a dispatch with no stop, or with any task listed twice.
 
 ## 8.3 Lifecycle
 
@@ -1107,7 +1161,7 @@ the list the Lab 1 UI mockups must cover.*
 
 - **11.1.1** The system shall present a primary navigation menu on every screen available to an authenticated user.
 - **11.1.2** The system shall present a Resident with primary navigation items for Map, My Locations, Report a Site, My Reports and Settings.
-- **11.1.3** The system shall present an Operations Manager with primary navigation items for Dashboard, Map, Moderation, Work Orders, Dispatch, Staff, Vehicles and Data Sources. *(Revised in v0.11 to include the HQ vehicle registry.)*
+- **11.1.3** The system shall present an Operations Manager with primary navigation items for Dashboard, Map, Moderation, Work Orders, Dispatch, Staff, Vehicles and Data Sources. *(Revised in v0.11 to include the HQ vehicle registry. Amended in v0.22: the Work Orders item is superseded by 11.11.23 and the Dispatches list in 11.2.30.)*
 - **11.1.4** The system shall present a Cleaning Crew Member with primary navigation items for My Jobs, Map and Profile.
 - **11.1.5** The system shall display no navigation item that the signed-in user's role may not access.
 - **11.1.6** The system shall indicate which primary navigation item corresponds to the current screen.
@@ -1142,12 +1196,26 @@ the list the Lab 1 UI mockups must cover.*
 - **11.2.22** The system shall provide a Staff Accounts screen for an Operations Manager.
 - **11.2.23** The system shall provide a Data Sources screen showing each source's last successful retrieval.
 - **11.2.24** The system shall provide a Not Authorised screen and a Not Found screen.
-- **11.2.25** The system shall provide a Work Order List screen for an Operations Manager. *(Added in v0.4. Requirement 11.1.3 mandates a Work Orders navigation item, but §11.2 defined no list screen for it to open, and 11.3.7 requires a create action to return to the list it came from. Found by adversarial review of the Lab 2 model.)*
+- **11.2.25** The system shall provide a Work Order List screen for an Operations Manager. *(Superseded in v0.22 by 11.2.30; the old path now opens the Dispatches list.)* *(Added in v0.4. Requirement 11.1.3 mandates a Work Orders navigation item, but §11.2 defined no list screen for it to open, and 11.3.7 requires a create action to return to the list it came from. Found by adversarial review of the Lab 2 model.)*
 - **11.2.26** The system shall provide an Analytics screen for an Operations Manager, presenting the five §7.3 visualisations, each carrying its own sufficiency statement. *(Added in v0.5. §7.3 says "the dashboard shall display" five charts and `AnalyticsController` builds all five, but §11.2 defined no screen to display them on and the Operations Dashboard realises §7.1 rather than §7.3 — so `GET /api/ops/analytics` answered correctly and no user could reach it. The same class of gap as 11.2.25. Found by independent review of the live deployment, 2026-09-05.)*
 
 - **11.2.27** The system shall provide a Pest Reference screen listing every covered pest type with its responsible authority and its published contact number. *(Added in v0.9. A resident who has just seen a snake needs the AVS number faster than they need a report form.)*
 - **11.2.28** The system shall provide a Referral screen for an Operations Manager, supporting referral under 8.6.1 and outcome recording under 8.6.8. *(Added in v0.9.)*
 - **11.2.29** The system shall provide a Vehicle Registry screen for an Operations Manager at `/ops/vehicles`.
+- **11.2.30** The system shall provide a Dispatches list screen for an Operations Manager at `/ops/dispatches`, which replaces the Work Order List of 11.2.25. *(Added in v0.22.)*
+- **11.2.31** The Dispatches list shall show one row per saved dispatch.
+- **11.2.32** Each Dispatches list row shall show its date, HQ, status, ordered stops, crew, and the vehicle's model and registration, inside the one assignment.
+- **11.2.33** The Dispatches list shall show a work order that is assigned outside any dispatch in a separate "Not in a dispatch" section.
+- **11.2.34** The system shall open the Dispatches list when a user follows the historical `/ops/work-orders` path.
+- **11.2.35** The system shall provide a Crew Detail screen for an Operations Manager, and no other role, at `/ops/staff/:id`.
+- **11.2.36** The Crew Detail screen shall show the member's name, active state, email, role, HQ, staff status, on-call lag, capabilities, creation date and profile description.
+- **11.2.37** The Crew Detail screen shall list the dispatches the member is assigned to that are dated today or later, as upcoming.
+- **11.2.38** The Crew Detail screen shall list the dispatches the member was assigned to that are dated before today, as past.
+- **11.2.39** The Crew Detail screen shall include the member's legacy work orders that no dispatch holds, among the upcoming or past dispatches by date.
+- **11.2.40** The dispatch map popup and the task list rows shall not show a task's score breakdown. *(Supersedes the display of a breakdown in a popup; the breakdown opens only with the task.)*
+- **11.2.41** The opened task view, a work-order detail or the dispatch task panel, shall show the task's score breakdown from stored scores only.
+- **11.2.42** The system shall not calculate a replacement score in the browser for the task view of 11.2.41.
+- **11.2.43** The dispatch map popup of a report-sourced task shall offer a Reject report control to an Operations Manager, and shall require a reason of at least ten characters before it submits. *(Realises 5.2.13.)*
 
 ## 11.3 Dialog map and transitions
 
@@ -1312,6 +1380,14 @@ vehicle on its registry row and on any route that uses it.)*
 - **11.11.16** Generic reference images on operational cards shall be distinguishable from photographs of the reported incident.
 - **11.11.17** The Dispatch screen shall retain the horizon, day selector, unassigned reasons and map viewport controls when replacing task lists with cards.
 - **11.11.18** An unassigned or committed dispatch task returned for map display shall include its recorded target latitude and longitude and, when available, its map-cluster identity; an official cluster proposal shall expose the source-boundary centroid for display without changing route-input area semantics, and a report proposal shall retain the exact source-report point.
+- **11.11.19** A dispatch task detail shall show the stored locality score value, tier, timestamp, severity, urgency, degraded state, excluded drivers, override rule and per-driver raw value, normalised value, weight and contribution when that score matches both the task locality and pest.
+- **11.11.20** A dispatch task detail shall present report triage and its rationale separately from the locality score breakdown.
+- **11.11.21** A planned route display shall identify each assigned crew member using distinct pool-member identities and shall show available vehicle model and photo metadata.
+- **11.11.22** The Operations primary navigation shall link to `/ops`; `/ops/dispatch` shall resolve to the canonical Operations workflow.
+- **11.11.23** The Operations primary navigation shall omit WorkOrders while historical WorkOrders URLs remain accessible.
+- **11.11.24** The Dispatch assignment screen shall use checkboxes for crew selection and radio cards for vehicle selection.
+- **11.11.25** The system shall provide a routing-algorithm explanation in `docs/ROUTING-ALGORITHM-STE100.md` using short, active sentences and defined technical terms.
+- **11.11.26** Any seeded profile or vehicle display examples shall be labelled as illustrative demo data.
 
 ---
 

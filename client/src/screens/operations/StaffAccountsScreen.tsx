@@ -14,11 +14,14 @@ import { label } from '../../lib/labels';
 import { staffPhotoUrl, staffDisplayName, staffRoleLocationLabel } from '../../lib/staffVisuals';
 import { SPECIALISATION_LABEL, specialisationLabel } from '../../lib/dispatchRouting';
 import { Pagination, usePagination } from '../../components/Pagination';
+import { link } from '../../components/Link';
 import { ScreenProps } from '../ScreenProps';
 
 interface StaffMember {
   id: string;
   email: string;
+  displayName?: string | null;
+  profileDescription?: string | null;
   role: string;
   isActive: boolean;
   specialisation?: StaffSpecialisation | null;
@@ -54,6 +57,10 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState<FormField>(field());
   const [password, setPassword] = useState<FormField>(field());
+  const [displayName, setDisplayName] = useState('');
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
+  const [profileDescription, setProfileDescription] = useState('');
+  const [descriptionDrafts, setDescriptionDrafts] = useState<Record<string, string>>({});
   const [role, setRole] = useState<Role>(Role.CleaningCrew);
   // Capability and HQ are compulsory during creation
   const [specialisation, setSpecialisation] = useState<StaffSpecialisation | ''>(StaffSpecialisation.VectorControl);
@@ -94,6 +101,8 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
     try {
       await props.api.post('/api/ops/staff', {
         email: email.value.trim(),
+        displayName: displayName.trim() || null,
+        profileDescription: profileDescription.trim() || null,
         role,
         password: password.value,
         ...(role === Role.CleaningCrew && specialisation !== '' ? { specialisation } : {}),
@@ -104,6 +113,8 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
       );
       setEmail(field());
       setPassword(field());
+      setDisplayName('');
+      setProfileDescription('');
       setSpecialisation(StaffSpecialisation.VectorControl);
       setHqLocation('');
       setCreationTouched(false);
@@ -150,6 +161,21 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function recordName(member: StaffMember): Promise<void> {
+    setBusy(true);
+    try {
+      await props.api.post(`/api/ops/staff/${member.id}/display-name`, {
+        displayName: nameDrafts[member.id] ?? member.displayName ?? null,
+        profileDescription: descriptionDrafts[member.id] ?? member.profileDescription ?? null,
+      });
+      setToast('Staff profile saved.');
+      retry();
+    } catch (error) {
+      const f = error instanceof ApiError ? error.failure : null;
+      setToast(f?.error ?? 'The name could not be saved. Try again.');
+    } finally { setBusy(false); }
   }
 
   async function recordHq(id: string, email: string, location: HqLocation): Promise<void> {
@@ -387,11 +413,23 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <img src={staffPhotoUrl(member.email, member.role)} alt="" className="staff-avatar-img" style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover' }} />
                   <div>
-                    <strong data-part="entity-title">{staffDisplayName(member.email, member.role)}</strong>
+                    <a href={`/ops/staff/${member.id}`} onClick={link(props, `/ops/staff/${member.id}`)} data-part="crew-detail-link">
+                      <strong data-part="entity-title">{staffDisplayName(member.email, member.role, member.displayName)}</strong>
+                    </a>
                     <div className="staff-email-sub">{staffRoleLocationLabel(member.role, member.hqLocation)}</div>
                     <small data-part="identity">{member.email}</small>
                   </div>
                 </div>
+                <details>
+                  <summary>Staff record</summary>
+                  <label>Name<input aria-label={`Recorded name for ${member.email}`} maxLength={120}
+                    value={nameDrafts[member.id] ?? member.displayName ?? ''}
+                    onChange={(event) => setNameDrafts((previous) => ({ ...previous, [member.id]: event.target.value }))} /></label>
+                  <label>Notes<textarea aria-label={`Staff notes for ${member.email}`} maxLength={500}
+                    value={descriptionDrafts[member.id] ?? member.profileDescription ?? ''}
+                    onChange={(event) => setDescriptionDrafts((previous) => ({ ...previous, [member.id]: event.target.value }))} /></label>
+                  <button type="button" disabled={busy} onClick={() => void recordName(member)}>Save profile</button>
+                </details>
                 <div className="staff-role-cell" style={{ display: 'grid', gap: 8 }}>
                     <span className="staff-role-main">{label(member.role)}</span>
                     {member.role === Role.CleaningCrew ? (
@@ -489,6 +527,10 @@ export function StaffAccountsScreen(props: ScreenProps): JSX.Element {
       {/* Adding staff account with compulsory capability & HQ */}
       <form onSubmit={create} noValidate data-part="create">
         <h2>Add a staff account</h2>
+        <label htmlFor="staff-display-name">Name</label>
+        <input id="staff-display-name" maxLength={120} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+        <label htmlFor="staff-profile-description">Notes</label>
+        <textarea id="staff-profile-description" maxLength={500} value={profileDescription} onChange={(event) => setProfileDescription(event.target.value)} />
         <Field
           id="staff-email"
           label="Email"

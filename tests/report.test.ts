@@ -126,6 +126,7 @@ async function fixture(): Promise<Fixture> {
   const dispatch = new DispatchController(ac, workOrders, workOrderStore, clusters, scores, notifier, lifecycle, 10, null, null, null, reports);
   const dashboard = new DashboardController(ac, clusters, scores, new InMemoryIngestionRunStore(), workOrderStore, reports);
 
+  moderation.linkWorkOrders(workOrderStore, dispatch); // as server.ts does
   return {
     reports,
     controller,
@@ -157,10 +158,30 @@ async function submit(
   );
 }
 
+/**
+ * A report in the legacy Submitted state. New submissions are verified at once, but rows stored
+ * before that change stay Submitted (they are not migrated), so the moderation queue, manual
+ * verify and the "Submitted does not count" rule still need a Submitted report to act on.
+ */
+async function revertToSubmitted(f: Fixture, report: Report): Promise<Report> {
+  report.applyStatus(ReportStatus.Submitted);
+  return f.reports.save(report);
+}
+
+async function legacySubmitted(
+  f: Fixture,
+  point = INSIDE,
+  by = RESIDENT,
+  type = ReportType.StandingWater,
+  now = new Date(),
+): Promise<Report> {
+  return revertToSubmitted(f, await submit(f, point, by, type, now));
+}
+
 /** A verified report — the state from which 5.2.5 and the §8 hooks become interesting. */
 async function verified(f: Fixture, point = INSIDE): Promise<Report> {
-  const report = await submit(f, point);
-  return f.moderation.verify(report.id, MANAGER);
+  // Reports are verified by default, so a plain submission is already Verified.
+  return submit(f, point);
 }
 
 function tomorrow(): string {
@@ -173,10 +194,10 @@ describe('Submission — §5.1.1 to §5.1.6', () => {
     f = await fixture();
   });
 
-  it('S1 — a valid report is stored as Submitted with the reporter and timestamp (5.1.10, 5.2.2)', async () => {
+  it('S1 — a valid report is stored, then verified by default, with the reporter and timestamp (5.1.10, 5.2.2)', async () => {
     const at = new Date('2026-09-03T10:00:00+08:00');
     const report = await submit(f, INSIDE, RESIDENT, ReportType.StandingWater, at);
-    expect(report.currentStatus()).toBe(ReportStatus.Submitted);
+    expect(report.currentStatus()).toBe(ReportStatus.Verified);
     expect(report.reporterId).toBe('resident-1');
     expect(report.submittedAt).toEqual(at);
     expect(report.corroborationCount).toBe(0);
@@ -185,7 +206,10 @@ describe('Submission — §5.1.1 to §5.1.6', () => {
   it('S2 — the initial status is recorded in the history, so 8.3.21 has something to restore to', async () => {
     const report = await submit(f);
     const history = await f.reports.statusHistory(report.id);
-    expect(history).toEqual([expect.objectContaining({ from: null, to: ReportStatus.Submitted })]);
+    expect(history).toEqual([
+      expect.objectContaining({ from: null, to: ReportStatus.Submitted }),
+      expect.objectContaining({ from: ReportStatus.Submitted, to: ReportStatus.Verified }),
+    ]);
   });
 
   it('S3 — a description of exactly 500 characters is accepted, 501 is refused (5.1.4, boundary)', async () => {
@@ -272,11 +296,11 @@ describe('Location binding — §5.1.7 to §5.1.9', () => {
     expect(report.localityBinding).toBe(f.locality);
   });
 
-  it('L3 — a point with no locality within 1 km is Unassigned, and its status is still Submitted (5.1.9)', async () => {
+  it('L3 — a point with no locality within 1 km is Unassigned, and it is still verified by default (5.1.9)', async () => {
     const report = await submit(f, FAR);
     expect(report.localityBinding).toBe(UNASSIGNED_LOCALITY);
     expect(report.clusterId).toBeNull();
-    expect(report.currentStatus()).toBe(ReportStatus.Submitted); // Unassigned is a binding, not a status
+    expect(report.currentStatus()).toBe(ReportStatus.Verified); // Unassigned is a binding, not a status
   });
 });
 
@@ -356,27 +380,41 @@ describe('Duplicates and corroboration — §5.1.11 to §5.1.14', () => {
 });
 
 describe('Moderation — §5.2.3, §5.2.4, §5.3', () => {
+  it('M7 — rejecting a Verified report fails closed when work orders are not linked (5.2.3b)', async () => {
+    const f = await fixture();
+    const unlinked = new ModerationController(
+      new AccessControlService(new AccessPolicy(), new InMemoryAuditStore()),
+      f.reports,
+      f.lifecycle,
+    );
+    const report = await submit(f);
+    await expect(unlinked.reject(report.id, 'Photograph shows a covered drain.', MANAGER)).rejects.toThrow(
+      /work-order check unavailable/,
+    );
+    expect((await f.reports.findById(report.id))?.currentStatus()).toBe(ReportStatus.Verified);
+  });
+
   let f: Fixture;
   beforeEach(async () => {
     f = await fixture();
   });
 
   it('M1 — the queue holds Submitted reports oldest first (5.3.1, 5.3.2)', async () => {
-    const older = await submit(f, INSIDE, RESIDENT, ReportType.StandingWater, new Date('2026-09-01T08:00:00+08:00'));
-    const newer = await submit(f, FAR, NEIGHBOUR, ReportType.BlockedDrain, new Date('2026-09-02T08:00:00+08:00'));
+    const older = await legacySubmitted(f, INSIDE, RESIDENT, ReportType.StandingWater, new Date('2026-09-01T08:00:00+08:00'));
+    const newer = await legacySubmitted(f, FAR, NEIGHBOUR, ReportType.BlockedDrain, new Date('2026-09-02T08:00:00+08:00'));
     const rows = await f.moderation.listQueue(MANAGER);
     expect(rows.map((r) => r.reportId)).toEqual([older.id, newer.id]);
   });
 
   it('M2 — the queue filters by cluster and by type, server-side (5.3.3)', async () => {
-    const inCluster = await submit(f, INSIDE, RESIDENT, ReportType.StandingWater);
-    await submit(f, FAR, NEIGHBOUR, ReportType.BlockedDrain);
+    const inCluster = await legacySubmitted(f, INSIDE, RESIDENT, ReportType.StandingWater);
+    await legacySubmitted(f, FAR, NEIGHBOUR, ReportType.BlockedDrain);
     expect((await f.moderation.listQueue(MANAGER, { clusterId: f.clusterId })).map((r) => r.reportId)).toEqual([inCluster.id]);
     expect((await f.moderation.listQueue(MANAGER, { type: ReportType.BlockedDrain })).map((r) => r.reportId)).toHaveLength(1);
   });
 
   it('M3 — a verified report records the moderator and the timestamp (5.3.4)', async () => {
-    const report = await f.moderation.verify((await submit(f)).id, MANAGER);
+    const report = await f.moderation.verify((await legacySubmitted(f)).id, MANAGER);
     expect(report.currentStatus()).toBe(ReportStatus.Verified);
     expect(report.moderatorId).toBe('manager-1');
     expect(report.moderatedAt).toBeInstanceOf(Date);
@@ -384,9 +422,13 @@ describe('Moderation — §5.2.3, §5.2.4, §5.3', () => {
 
   it('M4 — a rejection reason under ten characters is refused; ten is accepted (5.2.4, boundary)', async () => {
     const report = await submit(f);
+    const legacy = await legacySubmitted(f, northOf(INSIDE, 200), NEIGHBOUR);
+    await expect(f.moderation.reject(legacy.id, 'no water', MANAGER)).rejects.toBeInstanceOf(ReportTransitionRefused);
+    expect((await f.reports.findById(legacy.id))?.currentStatus()).toBe(ReportStatus.Submitted);
+    await expect(f.moderation.reject(legacy.id, '0123456789', MANAGER)).resolves.toBeInstanceOf(Report);
     await expect(f.moderation.reject(report.id, 'no water', MANAGER)).rejects.toBeInstanceOf(ReportTransitionRefused);
     // Refused *before* writing: the status is untouched, which is the property that matters.
-    expect((await f.reports.findById(report.id))?.currentStatus()).toBe(ReportStatus.Submitted);
+    expect((await f.reports.findById(report.id))?.currentStatus()).toBe(ReportStatus.Verified);
     await expect(f.moderation.reject(report.id, '0123456789', MANAGER)).resolves.toBeInstanceOf(Report);
   });
 
@@ -409,8 +451,13 @@ describe('What reaches the score — §5.2.5 into §4.1.3', () => {
     f = await fixture();
   });
 
-  it('C1 — a Submitted report does not count; verifying it makes it count (5.2.5)', async () => {
-    const report = await submit(f);
+  it('C1a — a new report counts at once, because it is verified by default (5.2.5)', async () => {
+    await submit(f);
+    expect(await f.moderation.verifiedOpenCounts([f.clusterId])).toEqual(new Map([[f.clusterId, 1]]));
+  });
+
+  it('C1 — a legacy Submitted report does not count; verifying it makes it count (5.2.5)', async () => {
+    const report = await legacySubmitted(f);
     expect(await f.moderation.verifiedOpenCounts([f.clusterId])).toEqual(new Map([[f.clusterId, 0]]));
     await f.moderation.verify(report.id, MANAGER);
     expect(await f.moderation.verifiedOpenCounts([f.clusterId])).toEqual(new Map([[f.clusterId, 1]]));
@@ -431,8 +478,7 @@ describe('What reaches the score — §5.2.5 into §4.1.3', () => {
   });
 
   it('C4 — a report bound only to a locality does not enter any cluster count (5.1.8)', async () => {
-    const near = await submit(f, NEAR);
-    await f.moderation.verify(near.id, MANAGER);
+    await submit(f, NEAR);
     expect((await f.moderation.verifiedOpenCounts([f.clusterId])).get(f.clusterId)).toBe(0);
   });
 });
@@ -448,6 +494,10 @@ describe('Visibility — §5.2.9, §5.3.5', () => {
       { point: INSIDE, pestType: PestType.Mosquito, type: ReportType.StandingWater, description: 'tray', photos: [photo()] },
       RESIDENT,
     );
+    // Verified by default, so the photograph is released at once.
+    expect((await f.controller.publicView(report.id, NEIGHBOUR)).photos).toHaveLength(1);
+    // A legacy Submitted row still withholds it.
+    await revertToSubmitted(f, report);
     expect((await f.controller.publicView(report.id, NEIGHBOUR)).photos).toHaveLength(0);
     await f.moderation.verify(report.id, MANAGER);
     expect((await f.controller.publicView(report.id, NEIGHBOUR)).photos).toHaveLength(1);
@@ -485,17 +535,18 @@ describe('The reporter is told — §5.2.8', () => {
 
   it('N1 — every status change notifies the reporter, and nobody else (5.2.8)', async () => {
     const report = await submit(f);
-    expect(f.notifier.to(RESIDENT.accountId)).toHaveLength(0); // submission is not a change
-    await f.moderation.verify(report.id, MANAGER);
+    // Recording Submitted is not a change; the automatic verification is one.
     expect(f.notifier.to(RESIDENT.accountId)).toHaveLength(1);
     expect(f.notifier.to(RESIDENT.accountId)[0]).toMatch(/verified/);
+    await f.moderation.reject(report.id, 'The photograph shows a sealed drain cover.', MANAGER);
+    expect(f.notifier.to(RESIDENT.accountId)).toHaveLength(2);
     expect(f.notifier.to(NEIGHBOUR.accountId)).toHaveLength(0);
   });
 
   it('N2 — a rejection tells the resident the reason the moderator gave (5.2.4, 5.2.8, 10.5.3)', async () => {
     const report = await submit(f);
     await f.moderation.reject(report.id, 'The photograph shows a sealed drain cover.', MANAGER);
-    expect(f.notifier.to(RESIDENT.accountId)[0]).toMatch(/sealed drain cover/);
+    expect(f.notifier.to(RESIDENT.accountId).at(-1)).toMatch(/sealed drain cover/);
   });
 });
 
@@ -561,7 +612,7 @@ describe('The §8 join — 5.2.6, 5.2.7/8.5.1/8.5.2, 8.3.21', () => {
   });
 
   it('J5 — only verified reports may be linked to a work order (8.1.13)', async () => {
-    const submitted = await submit(f, northOf(INSIDE, 200), NEIGHBOUR);
+    const submitted = await legacySubmitted(f, northOf(INSIDE, 200), NEIGHBOUR);
     const workOrder = await f.dispatch.createWorkOrder(
       { clusterId: f.clusterId, taskType: TaskType.Larviciding, scheduledDate: tomorrow() },
       MANAGER,
@@ -578,7 +629,7 @@ describe('The dashboard sees reports — §7.5.3', () => {
   });
 
   it('B1 — the attention panel raises the moderation backlog with its age (7.5.3)', async () => {
-    await submit(f, INSIDE, RESIDENT, ReportType.StandingWater, new Date(Date.now() - 5 * 3_600_000));
+    await legacySubmitted(f, INSIDE, RESIDENT, ReportType.StandingWater, new Date(Date.now() - 5 * 3_600_000));
     const items = await f.dashboard.buildAttentionPanel(MANAGER);
     const item = items.find((i) => i.kind === 'reportAwaitingModeration');
     expect(item?.detail).toMatch(/1 report\(s\) awaiting moderation/);
@@ -611,7 +662,6 @@ describe('The status history a resident can read — §11.2.10, §5.2.9', () => 
 
   it('W1 — the reporter reads the whole history of their own report (11.2.10)', async () => {
     const report = await submit(f);
-    await f.moderation.verify(report.id, MANAGER);
 
     const history = await f.controller.statusHistory(report.id, RESIDENT);
 
@@ -624,7 +674,6 @@ describe('The status history a resident can read — §11.2.10, §5.2.9', () => 
 
   it('W2 — another resident is refused it, even for a verified report (5.2.9)', async () => {
     const report = await submit(f);
-    await f.moderation.verify(report.id, MANAGER);
 
     // 5.3.5 releases the *photographs* of a triaged report to other residents. The history is a
     // different disclosure: it carries when a town council officer made a decision, and no
@@ -652,7 +701,6 @@ describe('The status history a resident can read — §11.2.10, §5.2.9', () => 
 
   it('W4 — every entry is ordered and carries its own instant, so the screen never has to sort', async () => {
     const report = await submit(f);
-    await f.moderation.verify(report.id, MANAGER);
 
     const history = await f.controller.statusHistory(report.id, RESIDENT);
 

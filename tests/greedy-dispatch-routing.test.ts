@@ -34,11 +34,16 @@ describe('Priority-first greedy dispatch with real crew capacity', () => {
   });
 
   it('fills separate parallel crews without counting the same heads twice', async () => {
-    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 5 })],
+    const members = Array.from({ length: 5 }, (_, i) => ({ id: `member-${i}`, email: `member-${i}@example.test`, displayName: `Sample Member ${i}` }));
+    const routes = await new RouteOptimizationService(new MockRoad()).plan([pool({ staffCount: 5, staffMembers: members })],
       ['one', 'two', 'three'].map((id) => job(id, { requiredStaff: 2, estimatedEffortMinutes: 180 })));
     expect(routes).toHaveLength(2);
     expect(routes.reduce((sum, r) => sum + r.staffCount, 0)).toBe(4);
     expect(new Set(routes.map((r) => r.teamId)).size).toBe(2);
+    const allocated = routes.flatMap((route) => route.crewMembers ?? []);
+    expect(allocated).toHaveLength(4);
+    expect(new Set(allocated.map((member) => member.id)).size).toBe(4);
+    expect(allocated.map((member) => member.displayName)).toEqual(members.slice(0, 4).map((member) => member.displayName));
   });
 
   it('reuses staff for sequential jobs and grows a crew only from unreserved heads', async () => {

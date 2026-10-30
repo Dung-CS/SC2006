@@ -35,6 +35,17 @@ const RULES: readonly ReportTransitionRule[] = [
     requirement: '5.2.3, 5.2.4',
     requiresReason: true,
   },
+  // Reports are verified by default: submission records Submitted, then the system verifies it at
+  // once. Both history rows are kept so the audit trail shows the submission and the decision.
+  { from: ReportStatus.Submitted, to: ReportStatus.Verified, by: 'SYSTEM', requirement: '5.2.3a' },
+  // A manager reviewing a dispatch may still reject a Verified report; the reason is required.
+  {
+    from: ReportStatus.Verified,
+    to: ReportStatus.Rejected,
+    by: Role.OperationsManager,
+    requirement: '5.2.3b, 5.2.4',
+    requiresReason: true,
+  },
   // 5.2.6 — the linked work order was assigned, so the site is being dealt with.
   { from: ReportStatus.Verified, to: ReportStatus.Actioned, by: 'SYSTEM', requirement: '5.2.6' },
   // 5.2.7, 8.5.1 — the linked work order was verified complete.

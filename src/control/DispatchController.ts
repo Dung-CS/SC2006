@@ -31,6 +31,8 @@ import { AccessControlService } from './AccessControlService';
 import { Principal } from './Principal';
 import { taskForReport, triageForReport } from './ReportTriagePolicy';
 import { DEFAULT_REPORT_CLUSTER_DISTANCE_METRES, ReportGroupProvenance, ReportSpatialGroup, groupNearbyReports, ordersForReportGroup, reportGroupProvenance, withLinkedReportOrders } from './ReportSpatialClustering';
+import { composeTaskScoreExplanation, highestReportTriage, storedLocalityScore } from '../presentation/TaskScoreExplanation';
+import type { TaskScoreExplanation } from '../presentation/TaskScoreExplanation';
 
 export interface WorkOrderDraft {
   /**
@@ -57,6 +59,7 @@ export interface DispatchProposal {
   point?: GeoPoint;
   /** Display-only boundary target; route inputs must retain their existing area-access semantics. */
   mapPoint?: GeoPoint;
+  scoreExplanation?: TaskScoreExplanation;
   mapClusterId?: string;
   referralAuthority?: string;
   priorityBasis?: 'LocalityScore' | 'ReportTriage';
@@ -163,10 +166,15 @@ export class DispatchController {
       const report = group.representative;
       const taskType = taskForReport(report);
       const profile = this.profileFor(report.pestType);
+      const scoreExplanation = composeTaskScoreExplanation({
+        reportTriage: highestReportTriage(group.reports.map((member) => triageForReport(member))),
+        localityScore: report.clusterId ? storedLocalityScore(latest, report.clusterId, report.pestType) : undefined,
+      });
       candidates.push({ clusterId: report.clusterId ?? group.id, sourceReportId: report.id, mapClusterId: group.id,
         ...reportGroupProvenance(group),
         point: report.point, pestType: report.pestType,
         locality: report.localityBinding || 'Unassigned', score: group.score, tier: group.priority,
+        ...(scoreExplanation ? { scoreExplanation } : {}),
         suggestedTaskType: taskType, scheduledDate: date, priorityBasis: 'ReportTriage',
         allowedCapabilities: coveringSpecialisations(taskType, pestClassOf(report.pestType, profile), report.pestType, profile) });
       for (const member of group.reports) if (member.clusterId) reportTargets.add(`${member.clusterId}:${member.pestType}:${taskType}`);
@@ -183,9 +191,12 @@ export class DispatchController {
       if (occupiedTasks.has(target) || reportTargets.has(target)) continue;
       if (candidates.some((p) => !p.sourceReportId && p.clusterId === cluster.id && p.pestType === pestType &&
           p.suggestedTaskType === suggestedTaskType)) continue;
+      const localityScore = storedLocalityScore(latest, cluster.id, pestType);
+      const scoreExplanation = localityScore ? composeTaskScoreExplanation({ localityScore }) : undefined;
       candidates.push({ clusterId: cluster.id, pestType, priorityBasis: 'LocalityScore',
         mapClusterId: pestType === PestType.Mosquito ? cluster.id : `inat-${score.clusterId}-${pestType}`,
         mapPoint: cluster.boundary?.rings[0]?.length ? cluster.boundary.centroid() : undefined,
+        ...(scoreExplanation ? { scoreExplanation } : {}),
         allowedCapabilities: coveringSpecialisations(suggestedTaskType, pestClassOf(pestType, profile), pestType, profile),
         locality: cluster.locality, score: score.score, tier: score.tier, suggestedTaskType, scheduledDate: date });
     }
@@ -473,6 +484,7 @@ export class DispatchController {
         ineligible: crew.map((c, i) => ({
           crewId: c.id,
           email: c.email,
+          displayName: c.displayName,
           specialisation: c.specialisation ?? null,
           openWorkOrders: load[i]?.openWorkOrders ?? 0,
           reason: UNKNOWN_PEST,
@@ -483,6 +495,7 @@ export class DispatchController {
       crew.map((c, i) => ({
         id: c.id,
         email: c.email,
+        displayName: c.displayName,
         role: c.role,
         isActive: c.isActive,
         specialisation: c.specialisation,

@@ -207,7 +207,7 @@ describe('Policy — ranking', () => {
     expect(decision.candidates.map((c) => c.primary)).toEqual([true, true, true, false]);
     expect(decision.ineligible.map((m) => m.crewId)).toEqual(['e-unknown', 'f-off']);
     // No invented percentages: the payload carries the facts it is ranked on, nothing else.
-    expect(Object.keys(decision.candidates[0] ?? {}).sort()).toEqual(['crewId', 'email', 'openWorkOrders', 'primary', 'specialisation']);
+    expect(Object.keys(decision.candidates[0] ?? {}).sort()).toEqual(['crewId', 'displayName', 'email', 'openWorkOrders', 'primary', 'specialisation']);
   });
 
   it('K2 — no workload cap: 8.2.2 shows the count and states no maximum, so 50 open still ranks', () => {

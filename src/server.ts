@@ -37,6 +37,10 @@ import {
   ReferralRepository,
 } from './persistence/PestReferenceRepositories';
 import { WorkOrderRoutes } from './boundary/http/WorkOrderRoutes';
+import { DispatchAssignmentRoutes } from './boundary/http/DispatchAssignmentRoutes';
+import { DispatchAssignmentService } from './control/DispatchAssignmentService';
+import { DispatchListController } from './control/DispatchListController';
+import { DispatchAssignmentUnit } from './persistence/DispatchAssignmentUnit';
 import { CrewRoutes } from './boundary/http/CrewRoutes';
 import { AuthRoutes } from './boundary/http/AuthRoutes';
 import { AdminRoutes } from './boundary/http/AdminRoutes';
@@ -139,7 +143,7 @@ import { EvidenceTier } from './entity/enums';
 import { RainfallAccumulator } from './control/RainfallAccumulator';
 import { NormalisationFactory } from './control/normalisation/NormalisationFactory';
 import { PriorityScoringEngine, DriverInputs } from './control/PriorityScoringEngine';
-import { ChangeClass, Driver, HqLocation, PestType, PriorityTier, ReportStatus, Role, SourceKind, StaffSpecialisation, StaffStatus, TaskType } from './entity/enums';
+import { ChangeClass, Driver, HqLocation, PestType, PriorityTier, ReportStatus, Role, SourceKind, StaffSpecialisation, StaffStatus, TaskType, WorkOrderStatus } from './entity/enums';
 import { RouteJob, RouteOptimizationService, RouteTeam } from './control/RouteOptimizationService';
 import { buildDispatchRouteInputs } from './control/DispatchRouteInputs';
 import { reportClusterDistance, withLinkedReportOrders } from './control/ReportSpatialClustering';
@@ -830,7 +834,7 @@ async function main(): Promise<void> {
     reports,
     reportClusterDistanceMetres,
   );
-  void dispatch;
+  moderation.linkWorkOrders(workOrders, dispatch, accounts);
 
   // 2.3.6 — the resolver is the only way a request acquires a role, and every handler gets it.
   // 10.3.2 — off on localhost, which has no certificate, and on wherever DFENCE_REQUIRE_HTTPS
@@ -920,10 +924,22 @@ async function main(): Promise<void> {
     checkCancelled();
     const reportOrders = await withLinkedReportOrders([...verified, ...actioned], orders, workOrders);
     checkCancelled();
+    const reservedVehicleIds = new Set(orders.filter((order) => order.scheduledDate === date &&
+      [WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress, WorkOrderStatus.Rejected].includes(order.currentStatus()))
+      .flatMap((order) => order.assignedVehicleId ? [order.assignedVehicleId] : []));
     return { ...buildDispatchRouteInputs({ date, crew, orders: reportOrders, clusters: [...knownClusters.values()], proposals,
-      profiles: config.pestProfiles, reports: [...verified, ...actioned], scores: latestScores, reportClusterDistanceMetres }), vehicles };
+      profiles: config.pestProfiles, reports: [...verified, ...actioned], scores: latestScores, reportClusterDistanceMetres }),
+      vehicles: vehicles.filter((vehicle) => !reservedVehicleIds.has(vehicle.id)) };
   };
   const dispatchPlans = new DispatchPlanService(routeInputs, routePlanner);
+  const assignmentUnit = new DispatchAssignmentUnit(database,
+    { accounts, workOrders, reports, clusters, scores, audit: auditStore, treatments, vehicles: vehicleStore },
+    ac, config, notifier, reportClusterDistanceMetres);
+  staff.linkDispatches(new DispatchListController(ac, assignmentUnit));
+  const assignmentService = new DispatchAssignmentService(ac, dispatchPlans, assignmentUnit, config,
+    () => dispatchPlans.invalidateAll(), { jobs: async (date) => (await routeInputs(date)).jobs, planner: routePlanner });
+  moderation.linkDispatch(assignmentService);
+  app.mount(new DispatchAssignmentRoutes(ac, assignmentService));
   invalidateDispatchPlans = () => dispatchPlans.invalidateAll();
   app.onSuccessfulMutation(invalidateDispatchPlans);
   app.mount(new VehicleRoutes(ac, new VehicleController(ac, vehicleStore, invalidateDispatchPlans)));

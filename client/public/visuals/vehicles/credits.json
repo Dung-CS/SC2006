@@ -1,0 +1,22 @@
+[
+  {
+    "file": "toyota-hiace.jpg",
+    "model": "Toyota HiAce",
+    "author": "Oq10pass",
+    "source": "https://commons.wikimedia.org/wiki/File:Toyota_HiAce_Van_DX_%2720_(1).jpg",
+    "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/04/Toyota_HiAce_Van_DX_%2720_%281%29.jpg",
+    "licence": "CC0 1.0 Universal",
+    "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "use": "Model reference image for illustrative demo fleet records; not a photograph of the assigned vehicle."
+  },
+  {
+    "file": "toyota-hilux.jpg",
+    "model": "Toyota Hilux",
+    "author": "Ypy31",
+    "source": "https://commons.wikimedia.org/wiki/File:Toyota_Hilux_X_GUN125.jpg",
+    "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f6/Toyota_Hilux_X_GUN125.jpg",
+    "licence": "CC0 1.0 Universal",
+    "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "use": "Model reference image for illustrative demo pickup records; not a photograph of the assigned vehicle."
+  }
+]

@@ -6,6 +6,7 @@ import { StaffAccountsScreen } from '../client/src/screens/operations/StaffAccou
 import { VehicleRegistryScreen } from '../client/src/screens/operations/VehicleRegistryScreen';
 import { ScreenProps } from '../client/src/screens/ScreenProps';
 import { Role } from '../src/entity/enums';
+import { staffDisplayName, vehicleLabel } from '../client/src/lib/staffVisuals';
 
 afterEach(cleanup);
 
@@ -44,7 +45,17 @@ describe('staff and fleet display cards', () => {
     expect(card).toBeTruthy();
     expect(card?.getAttribute('data-entity-id')).toBe(demoVehicle.id);
     expect(card?.getAttribute('data-registration')).toBe(demoVehicle.registration);
-    expect(within(card as HTMLElement).getByRole('img', { name: 'Illustrative service van' }).getAttribute('src')).toBe('/visuals/vehicle-van.svg');
+    expect(within(card as HTMLElement).getByRole('img', { name: 'Vehicle image placeholder' }).getAttribute('src')).toBe('/visuals/vehicle-van.svg');
     expect(title.textContent).not.toMatch(/DEMO|opaque-id/i);
+  });
+
+  it('labels a vehicle with model and plate, and a crew member by name or email', async () => {
+    const vehicle = { ...demoVehicle, id: 'v2', registration: 'GBC 4821 K', name: 'Toyota Hiace (Central HQ)', model: 'Toyota Hiace',
+      photoUrl: '/visuals/vehicles/toyota-hiace.jpg' };
+    expect(vehicleLabel(vehicle)).toBe('Toyota Hiace - GBC 4821 K');
+    expect(staffDisplayName('x@example.test', 'CleaningCrew', 'Tan Wei Ming')).toBe('Tan Wei Ming');
+    const fetcher: Fetcher = async () => ({ ok: true, status: 200, json: async () => ({ vehicles: [vehicle] }) }) as Response;
+    render(<VehicleRegistryScreen {...props(fetcher)} />);
+    expect(await screen.findByText('Toyota Hiace - GBC 4821 K', { selector: '[data-part="entity-title"]' })).toBeTruthy();
   });
 });

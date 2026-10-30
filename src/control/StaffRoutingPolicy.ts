@@ -52,6 +52,7 @@ export interface RoutingJob {
 export interface RoutingStaff {
   id: string;
   email: string;
+  displayName?: string | null;
   role: Role;
   isActive: boolean;
   specialisation?: StaffSpecialisation | null;
@@ -60,6 +61,7 @@ export interface RoutingStaff {
 export interface RankedCandidate {
   crewId: string;
   email: string;
+  displayName?: string | null;
   specialisation: StaffSpecialisation;
   openWorkOrders: number;
   /** True when this specialisation is the first choice for the job, not merely permitted. */
@@ -69,6 +71,7 @@ export interface RankedCandidate {
 export interface IneligibleStaff {
   crewId: string;
   email: string;
+  displayName?: string | null;
   specialisation: StaffSpecialisation | null;
   openWorkOrders: number;
   reason: string;
@@ -243,6 +246,7 @@ export function rankStaff(
       ineligible.push({
         crewId: member.id,
         email: member.email,
+        displayName: member.displayName,
         specialisation,
         openWorkOrders: member.openWorkOrders,
         reason: reason ?? 'no capability recorded',
@@ -252,6 +256,7 @@ export function rankStaff(
     candidates.push({
       crewId: member.id,
       email: member.email,
+      displayName: member.displayName,
       specialisation,
       openWorkOrders: member.openWorkOrders,
       primary: specialisation === primary,

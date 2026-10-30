@@ -9,7 +9,7 @@ import { Cluster } from '../src/entity/Cluster';
 import { WorkOrder } from '../src/entity/WorkOrder';
 import { Report } from '../src/entity/Report';
 import { PriorityScore } from '../src/entity/PriorityScore';
-import { HqLocation, LocationContext, PestType, PriorityTier, ReportStatus, ReportType, Role, StaffSpecialisation, StaffStatus, TaskType, WorkOrderStatus } from '../src/entity/enums';
+import { Driver, HqLocation, LocationContext, PestType, PriorityTier, ReportStatus, ReportType, Role, StaffSpecialisation, StaffStatus, TaskType, WorkOrderStatus } from '../src/entity/enums';
 import { GeoPoint, Polygon } from '../src/entity/valueTypes';
 
 const date = '2099-01-01';
@@ -196,6 +196,53 @@ function report(id: string, pestType: PestType, overrides: Partial<Report> = {})
 }
 
 describe('Mixed-pest dispatch admission', () => {
+  it('keeps recorded order priority, highest report triage and exact locality-pest score separate', async () => {
+    const clusterId = 'shared';
+    const lower = report('lower', PestType.Rat, { clusterId, estimatedCount: 2 });
+    const injury = report('injury', PestType.Rat, { clusterId, injuryReported: true });
+    const existing = Object.assign(order('existing', clusterId), {
+      pestType: PestType.Rat, sourceReportId: injury.id, priority: PriorityTier.Low,
+    });
+    const score = Object.assign(new PriorityScore(), {
+      clusterId: 'legacy-score-key', localityId: clusterId, pestType: PestType.Rat,
+      computedAt: new Date('2026-10-30T00:00:00.000Z'), score: 82.5, tier: PriorityTier.High,
+      severityMultiplier: 1.25, urgency: 0.66, isDegraded: true,
+      excludedDrivers: [Driver.Rainfall24h], overrideRuleName: 'recorded rule',
+      contributions: [{ driver: Driver.CaseSize, rawValue: 8, normalisedValue: 0.8, weight: 0.2, contribution: 0.16 }],
+    });
+    const unrelatedLocality = Object.assign(new PriorityScore(), { ...score, clusterId: 'elsewhere', localityId: 'elsewhere' });
+    const wrongPest = Object.assign(new PriorityScore(), { ...score, pestType: PestType.Mosquito });
+    const input = build({ crew: [crew('one')], reports: [lower, injury], orders: [existing],
+      clusters: [cluster(clusterId)], scores: [wrongPest, unrelatedLocality, score] });
+    const job = input.jobs.find((item) => item.workOrderId === existing.id)!;
+    expect(job.priority).toBe(PriorityTier.Critical);
+    expect(job.scoreExplanation).toEqual({
+      workOrderPriority: PriorityTier.Low,
+      reportTriage: { priority: PriorityTier.Critical, rationale: 'Injury reported. Seek urgent medical help where needed.' },
+      localityScore: {
+        value: 82.5, tier: PriorityTier.High, computedAt: '2026-10-30T00:00:00.000Z',
+        severity: 1.25, urgency: 0.66, isDegraded: true, excludedDrivers: [Driver.Rainfall24h],
+        overrideRuleName: 'recorded rule',
+        breakdown: [{ driver: Driver.CaseSize, rawValue: 8, normalisedValue: 0.8, weight: 0.2, contribution: 0.16 }],
+      },
+    });
+    const routes = await new RouteOptimizationService(new MockRoadRoutingStrategy()).plan(input.teams, input.jobs);
+    expect(routes.flatMap((route) => route.waypointOrder).find((waypoint) => waypoint.workOrderId === existing.id)?.scoreExplanation)
+      .toEqual(job.scoreExplanation);
+  });
+
+  it('does not attach locality scores for a different pest or locality and does not invent a score', () => {
+    const existing = Object.assign(order('rat', 'shared'), { pestType: PestType.Rat });
+    const mosquitoScore = Object.assign(new PriorityScore(), { clusterId: 'shared', localityId: 'shared', pestType: PestType.Mosquito });
+    const wrongLocalityAlias = Object.assign(new PriorityScore(), { clusterId: 'shared', localityId: 'elsewhere', pestType: PestType.Rat });
+    const otherLocalityScore = Object.assign(new PriorityScore(), { clusterId: 'elsewhere', localityId: 'elsewhere', pestType: PestType.Rat });
+    const input = build({ orders: [existing], clusters: [cluster('shared')], scores: [mosquitoScore, wrongLocalityAlias, otherLocalityScore] });
+    const explanation = input.jobs[0]?.scoreExplanation;
+    expect(explanation).toEqual({ workOrderPriority: PriorityTier.Low });
+    expect(input.jobs[0]?.priority).toBe(PriorityTier.Low);
+    expect(explanation).not.toHaveProperty('localityScore');
+  });
+
   it('labels explicitly tagged demo reports and orders separately while preserving ordinary locality and exact points', () => {
     const demoReport = report('demo-report', PestType.Rat, { description: '[DEMO 20261029 SW-INSPECT] Illustrative task',
       point: new GeoPoint(1.3, 103.8), localityBinding: 'Unassigned' });

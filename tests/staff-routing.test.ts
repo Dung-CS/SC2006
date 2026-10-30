@@ -120,6 +120,38 @@ const req = (route: string, params: Record<string, string> = {}, body: unknown =
   body,
 });
 
+describe('Recorded staff names', () => {
+  it('creates, reads and changes a recorded name and notes through the manager API', async () => {
+    const f = fixture();
+    const created = response();
+    await f.routes.handle(req('/api/ops/staff', {}, { email: 'crew-number-1@example.test', role: 'CleaningCrew',
+      password: PASSWORD, displayName: '  Siti Rahman  ', profileDescription: 'Illustrative staff profile.' }), created);
+    expect(created.code).toBe(201);
+    const account = created.body as { id: string };
+    expect(created.body).toMatchObject({ displayName: 'Siti Rahman', profileDescription: 'Illustrative staff profile.' });
+    const updated = response();
+    await f.routes.handle(req('/api/ops/staff/:id/display-name', { id: account.id }, { displayName: 'Siti Tan' }), updated);
+    expect(updated.code).toBe(200);
+    expect(updated.body).toMatchObject({ displayName: 'Siti Tan', profileDescription: 'Illustrative staff profile.' });
+    const listed = response();
+    await f.routes.handle(req('/api/ops/staff'), listed);
+    expect(listed.body).toMatchObject({ staff: [{ displayName: 'Siti Tan' }] });
+    expect((await f.accounts.findById(account.id))?.email).toBe('crew-number-1@example.test');
+  });
+
+  it('refuses unauthorised or invalid name edits without changing operational fields', async () => {
+    const f = fixture();
+    const account = await f.staff.createStaffAccount('crew-name@example.test', Role.CleaningCrew, PASSWORD, MANAGER);
+    for (const displayName of ['x'.repeat(121), 'Name\nOther', 12]) {
+      await expect(f.staff.setDisplayName(account.id, displayName, MANAGER)).rejects.toThrow(AuthenticationRefused);
+    }
+    await expect(f.staff.setDisplayName(account.id, 'Another Name', CREW)).rejects.toThrow(/not authorised/);
+    await expect(f.staff.setDisplayName(account.id, 'Another Name', MANAGER, 'x'.repeat(501))).rejects.toThrow(AuthenticationRefused);
+    expect((await f.accounts.findById(account.id))?.displayName).toBeNull();
+    expect((await f.accounts.findById(account.id))?.isActive).toBe(true);
+  });
+});
+
 describe('HTTP — the audited capability endpoint and the staff payload', () => {
   let f: Fixture;
   let crewId = '';
@@ -189,6 +221,18 @@ function row(specialisation: unknown): Row {
 }
 
 describe('Persistence — the Postgres mapping and migration 010', () => {
+  it('round-trips recorded names and profile provenance without changing authentication identity', async () => {
+    const stored = { ...row('Sanitation'), display_name: 'Siti Rahman', profile_description: 'Illustrative staff profile.' };
+    const { db, calls } = fakeDb([stored]);
+    const repo = new AccountRepository(db);
+    const account = (await repo.findById('acc-1'))!;
+    expect(account.displayName).toBe('Siti Rahman');
+    expect(account.profileDescription).toBe('Illustrative staff profile.');
+    await repo.save(account);
+    expect(calls[1]?.params.slice(15)).toEqual(['Siti Rahman', 'Illustrative staff profile.']);
+    expect(calls[1]?.sql).toContain('display_name    = EXCLUDED.display_name');
+    expect(account.authUserId).toBe('auth-1');
+  });
   it('P1 — save writes the capability, including an update of an existing row', async () => {
     const { db, calls } = fakeDb();
     const a = new Account();

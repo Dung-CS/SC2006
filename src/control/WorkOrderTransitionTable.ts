@@ -87,6 +87,8 @@ export class WorkOrderTransitionTable {
 
     { from: WorkOrderStatus.Assigned, to: WorkOrderStatus.Accepted, actor: Role.CleaningCrew, guard: ALWAYS, requirement: '8.3.4', assigneeOnly: true },
     { from: WorkOrderStatus.Assigned, to: WorkOrderStatus.Assigned, actor: Role.OperationsManager, guard: ALWAYS, requirement: '8.2.5', assigneeOnly: false },
+    // A task removed from an edited dispatch returns to the unassigned pool before the crew accepts it.
+    { from: WorkOrderStatus.Assigned, to: WorkOrderStatus.Created, actor: Role.OperationsManager, guard: ALWAYS, requirement: '8.2.5', assigneeOnly: false },
     { from: WorkOrderStatus.Assigned, to: WorkOrderStatus.Cancelled, actor: Role.OperationsManager, guard: HAS_CANCELLATION_REASON, requirement: '8.3.13, 8.3.18', assigneeOnly: false },
 
     { from: WorkOrderStatus.Accepted, to: WorkOrderStatus.InProgress, actor: Role.CleaningCrew, guard: ALWAYS, requirement: '8.3.5, 8.3.17', assigneeOnly: true },
@@ -100,6 +102,8 @@ export class WorkOrderTransitionTable {
     { from: WorkOrderStatus.Completed, to: WorkOrderStatus.Verified, actor: Role.OperationsManager, guard: ALWAYS, requirement: '8.3.9, 8.3.12', assigneeOnly: false },
     { from: WorkOrderStatus.Completed, to: WorkOrderStatus.Rejected, actor: Role.OperationsManager, guard: HAS_REJECTION_REASON, requirement: '8.3.9, 8.3.10', assigneeOnly: false },
 
+    // A redo is cancelled when its source report is rejected after verification.
+    { from: WorkOrderStatus.Rejected, to: WorkOrderStatus.Cancelled, actor: Role.OperationsManager, guard: HAS_CANCELLATION_REASON, requirement: '8.3.13, 8.3.18', assigneeOnly: false },
     { from: WorkOrderStatus.Rejected, to: WorkOrderStatus.InProgress, actor: Role.CleaningCrew, guard: ALWAYS, requirement: '8.3.19, 8.3.20', assigneeOnly: true },
 
     // Verified and Cancelled are terminal (8.3.x state table). Their absence here is the rule.

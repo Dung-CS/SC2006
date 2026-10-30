@@ -23,6 +23,12 @@ import { WorkOrder } from '../entity/WorkOrder';
 import { AccessControlService } from './AccessControlService';
 import { SourceHealthController, SourceHealthRow } from './SourceHealthController';
 import { Principal } from './Principal';
+import {
+  groupNearbyReports,
+  reportClusterDistance,
+  ReportSpatialGroup,
+  withLinkedReportOrders,
+} from './ReportSpatialClustering';
 
 /** 7.1.2–7.1.6, with 7.1.9's timestamp. Null means "not computable yet", never "zero". */
 export interface DashboardOverview {
@@ -32,6 +38,12 @@ export interface DashboardOverview {
   openVerifiedReports: number | null;
   openWorkOrders: number | null;
   overdueWorkOrders: number | null;
+  /**
+   * Resident-report hotspots, grouped and tiered exactly as the map draws them. Null when reports
+   * are not wired. Kept apart from the NEA cluster counts above so neither is read as the other.
+   */
+  reportHotspots: number | null;
+  reportHighPriority: number | null;
   /** 7.3.2 — distribution across the three tiers. */
   tierDistribution: Record<PriorityTier, number>;
   /** 7.1.9 — the timestamp of the data being presented, not of the request. */
@@ -130,7 +142,26 @@ export class DashboardController {
       }
     }
 
+    // Same grouping call as MapViewController.reportGroups, so the tile and the map agree.
+    let reportGroups: ReportSpatialGroup[] | null = null;
+    if (this.reports !== null) {
+      const verified = [
+        ...(await this.reports.findByStatus(ReportStatus.Verified)),
+        ...(await this.reports.findByStatus(ReportStatus.Actioned)),
+      ];
+      const orders = await withLinkedReportOrders(verified, open ?? [], this.workOrders);
+      reportGroups = groupNearbyReports(
+        verified,
+        reportClusterDistance(process.env.DFENCE_REPORT_CLUSTER_DISTANCE_METRES),
+        orders,
+        latest,
+      );
+    }
+
     return {
+      reportHotspots: reportGroups === null ? null : reportGroups.length,
+      reportHighPriority:
+        reportGroups === null ? null : reportGroups.filter((g) => g.priority === PriorityTier.High).length,
       activeClusters: active.length,
       totalActiveCases: active.reduce((sum, c) => sum + c.caseSize, 0),
       highTierClusters: tierDistribution[PriorityTier.High],

@@ -7,6 +7,7 @@
  *   GET  /api/ops/work-orders                 all orders, ?status= ?crewId= (8.2.x)
  *   GET  /api/ops/work-orders/:id             one order with its history (8.3.x)
  *   GET  /api/ops/work-orders/crew-workload   open orders per crew member (8.2.5)
+ *   GET  /api/ops/dispatches                  saved dispatches, ?from= ?to= (default today onwards)
  *   POST /api/ops/work-orders                 create (8.1.1–8.1.6)
  *   POST /api/ops/work-orders/:id/assign      body { crewId } (8.2.1)
  *   POST /api/ops/work-orders/:id/cancel      body { reason } (8.3.19)
@@ -39,6 +40,9 @@ import { Account } from '../../entity/Account';
 import { RouteJob, RouteOptimizationService, RouteTeam } from '../../control/RouteOptimizationService';
 import { WorkOrderSubject } from '../../control/observer/WorkOrderObserver';
 import { DispatchPlanService, validDispatchDate } from '../../control/DispatchPlanService';
+import { DispatchListRejected } from '../../control/DispatchListController';
+import { triageForReport } from '../../control/ReportTriagePolicy';
+import { composeTaskScoreExplanation, storedLocalityScore, TaskScoreExplanation } from '../../presentation/TaskScoreExplanation';
 
 interface CreateBody {
   clusterId?: string;
@@ -71,6 +75,7 @@ export class WorkOrderRoutes extends RouteHandler {
       '/api/ops/work-orders',
       '/api/ops/work-orders/crew-workload',
       '/api/ops/work-orders/:id',
+      '/api/ops/dispatches',
     ];
   }
 
@@ -94,6 +99,18 @@ export class WorkOrderRoutes extends RouteHandler {
           // would be yesterday's for the whole morning.
           const date = req.params.date ?? singaporeDate(new Date());
           res.json({ date, proposals: await this.dispatch.proposeDailyList(date, principal, Infinity) });
+          return;
+        }
+
+        case '/api/ops/dispatches': {
+          if (!this.staff.dispatches) {
+            res.status(503).json({ error: 'The dispatch list is not available on this server.', remedy: 'try again later' });
+            return;
+          }
+          const from = req.params.from || singaporeDate(new Date());
+          // ponytail: "today onwards" stops a year out; widen when dispatches are planned further ahead.
+          const to = req.params.to || `${Number(from.slice(0, 4)) + 1}${from.slice(4)}`;
+          res.json(await this.staff.dispatches.between(from, to, principal));
           return;
         }
 
@@ -213,6 +230,7 @@ export class WorkOrderRoutes extends RouteHandler {
             crew: crew.map((member: Account) => ({
               crewId: member.id,
               email: member.email,
+              displayName: member.displayName,
               isActive: member.isActive,
               specialisation: member.specialisation, // null = not recorded, so not dispatchable
               openWorkOrders: workload.find((w) => w.crewId === member.id)?.openWorkOrders ?? 0,
@@ -238,6 +256,7 @@ export class WorkOrderRoutes extends RouteHandler {
           const evidence = await this.dispatch.completionEvidence(id, principal);
           res.json({
             workOrder: WorkOrderRoutes.card(order),
+            scoreExplanation: await this.scoreExplanation(order),
             // Who may take it, ranked by StaffRoutingPolicy, and who may not with the reason. The
             // screen renders this and decides nothing itself.
             routing: await this.dispatch.routingFor(id, principal),
@@ -327,6 +346,10 @@ export class WorkOrderRoutes extends RouteHandler {
         res.status(422).json({ error: error.reason, remedy: `the work order is ${error.from}` });
         return;
       }
+      if (error instanceof DispatchListRejected) {
+        res.status(400).json({ error: error.message, remedy: 'choose a start date on or before the end date' });
+        return;
+      }
       if (error instanceof WorkOrderRejected) {
         // 10.5.3 — the control layer has already phrased this for the manager who typed it.
         res.status(400).json({ error: error.reason, remedy: 'correct the details and try again' });
@@ -339,6 +362,19 @@ export class WorkOrderRoutes extends RouteHandler {
       }
       this.fail(res, error instanceof Error ? error : new Error(String(error)));
     }
+  }
+
+  /**
+   * The stored score evidence the dispatch planner shows for this order: its recorded priority, its
+   * source report's triage, and the stored score for the same locality and pest. Nothing recomputed.
+   */
+  private async scoreExplanation(order: WorkOrder): Promise<TaskScoreExplanation | null> {
+    // ponytail: reads DispatchController's own stores rather than widening its public API.
+    const scores = await this.dispatch['scores'].latest();
+    const report = order.sourceReportId ? await this.dispatch['reportStore']?.findById(order.sourceReportId) : null;
+    return composeTaskScoreExplanation({ workOrderPriority: order.priority,
+      ...(report ? { reportTriage: triageForReport(report) } : {}),
+      localityScore: storedLocalityScore(scores, order.clusterId ?? report?.clusterId, order.pestType) }) ?? null;
   }
 
   /** One shape for a work order wherever it appears, so a list row and a detail agree. */

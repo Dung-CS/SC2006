@@ -24,6 +24,16 @@ const fixture = () => {
 };
 
 describe('HQ vehicle registry', () => {
+  it('stores model/photo metadata and preserves it during a legacy capacity edit', async () => {
+    const f = fixture();
+    const saved = await f.controller.save({ ...draft(), model: 'Toyota Hiace', photoUrl: '/visuals/vehicles/toyota-hiace.jpg' }, manager);
+    const edited = await f.controller.save({ ...draft(), maxPayloadKg: 600 }, manager, saved.id);
+    expect(edited).toMatchObject({ model: 'Toyota Hiace', photoUrl: '/visuals/vehicles/toyota-hiace.jpg', maxPayloadKg: 600 });
+    for (const photoUrl of ['javascript:alert(1)', 'http://example.test/car.jpg', '//example.test/car.jpg', '/\\example.test/car.jpg', 'https://user:password@example.test/car.jpg']) {
+      await expect(f.controller.save({ ...draft(), photoUrl }, manager, saved.id)).rejects.toThrow(VehicleRejected);
+    }
+    expect((await f.store.findById(saved.id))?.model).toBe('Toyota Hiace');
+  });
   it('creates and edits a vehicle, retains it when unavailable and signals replanning', async () => {
     const f = fixture();
     const saved = await f.controller.save(draft(), manager);
@@ -68,7 +78,7 @@ describe('HQ vehicle registry', () => {
     await seedDemoVehicles(store);
     const vehicles = await store.list();
     expect(vehicles).toHaveLength(10);
-    expect(vehicles.every((v) => v.isDemo && v.name.startsWith('Demo') && v.registration.startsWith('DEMO-'))).toBe(true);
+    expect(vehicles.every((v) => v.isDemo && v.name.startsWith('Toyota') && /^G[A-Z]{2} \d{4} [A-Z]$/.test(v.registration))).toBe(true);
     for (const hq of Object.values(HqLocation)) {
       const local = vehicles.filter((v) => v.hqLocation === hq);
       expect(local).toHaveLength(2);
@@ -90,14 +100,14 @@ describe('HQ vehicle registry', () => {
   });
 
   it('writes every vehicle field in Postgres and maps numeric capacities back', async () => {
-    const vehicle: Vehicle = { id: 'v1', ...draft() };
+    const vehicle: Vehicle = { id: 'v1', ...draft(), model: 'Toyota Hiace', photoUrl: '/visuals/vehicles/toyota-hiace.jpg' };
     const row = { id: vehicle.id, registration: vehicle.registration, name: vehicle.name, hq_location: vehicle.hqLocation,
       max_payload_kg: '750', max_cargo_volume_m3: '6', cargo_length_cm: '300', cargo_width_cm: '160', cargo_height_cm: '140',
-      seat_capacity: 3, is_available: true, is_demo: false };
+      seat_capacity: 3, is_available: true, is_demo: false, model: vehicle.model, photo_url: vehicle.photoUrl };
     const query = vi.fn(async (_sql: string, _params?: unknown[]) => [row]);
     const repo = new VehicleRepository({ query } as unknown as Database);
     expect(await repo.save(vehicle)).toEqual(vehicle);
-    expect(query.mock.calls[0]?.[1]).toEqual(['v1', 'SG-01', 'Cargo van', 'Central', 750, 6, 300, 160, 140, 3, true, false]);
+    expect(query.mock.calls[0]?.[1]).toEqual(['v1', 'SG-01', 'Cargo van', 'Central', 750, 6, 300, 160, 140, 3, true, false, vehicle.model, vehicle.photoUrl]);
     expect(await repo.findById('v1')).toEqual(vehicle);
     expect(await repo.list()).toEqual([vehicle]);
   });

@@ -17,6 +17,10 @@ import { reportPhotoUrl } from '../../lib/reportVisuals';
 import { cleanTitle } from '../../../../src/presentation/DisplayNames';
 import { isUsableDrivingRoute } from '../../../../src/boundary/gateways/OneMapGateway';
 import { GeoPoint } from '../../../../src/entity/valueTypes';
+import type { TaskScoreExplanation } from '../../../../src/presentation/TaskScoreExplanation';
+import { staffDisplayName, staffPhotoUrl, vehicleLabel } from '../../lib/staffVisuals';
+import { DispatchAssignmentEditor, SavedDispatches } from '../../components/DispatchAssignmentEditor';
+import { ScoreBreakdown } from '../../components/ScoreBreakdown';
 
 interface DispatchPayload {
   date: string;
@@ -28,6 +32,7 @@ interface DispatchPayload {
     mapPoint?: { latitude: number; longitude: number };
     referralAuthority?: string;
     priorityBasis?: string;
+    scoreExplanation?: TaskScoreExplanation;
     pestType?: string;
     allowedCapabilities?: string[];
     locality: string;
@@ -55,6 +60,7 @@ interface PackingItemPayload {
 }
 
 interface WaypointPayload {
+  scoreExplanation?: TaskScoreExplanation;
   label: string;
   point: { latitude: number; longitude: number };
   isAreaAccess?: boolean;
@@ -88,6 +94,9 @@ interface PlannedRoutesPayload {
   routes: Array<{
     teamId: string;
     staffCount?: number;
+    crewMembers?: Array<{ id: string; email: string; displayName?: string | null }>;
+    vehicleModel?: string;
+    vehiclePhotoUrl?: string;
     depotLocation: string;
     status: string;
     onCallLagHours: number;
@@ -131,6 +140,7 @@ interface PlannedRoutesPayload {
 interface WalkingLegPayload { coordinates: Array<{ latitude: number; longitude: number }>; durationSeconds: number; distanceMetres: number; source: string; mode: string }
 interface WalkingVisitPayload { stopIndex: number; targetPoint: { latitude: number; longitude: number }; accessPoint: { latitude: number; longitude: number }; outbound: WalkingLegPayload; return: WalkingLegPayload }
 interface UnassignedPayload {
+  scoreExplanation?: TaskScoreExplanation;
   workOrderId: string; locality?: string; priority?: string; taskType?: string; pestType?: string; requiredStaff?: number; reason: string;
   scheduledDate?: string; date?: string; disposition?: 'unassigned' | 'committed'; status?: string; isDemo?: boolean;
   sourceReportId?: string; reportIds?: string[];
@@ -174,14 +184,14 @@ function dateOffset(date: string, offset: number): string {
   return [value.getUTCFullYear(), String(value.getUTCMonth() + 1).padStart(2, '0'), String(value.getUTCDate()).padStart(2, '0')].join('-');
 }
 
-export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
+export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean }): JSX.Element {
   const today = useMemo(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), []);
   const [date, setDate] = useState<string>(today);
   const [selectedDay, setSelectedDay] = useState<string>(today);
   const [days, setDays] = useState(7);
   const path = `/api/ops/dispatch?date=${encodeURIComponent(selectedDay)}`;
   const { state, value, retry } = useLoad<DispatchPayload>(props.api, path, {
-    isEmpty: (v) => v.proposals.length === 0,
+    isEmpty: (v) => !v.proposals?.length,
     emptyMessage:
       'Nothing is proposed for this date. Either every ranked cluster already has an open work order, or no scoring cycle has run.',
   });
@@ -193,18 +203,27 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
     refreshMs: 3000,
   });
 
+  // Saved dispatches and vehicles name the crew and van of a committed task, which the plan omits.
+  const savedLoad = useLoad<{ assignments?: Array<{ teamId: string; crewIds: string[]; vehicleId: string; workOrderIds: string[] }> }>(
+    props.api, `/api/ops/dispatch/assignments?date=${encodeURIComponent(selectedDay)}`, { isEmpty: () => false, allowForbidden: true });
+  const vehiclesLoad = useLoad<{ vehicles?: Array<{ id: string; model?: string | null; name: string; registration: string }> }>(
+    props.api, '/api/ops/vehicles', { isEmpty: () => false, allowForbidden: true });
+
   const [view, setView] = useState<'proposals' | 'routes' | 'unassigned'>('routes');
   // null means All, while [] deliberately selects nothing. New polling options join All only.
   const [selectedHqs, setSelectedHqs] = useState<string[] | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<string[] | null>(null);
   const [activePackingLists, setActivePackingLists] = useState<Record<string, boolean>>({});
   const [checkedGear, setCheckedGear] = useState<Record<string, boolean>>({});
+  const [assignmentNotice, setAssignmentNotice] = useState('');
   // Local stop status overrides for interactive progress tracking
   const [stopOverrides, setStopOverrides] = useState<Record<string, 'Completed' | 'InProgress' | 'Pending'>>({});
 
   const horizon = routesLoad.value;
-  const plan = horizon?.plans.find((item) => item.date === selectedDay);
+  const plan = horizon?.plans?.find((item) => item.date === selectedDay);
   const routes = plan?.routes ?? [];
+  const crewLabel = (teamId?: string) => routes.find((route) => route.teamId === teamId)?.crewMembers
+    ?.map((member) => staffDisplayName(member.email, 'CleaningCrew', member.displayName)).join(', ');
   const proposalTeam = (proposal: DispatchPayload['proposals'][number]) => {
     const mapId = proposal.mapClusterId ?? (proposal.sourceReportId ? `pest-${proposal.sourceReportId}` : proposal.clusterId);
     const teams = routes.filter((route) => route.waypointOrder.some((wp) => !wp.isHq && wp.taskType === proposal.suggestedTaskType &&
@@ -235,6 +254,9 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
   const horizonOnlyUnassigned = horizonUnassigned.filter((job) => job.disposition !== 'committed');
   const horizonCommitted = horizonUnassigned.filter((job) => job.disposition === 'committed');
   const dailyUnplanned = plan?.unplanned ?? [];
+  // Unassigned tasks the manager can add to a dispatch by hand.
+  const addableTasks = dailyUnplanned.filter((job) => job.disposition !== 'committed')
+    .map((job) => ({ workOrderId: job.workOrderId, label: taskLocation(job.locality, job.point) }));
   // A proposal alone is not evidence of road access. Only validated road-plan stops belong here.
   const roadRoutes = routes.filter((r) => r.route.source === 'onemap' && isUsableDrivingRoute({
     ...r.route, coordinates: r.route.coordinates.map((p) => new GeoPoint(p.latitude, p.longitude)),
@@ -270,22 +292,37 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
     return [{ id: wp.workOrderId ?? `${selectedDay}:${route.teamId}:${index}`, point: wp.targetPoint ?? wp.point,
       pestType: wp.pestType, taskType: wp.taskType, priority: wp.priority,
       location: stopDisplayName(wp), photoUrl: taskReferenceImage(wp.taskType, wp.pestType), photoIsReference: true,
-      sourceReportId: wp.sourceReportId, teamId: route.teamId, teamLabel: cleanTitle(route.teamId, 'Field team'), assignmentState: 'planned' }];
+      sourceReportId: wp.sourceReportId, teamId: route.teamId, teamLabel: crewLabel(route.teamId) || cleanTitle(route.teamId, 'Field team'), assignmentState: 'planned',
+      scoreExplanation: wp.scoreExplanation }];
   }));
-  const dispositionTasks = horizonUnassigned.map((job) => ({
+  const crewById = new Map(horizonRoutes.flatMap((item) => item.crewMembers ?? []).map((member) => [member.id, member]));
+  const committedTeam = (workOrderId: string) => {
+    const saved = (savedLoad.value?.assignments ?? []).find((item) => item.workOrderIds.includes(workOrderId));
+    if (!saved) return undefined;
+    const crew = saved.crewIds.map((id) => crewById.get(id)).filter((member) => member !== undefined)
+      .map((member) => staffDisplayName(member!.email, 'CleaningCrew', member!.displayName));
+    const vehicle = (vehiclesLoad.value?.vehicles ?? []).find((item) => item.id === saved.vehicleId);
+    const parts = [crew.length ? crew.join(', ') : cleanTitle(saved.teamId, 'Field team'), vehicle ? vehicleLabel(vehicle) : ''];
+    return { teamId: saved.teamId, label: parts.filter(Boolean).join(' · ') };
+  };
+  const dispositionTasks = horizonUnassigned.map((job) => {
+    const committed = job.disposition === 'committed' ? committedTeam(job.workOrderId) : undefined;
+    return {
     id: job.workOrderId, point: job.point, pestType: job.pestType, taskType: job.taskType,
     priority: job.priority, location: taskLocation(job.locality, job.point),
     photoUrl: taskReferenceImage(job.taskType, job.pestType), photoIsReference: true,
-    sourceReportId: job.sourceReportId ?? job.reportIds?.[0], teamId: job.teamId,
-    teamLabel: job.teamId ? cleanTitle(job.teamId, 'Field team') : undefined,
-    assignmentState: (job.disposition === 'committed' ? (job.teamId ? 'assigned' : 'unknown') : 'unassigned') as MapTask['assignmentState'],
-  }));
+    sourceReportId: job.sourceReportId ?? job.reportIds?.[0], teamId: job.teamId ?? committed?.teamId,
+    scoreExplanation: job.scoreExplanation,
+    teamLabel: committed?.label ?? (job.teamId ? cleanTitle(job.teamId, 'Field team') : undefined),
+    assignmentState: (job.disposition === 'committed' ? (job.teamId || committed ? 'assigned' : 'unknown') : 'unassigned') as MapTask['assignmentState'],
+  }; });
   const proposalTasks = visibleProposals.map((proposal) => ({
     id: `proposal:${proposal.sourceReportId ?? proposal.clusterId}:${proposal.pestType ?? 'Mosquito'}`, point: proposal.point ?? proposal.mapPoint,
     pestType: proposal.pestType ?? 'Mosquito', taskType: proposal.suggestedTaskType, priority: proposal.tier,
     location: taskLocation(proposal.locality, proposal.point ?? proposal.mapPoint), photoUrl: taskReferenceImage(proposal.suggestedTaskType, proposal.pestType),
     photoIsReference: true, sourceReportId: proposal.sourceReportId,
-    teamId: proposalTeam(proposal), teamLabel: proposalTeam(proposal) ? cleanTitle(proposalTeam(proposal), 'Field team') : undefined,
+    scoreExplanation: proposal.scoreExplanation,
+    teamId: proposalTeam(proposal), teamLabel: proposalTeam(proposal) ? crewLabel(proposalTeam(proposal)) || cleanTitle(proposalTeam(proposal), 'Field team') : undefined,
     assignmentState: (proposalTeam(proposal) ? 'planned' : 'unassigned') as MapTask['assignmentState'],
   }));
   const candidates = view === 'routes' ? routeTasks : view === 'unassigned' ? dispositionTasks : proposalTasks;
@@ -320,6 +357,13 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
       setPhotos((previous) => ({ ...previous, [task.id]: { url: image.url!, expiresAt: Date.now() + Math.max(0, ttlSeconds - 1) * 1000 } }));
     } catch { /* A missing or withheld photo retains the labelled reference. */ }
   };
+  // A saved work order opens its detail screen; a planned task (report-/prop-/plan-position ids) opens
+  // an in-page panel built from the plan data already loaded. Both show the score breakdown.
+  const [openedTask, setOpenedTask] = useState<MapTask | null>(null);
+  const openTaskDetail = (task: MapTask) => {
+    const path = task.id.includes(':') ? undefined : existingOrderPath(task.id);
+    if (path) props.onNavigate(path); else setOpenedTask(task);
+  };
   const mapTasks = locatedTasks.map((task) => (photos[task.id]?.expiresAt ?? 0) > Date.now()
     ? { ...task, photoUrl: photos[task.id]!.url, photoIsReference: false } : task);
 
@@ -338,7 +382,8 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
 
   return (
     <section className="dispatch-screen" data-screen="DispatchProposal" data-requirement="11.2.16">
-      <h1>Dispatch <span data-part="selected-day">{selectedDay}</span></h1>
+      {props.embedded ? <h2>Dispatch <span data-part="selected-day">{selectedDay}</span></h2>
+        : <h1>Dispatch <span data-part="selected-day">{selectedDay}</span></h1>}
       <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div>
           <label htmlFor="date" style={{ marginRight: '8px', fontWeight: 600 }}>
@@ -391,13 +436,26 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
           </fieldset>
         ))}
       </div>
+      {assignmentNotice ? <p role="status" data-part="assignment-notice">{assignmentNotice}</p> : null}
+      <SavedDispatches key={selectedDay} api={props.api} date={selectedDay} candidates={addableTasks}
+        onSaved={(result) => { setAssignmentNotice(`Dispatch updated · ${result.workOrderIds.length} tasks. Route, crew and vehicle saved.`); routesLoad.retry(); }} />
       <section className="dispatch-map" aria-label="Dispatch map">
         <h2 title={view === 'routes' ? 'Full planned route' : undefined}>{view === 'routes' ? 'Routes' : view === 'unassigned' ? 'Horizon tasks' : 'Daily proposals'} <small>{mapTasks.length} locations</small></h2>
         {view !== 'routes' ? <p className="dispatch-map-note">{view === 'proposals' ? 'Candidate locations' : 'Recorded task locations'} · Road access not verified</p> : null}
         <SingaporeMap label="dispatch-routes-map" viewKey={photoScope} showClusterBadges={false}
-          clusters={[]} routes={view === 'routes' ? mapRoutes : []} tasks={mapTasks} onTaskOpen={openTask} size="tall" />
+          clusters={[]} routes={view === 'routes' ? mapRoutes : []} tasks={mapTasks} onTaskOpen={openTask} onTaskDetail={openTaskDetail} size="tall"
+          onRejectReport={async (id, reason) => { await props.api.post(`/api/ops/moderation/${encodeURIComponent(id)}/reject`, { reason }); routesLoad.retry(); retry(); }} />
         {unavailableTasks.length > 0 ? <p className="dispatch-map-note">{unavailableTasks.length} locations unavailable</p> : null}
       </section>
+      {openedTask === null ? null : (
+        <section data-part="task-detail" aria-label="Task detail">
+          <h2>{openedTask.location}</h2>
+          <p>Pest: {openedTask.pestType ? label(openedTask.pestType) : 'Not recorded'} · Task: {openedTask.taskType ? label(openedTask.taskType) : 'Not recorded'} · Priority: {openedTask.priority ?? 'Not recorded'}</p>
+          <p>Team: {openedTask.assignmentState === 'unassigned' ? 'Unassigned' : openedTask.teamLabel ?? 'Team not recorded'}{openedTask.assignmentState === 'planned' ? ' (planned)' : ''}</p>
+          <ScoreBreakdown explanation={openedTask.scoreExplanation} />
+          <button type="button" onClick={() => setOpenedTask(null)}>Close task</button>
+        </section>
+      )}
             <div data-part="dispatch-status" aria-live="polite">
         {horizon?.planStatus === 'pending' || plan?.planStatus === 'pending' ? <span className="dispatch-status-chip" role="status" title="Routes are being prepared">Pending</span> : null}
         {horizon?.planStatus === 'refreshing' || plan?.planStatus === 'refreshing' ? <span className="dispatch-status-chip" role="status" title="The previous completed plan remains available">Updating</span> : null}
@@ -515,10 +573,23 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                     </div>
 
                     {/* Operational Summary */}
-                    <span>{planned.staffCount ?? '?'} staff</span>
+                    <div className="dispatch-crew-members" data-part="crew-members">
+                      {planned.crewMembers?.length ? planned.crewMembers.map((member) => <span key={member.id} data-crew-id={member.id}>
+                        <img src={staffPhotoUrl(member.email, 'CleaningCrew')} alt="Reference portrait" />
+                        {staffDisplayName(member.email, 'CleaningCrew', member.displayName)}
+                      </span>) : <span>{planned.staffCount ?? '?'} staff · names not recorded</span>}
+                    </div>
+                    <DispatchAssignmentEditor key={`${selectedDay}:${planned.teamId}:${planned.workOrderIds.join(',')}`}
+                      api={props.api} date={selectedDay} teamId={planned.teamId}
+                      proposedCrewIds={planned.crewMembers?.map((member) => member.id) ?? []} proposedVehicleId={planned.vehicleId}
+                      stops={planned.waypointOrder.filter((wp) => !wp.isHq && wp.workOrderId).map((wp) => ({ workOrderId: wp.workOrderId!, label: stopDisplayName(wp) }))}
+                      candidates={addableTasks}
+                      onAssigned={(result) => { setAssignmentNotice(`Dispatch assigned · ${result.workOrderIds.length} tasks. Crew and vehicle saved.`); routesLoad.retry(); }} />
                     {planned.vehicleId ? (
                       <section aria-label="Assigned vehicle and cargo load">
-                        <p><strong title={planned.vehicleRegistration}>{cleanTitle(planned.vehicleName, 'Assigned vehicle')}</strong>{' '}
+                        {planned.vehiclePhotoUrl ? <figure className="dispatch-vehicle-photo"><img src={planned.vehiclePhotoUrl} alt={`${planned.vehicleModel || 'Vehicle'} reference photo`}
+                          onError={(event) => { event.currentTarget.hidden = true; }} /><figcaption>Model reference photo</figcaption></figure> : null}
+                        <p><strong title={planned.vehicleRegistration}>{cleanTitle(planned.vehicleModel || planned.vehicleName, 'Assigned vehicle')}</strong>{' '}
                           {planned.isDemoVehicle ? <Pill tone="warn">Illustrative capacity</Pill> : null}</p>
                         <p>Payload: {planned.loadWeightKg?.toFixed(1)} / {planned.maxPayloadKg?.toFixed(1)} kg
                           {planned.loadWeightPercentage != null ? ` (${planned.loadWeightPercentage.toFixed(1)}%)` : ''}.
@@ -660,6 +731,10 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
                                   <strong style={{ color: isDone ? '#166534' : '#0f172a' }}>{stopDisplayName(waypoint)}
                                   </strong>
                                   {!waypoint.isHq ? <small style={{ display: 'block' }}>Reference · {label(waypoint.pestType ?? 'Unknown')} · {label(waypoint.taskType ?? 'Unknown')}</small> : null}
+                                  {(() => {
+                                    const task = waypoint.isHq ? undefined : routeTasks.find((t) => t.id === (waypoint.workOrderId ?? `${selectedDay}:${planned.teamId}:${index}`));
+                                    return task ? <button type="button" data-part="open-task" onClick={() => openTaskDetail(task)}>Open task</button> : null;
+                                  })()}
                                   {waypoint.isAreaAccess ? <small style={{ display: 'block', color: '#475569', marginTop: '2px' }} title="Provider-verified road entry inside the authorised service area.">Area access point</small> : null}
                                   {waypoint.priority ? (
                                     <span
@@ -871,7 +946,7 @@ export function DispatchProposalScreen(props: ScreenProps): JSX.Element {
             <ul data-cards className="dispatch-task-cards">{horizonCommitted.map((job) => (
               <li key={job.workOrderId} data-work-order-id={job.workOrderId} data-priority={job.priority} data-disposition="committed">
                 <img src={taskReferenceImage(job.taskType, job.pestType)} alt="Reference image; not incident evidence" /><strong>{job.priority ?? 'Priority unknown'}: {taskLocation(job.locality, job.point)}</strong>
-                <small>Reference · {label(job.pestType ?? 'Unknown')} · {label(job.taskType ?? 'Unknown')} · {job.teamId ? cleanTitle(job.teamId, 'Field team') : 'Team not recorded'}</small>
+                <small>Reference · {label(job.pestType ?? 'Unknown')} · {label(job.taskType ?? 'Unknown')} · {committedTeam(job.workOrderId)?.label ?? (job.teamId ? cleanTitle(job.teamId, 'Field team') : 'Team not recorded')}</small>
                 {job.isDemo ? <> <Pill tone="warn">DEMO</Pill></> : null}
                 {' '}Committed ({job.status ?? 'existing status'}){job.scheduledDate ? ` · ${job.scheduledDate}` : ''}. <details><summary>Task details</summary><p>{job.reason}</p></details>
                 {' '}<a href={`/ops/work-orders/${job.workOrderId}`} onClick={link(props, `/ops/work-orders/${job.workOrderId}`)}>Review work order</a>

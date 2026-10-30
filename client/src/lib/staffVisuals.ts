@@ -3,6 +3,8 @@
  * Maps staff emails and roles deterministically to authentic portrait assets.
  */
 
+import { cleanTitle } from '../../../src/presentation/DisplayNames';
+
 export interface StaffVisual {
   email: string;
   url: string;
@@ -60,7 +62,8 @@ export function staffPhotoUrl(email: string, role?: string): string {
 }
 
 /** Formats an email into a friendly staff display name */
-export function staffDisplayName(email: string, role?: string): string {
+export function staffDisplayName(email: string, role?: string, displayName?: string | null): string {
+  if (displayName?.trim()) return displayName.trim();
   const clean = (email || '').split('@')[0] ?? '';
   if (clean.toLowerCase().includes('ychow')) {
     return 'Chow Yen Kit';
@@ -73,6 +76,14 @@ export function staffDisplayName(email: string, role?: string): string {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
+}
+
+/** One label for a vehicle everywhere: "Toyota Hiace - GBC 4821 K". Falls back to the cleaned name. */
+export function vehicleLabel(vehicle: { model?: string | null; name: string; registration: string }): string {
+  const model = vehicle.model?.trim();
+  if (!model) return cleanTitle(vehicle.name, 'Vehicle');
+  const plate = vehicle.registration.trim();
+  return /^DEMO-/i.test(plate) || !plate ? model : `${model} - ${plate}`;
 }
 
 export function staffRoleLocationLabel(role?: string, location?: string | null): string {

@@ -599,11 +599,12 @@ describe('8.1.2 — repository SQL round trip (controlled rows, no live database
     wo.applyStatus(WorkOrderStatus.Created);
     await new WorkOrderRepository(db).save(wo);
     const call = calls[0];
-    expect(call?.sql).toMatch(/issue_flag, issue_reason, pest_type\)/);
+    expect(call?.sql).toMatch(/issue_flag, issue_reason, pest_type, dispatch_assignment_id\)/);
     expect(call?.sql).toMatch(/pest_type\s+= EXCLUDED\.pest_type/);
     expect(call?.params[1]).toBeNull();
     expect(call?.params[3]).toBe('rep-1');
     expect(call?.params[15]).toBe(PestType.Termite);
+    expect(call?.params[16]).toBeNull();
   });
 
   it('R2 — a report-only row rehydrates its null cluster, pest and report point', async () => {

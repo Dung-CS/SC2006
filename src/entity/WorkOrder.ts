@@ -22,6 +22,10 @@ export class WorkOrder {
    */
   pestType: PestType | null = PestType.Mosquito;
   assigneeId!: Uuid | null;
+  /** Full route booking; assigneeId remains the lifecycle lead for legacy clients. */
+  dispatchAssignmentId: Uuid | null = null;
+  assignedCrewIds: Uuid[] = [];
+  assignedVehicleId: Uuid | null = null;
   /** 8.1.2 */
   sourceReportId!: Uuid | null;
   /** Display only: the source report's own point, read through, never copied into work_order. */

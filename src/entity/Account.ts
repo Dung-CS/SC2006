@@ -18,6 +18,9 @@ export const LOCKOUT_MS = 15 * 60 * 1000;
 export class Account {
   id!: Uuid;
   email!: string;
+  /** Human name recorded by a manager; authentication still uses email. */
+  displayName: string | null = null;
+  profileDescription: string | null = null;
   /**
    * The provider's identity for this user. Supabase Auth owns the credential and the password hash
    * (2.1.7, 10.3.1); this row is the profile the rest of the system joins against. Decided

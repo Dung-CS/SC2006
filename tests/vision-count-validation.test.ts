@@ -5,12 +5,13 @@ import { AccessPolicy } from '../src/control/AccessPolicy';
 import { Principal } from '../src/control/Principal';
 import { InMemoryAuditStore, InMemoryClusterStore } from '../src/persistence/memory/InMemoryStores';
 import { InMemoryClusterLocator, InMemoryReportStore } from '../src/persistence/memory/InMemoryReportStores';
-import type { ReportLifecycleController } from '../src/control/ReportLifecycleController';
+import { ReportLifecycleController } from '../src/control/ReportLifecycleController';
+import { ReportTransitionTable } from '../src/control/ReportTransitionTable';
 import { GeoPoint } from '../src/entity/valueTypes';
 import { PestType, ReportType, Role } from '../src/entity/enums';
 function setup() {
   const store = new InMemoryReportStore();
-  const controller = new ReportController(new AccessControlService(new AccessPolicy(), new InMemoryAuditStore()), store, new InMemoryClusterLocator(new InMemoryClusterStore()), {} as ReportLifecycleController);
+  const controller = new ReportController(new AccessControlService(new AccessPolicy(), new InMemoryAuditStore()), store, new InMemoryClusterLocator(new InMemoryClusterStore()), new ReportLifecycleController(new ReportTransitionTable(), store, null));
   const draft: ReportDraft = { point: new GeoPoint(1.3, 103.8), type: ReportType.Other, pestType: PestType.Rat, description: 'One rat observed', photos: [] };
   return { store, controller, draft };
 }

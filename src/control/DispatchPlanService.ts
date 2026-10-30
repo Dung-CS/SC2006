@@ -3,6 +3,7 @@ import { singaporeDate } from '../entity/valueTypes';
 import { Vehicle } from '../entity/Vehicle';
 import { RouteJob, RouteTeam, PlannedTeamRoute, RouteOptimizationService } from './RouteOptimizationService';
 import { WorkOrderStatus } from '../entity/enums';
+import type { TaskScoreExplanation } from '../presentation/TaskScoreExplanation';
 
 const SNAPSHOT_TTL_MS = 5 * 60_000;
 const RETRY_DELAY_MS = 30_000;
@@ -22,6 +23,7 @@ export type DispatchJob = RouteJob & { scheduledDate?: string };
 export interface UnplannedTask {
   workOrderId: string; locality?: string; priority?: string; pestType?: string;
   point: { latitude: number; longitude: number }; mapClusterId?: string;
+  scoreExplanation?: TaskScoreExplanation;
   taskType?: string; requiredStaff?: number; reportIds?: string[]; reportCount?: number;
   sourceReportId?: string; scheduledDate?: string; status?: string;
   isDemo?: boolean;
@@ -74,6 +76,15 @@ const identities = (job: Pick<RouteJob, 'workOrderId' | 'reportIds' | 'sourceRep
 const priorityRank: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
 const priorityFirst = (a: { priority?: string }, b: { priority?: string }): number =>
   (priorityRank[a.priority ?? 'Medium'] ?? 2) - (priorityRank[b.priority ?? 'Medium'] ?? 2);
+/** Tag each planned stop with its job's locality, so screens name the place instead of printing coordinates. */
+export function withLocalities<T extends Pick<PlannedTeamRoute, 'waypointOrder'>>(routes: T[], jobs: readonly RouteJob[]): T[] {
+  const names = new Map(jobs.map((job) => [job.workOrderId, job.locality]));
+  for (const route of routes) for (const stop of route.waypointOrder ?? []) {
+    const locality = stop.workOrderId ? names.get(stop.workOrderId) : undefined;
+    if (locality) Object.assign(stop, { locality });
+  }
+  return routes;
+}
 const blankPlan = (date: string): DispatchPlanSnapshot => ({ date, planStatus: 'pending', computedAt: null,
   planningDurationSeconds: null, error: null, routes: [], unplanned: [], referrals: [] });
 
@@ -94,6 +105,19 @@ export class DispatchPlanService {
 
   constructor(private readonly loadInputs: (date: string, signal?: AbortSignal) => Promise<DispatchPlanInputs>,
     private readonly planner: Pick<RouteOptimizationService, 'plan'>) {}
+
+  /** Last completed day, including the retained snapshot while a refresh runs. Never recomputes a route. */
+  findReadyRoute(date: string, teamId: string): { route: PlannedTeamRoute; computedAt: string } | null {
+    const days = [...this.entries.values()].map((entry) => entry.value)
+      .concat([...this.ranges.values()].flatMap((entry) => entry.value.plans))
+      .filter((plan) => plan.date === date && plan.computedAt !== null)
+      .sort((left, right) => Date.parse(right.computedAt!) - Date.parse(left.computedAt!));
+    for (const day of days) {
+      const route = day.routes.find((candidate) => candidate.teamId === teamId);
+      if (route) return { route: structuredClone(route), computedAt: day.computedAt! };
+    }
+    return null;
+  }
 
   snapshot(date: string): DispatchPlanSnapshot {
     const existed = this.entries.has(date);
@@ -343,7 +367,8 @@ export class DispatchPlanService {
 
   private unplannedTask(job: DispatchJob, roadUnverified: Set<string>, date: string, pendingReason?: string): UnplannedTask {
     return { workOrderId: job.workOrderId, point: { latitude: job.point.latitude, longitude: job.point.longitude },
-      mapClusterId: job.mapClusterId, locality: job.locality, priority: job.priority,
+      mapClusterId: job.mapClusterId, ...(job.scoreExplanation ? { scoreExplanation: job.scoreExplanation } : {}),
+      locality: job.locality, priority: job.priority,
       pestType: job.pestType, taskType: job.taskType, requiredStaff: job.requiredStaff,
       reportIds: job.reportIds, reportCount: job.reportCount, individualCounts: job.individualCounts,
       sourceReportId: job.sourceReportId, scheduledDate: job.scheduledDate ?? date, status: job.status, isDemo: job.isDemo,
@@ -375,7 +400,7 @@ export class DispatchPlanService {
         const start = Date.now();
         const roadUnverified = new Set<string>();
         const allocatable = input.jobs.filter((job) => !isCommitted(job));
-        const routes = await this.planner.plan(input.teams, allocatable, input.vehicles, roadUnverified);
+        const routes = withLocalities(await this.planner.plan(input.teams, allocatable, input.vehicles, roadUnverified), input.jobs);
         const plannedIds = new Set(routes.flatMap((route) => route.workOrderIds));
         const rank: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
         const unplanned = input.jobs.filter((job) => !plannedIds.has(job.workOrderId))

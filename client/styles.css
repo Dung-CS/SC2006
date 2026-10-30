@@ -26,6 +26,7 @@
   --line: #e3e5e1;
   --accent: #1b5e56;
   --accent-dark: #164b45;
+  --brand: var(--accent);
   --accent-quiet: #e8f0ee;
 
   /* The operations rail: near-black, so a dense table reads as the lit part of the screen. */
@@ -1074,7 +1075,7 @@ ul[data-part='list'] > li {
   gap: 4px;
   width: 100%;
   padding: 6px 10px;
-  background: var(--brand);
+  background: var(--accent);
   color: #ffffff !important;
   font-size: 0.8rem;
   font-weight: 600;
@@ -1087,7 +1088,7 @@ ul[data-part='list'] > li {
 }
 
 .map-popup-action-btn:hover {
-  background: #144943;
+  background: var(--accent-dark);
   color: #ffffff !important;
   text-decoration: none;
 }
@@ -3841,3 +3842,38 @@ ul[data-part='list'] > li.cluster-card [data-part='cases'],
 
 .dispatch-screen [data-assignment-state="unassigned"] { border-style: dashed !important; }
 .dispatch-screen [data-assignment-state="unknown"] { border-style: double !important; border-width: 4px !important; }
+
+/* Stored score evidence in the task callout. */
+.task-score-breakdown { border-block: 1px solid #cbd5e1; margin-top: 10px; padding-block: 8px; }
+.task-score-breakdown h3 { font-size: .95rem; margin: 0 0 6px; }
+.task-score-breakdown p { margin: 4px 0; }
+.task-score-summary { font-weight: 600; }
+.task-score-note { font-size: .75rem; color: #475569; }
+.task-score-warning { font-size: .75rem; color: #92400e; }
+.task-score-drivers { display: grid; gap: 6px; margin-top: 6px; }
+.task-score-driver { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; background: #f1f5f9; border-radius: 6px; padding: 6px; }
+.task-score-driver small { grid-column: 1 / -1; font-size: .72rem; color: #475569; }
+.dispatch-crew-members { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
+.dispatch-crew-members > span { display: inline-flex; align-items: center; gap: 6px; border-radius: 8px; background: #f1f5f9; padding: 4px 8px; }
+.dispatch-crew-members img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+.dispatch-vehicle-photo { margin: 8px 0; }
+.dispatch-vehicle-photo img { width: min(100%, 320px); height: 140px; object-fit: cover; border-radius: 8px; }
+.dispatch-vehicle-photo figcaption { font-size: .75rem; color: #475569; }
+.dispatch-assignment-editor { margin-block: 12px; border-block: 1px solid #cbd5e1; padding-block: 10px; }
+.dispatch-assignment-editor h3 { margin: 0 0 8px; }
+.dispatch-assignment-editor fieldset { margin-block: 10px; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.dispatch-crew-options, .dispatch-vehicle-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 8px; }
+.dispatch-crew-options label, .dispatch-vehicle-options label { display: flex; gap: 8px; align-items: center; padding: 8px; border: 1px solid #dbe3ea; border-radius: 8px; }
+.dispatch-crew-options img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
+.dispatch-vehicle-options img { width: 80px; height: 56px; object-fit: cover; border-radius: 6px; }
+.dispatch-vehicle-options small { display: block; color: #475569; font-size: .75rem; }
+
+/* Recent-reports card: the title is a real button so the card works from the keyboard. */
+.report-card { cursor: pointer; }
+.report-card-focus {
+  all: unset;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ink);
+}
+.report-card-focus:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }

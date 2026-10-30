@@ -26,10 +26,10 @@ import { Uuid } from '../entity/valueTypes';
 import { HqLocation, Role, StaffSpecialisation, StaffStatus } from '../entity/enums';
 import { AccountStore, SessionStore } from '../ports/Stores';
 
-// `specialisation` needs migration 010 applied before this code is deployed.
+// Profile columns require migration 016 before deployment; capability uses migration 010.
 const COLUMNS = `
   id, email, auth_user_id, email_verified, role, is_active, telegram_chat_id,
-  failed_attempts, first_failure_at, locked_until, created_at, specialisation, hq_location, staff_status, on_call_lag_hours`;
+  failed_attempts, first_failure_at, locked_until, created_at, specialisation, hq_location, staff_status, on_call_lag_hours, display_name, profile_description`;
 
 export class AccountRepository implements AccountStore {
   constructor(private readonly db: Database) {}
@@ -63,8 +63,8 @@ export class AccountRepository implements AccountStore {
     await this.db.query(
       `INSERT INTO account (
          id, email, auth_user_id, email_verified, role, is_active, telegram_chat_id,
-         failed_attempts, first_failure_at, locked_until, created_at, specialisation, hq_location, staff_status, on_call_lag_hours)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         failed_attempts, first_failure_at, locked_until, created_at, specialisation, hq_location, staff_status, on_call_lag_hours, display_name, profile_description)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        ON CONFLICT (id) DO UPDATE SET
          email            = EXCLUDED.email,
          auth_user_id     = EXCLUDED.auth_user_id,
@@ -78,7 +78,9 @@ export class AccountRepository implements AccountStore {
          specialisation   = EXCLUDED.specialisation,
          hq_location      = EXCLUDED.hq_location,
          staff_status     = EXCLUDED.staff_status,
-         on_call_lag_hours= EXCLUDED.on_call_lag_hours`,
+         on_call_lag_hours= EXCLUDED.on_call_lag_hours,
+         display_name    = EXCLUDED.display_name,
+         profile_description = EXCLUDED.profile_description`,
       [
         account.id,
         account.email,
@@ -95,6 +97,8 @@ export class AccountRepository implements AccountStore {
         account.hqLocation,
         account.staffStatus,
         account.onCallLagHours,
+        account.displayName,
+        account.profileDescription,
       ],
     );
     return account;
@@ -110,6 +114,8 @@ export class AccountRepository implements AccountStore {
     const account = new Account();
     account.id = row.id as Uuid;
     account.email = row.email as string;
+    account.displayName = (row.display_name as string | null) ?? null;
+    account.profileDescription = (row.profile_description as string | null) ?? null;
     account.authUserId = row.auth_user_id as string;
     account.emailVerified = row.email_verified === true;
     account.role = row.role as Role;

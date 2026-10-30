@@ -208,7 +208,8 @@ export class ReportController {
     // 2.4.1. Logged after the photographs, so the row means "the whole submission landed" rather
     // than "a report row was inserted and then something failed".
     await this.audit?.appendAction(by.accountId, 'report:submit', 'Report', saved.id);
-    return saved;
+    // Verified by default: the Submitted row above stays in the history, then the system verifies.
+    return this.lifecycle.transition(saved.id, ReportStatus.Verified, 'SYSTEM', { at: now });
   }
 
   /**

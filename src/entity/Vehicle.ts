@@ -5,6 +5,9 @@ export interface Vehicle {
   id: string;
   registration: string;
   name: string;
+  /** Recorded make/model and a matching vehicle photograph, when known. */
+  model?: string | null;
+  photoUrl?: string | null;
   hqLocation: HqLocation;
   maxPayloadKg: number;
   maxCargoVolumeM3: number;

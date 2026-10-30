@@ -5,6 +5,7 @@
  * Routes:
  *   GET  /api/ops/staff                    the staff list (2.2.3, 2.2.4)
  *   GET  /api/ops/staff/crew               assignable crew, active only (8.2.2, 8.2.3)
+ *   GET  /api/ops/staff/:id                one staff member's profile and their dispatches
  *   POST /api/ops/staff                    create a manager or crew account (2.2.3)
  *   POST /api/ops/staff/:id/deactivate     (2.2.4, 2.2.5)
  *   POST /api/ops/staff/:id/reactivate     (2.2.4)
@@ -22,6 +23,8 @@ import { HqLocation, Role, StaffSpecialisation, StaffStatus } from '../../entity
 
 interface StaffBody {
   email?: string;
+  displayName?: string | null;
+  profileDescription?: string | null;
   password?: string;
   role?: string;
   specialisation?: string | null;
@@ -56,7 +59,7 @@ export class AdminRoutes extends RouteHandler {
   }
 
   routes(): string[] {
-    return ['/api/ops/staff/crew', '/api/ops/staff'];
+    return ['/api/ops/staff/crew', '/api/ops/staff', '/api/ops/staff/:id'];
   }
 
   override writeRoutes(): string[] {
@@ -67,6 +70,7 @@ export class AdminRoutes extends RouteHandler {
       '/api/ops/staff/:id/specialisation',
       '/api/ops/staff/:id/hq-location',
       '/api/ops/staff/:id/status',
+      '/api/ops/staff/:id/display-name',
     ];
   }
 
@@ -98,6 +102,8 @@ export class AdminRoutes extends RouteHandler {
             new Date(),
             specialisation,
             body.hqLocation == null ? null : parseHqLocation(body.hqLocation),
+            body.displayName,
+            body.profileDescription,
           );
           res.status(201).json(AdminRoutes.project(account));
           return;
@@ -105,6 +111,11 @@ export class AdminRoutes extends RouteHandler {
         case '/api/ops/staff/crew':
           res.json({ crew: (await this.staff.assignableCrew(principal)).map(AdminRoutes.project) });
           return;
+        case '/api/ops/staff/:id': {
+          const detail = await this.staff.staffDetail(id, principal);
+          res.json({ staff: AdminRoutes.project(detail.account), dispatches: detail.dispatches });
+          return;
+        }
         case '/api/ops/staff/:id/deactivate': {
           const result = await this.staff.deactivateAccount(id, principal);
           // The session count is stated, not hidden: a manager deactivating someone mid-shift needs
@@ -114,6 +125,10 @@ export class AdminRoutes extends RouteHandler {
         }
         case '/api/ops/staff/:id/reactivate':
           res.json(AdminRoutes.project(await this.staff.reactivateAccount(id, principal)));
+          return;
+        case '/api/ops/staff/:id/display-name':
+          res.json(AdminRoutes.project(await this.staff.setDisplayName(id, ((req.body ?? {}) as StaffBody).displayName, principal,
+            ((req.body ?? {}) as StaffBody).profileDescription)));
           return;
         case '/api/ops/staff/:id/specialisation': {
           const value = ((req.body ?? {}) as { specialisation?: unknown }).specialisation;
@@ -156,6 +171,8 @@ export class AdminRoutes extends RouteHandler {
   private static project(account: {
     id: string;
     email: string;
+    displayName?: string | null;
+    profileDescription?: string | null;
     role: Role;
     isActive: boolean;
     specialisation: StaffSpecialisation | null;
@@ -167,6 +184,8 @@ export class AdminRoutes extends RouteHandler {
     id: string;
     accountId: string;
     email: string;
+    displayName: string | null;
+    profileDescription: string | null;
     role: Role;
     isActive: boolean;
     specialisation: StaffSpecialisation | null;
@@ -179,6 +198,8 @@ export class AdminRoutes extends RouteHandler {
       id: account.id,
       accountId: account.id,
       email: account.email,
+      displayName: account.displayName ?? null,
+      profileDescription: account.profileDescription ?? null,
       role: account.role,
       isActive: account.isActive,
       specialisation: account.specialisation,

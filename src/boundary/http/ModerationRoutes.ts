@@ -4,6 +4,7 @@
  *
  * Routes:
  *   GET  /api/ops/moderation             the queue, oldest first, ?clusterId= and ?type= (5.3.1–5.3.3)
+ *   GET  /api/ops/moderation/rejected    rejected reports, newest first
  *   GET  /api/ops/moderation/:id         one report with its photographs, for review (2.3.4)
  *   POST /api/ops/moderation/:id/verify  (5.2.3)
  *   POST /api/ops/moderation/:id/reject  body { reason } (5.2.3, 5.2.4)
@@ -27,7 +28,7 @@ export class ModerationRoutes extends RouteHandler {
   }
 
   routes(): string[] {
-    return ['/api/ops/moderation', '/api/ops/moderation/:id'];
+    return ['/api/ops/moderation', '/api/ops/moderation/rejected', '/api/ops/moderation/:id'];
   }
 
   override writeRoutes(): string[] {
@@ -49,6 +50,9 @@ export class ModerationRoutes extends RouteHandler {
           });
           return;
         }
+        case '/api/ops/moderation/rejected':
+          res.json({ rejected: await this.moderation.listRejected(principal) });
+          return;
         case '/api/ops/moderation/:id':
           res.json(await this.moderation.review(id, principal));
           return;

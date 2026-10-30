@@ -1,4 +1,5 @@
 import { GeoPoint } from '../entity/valueTypes';
+import type { TaskScoreExplanation } from '../presentation/TaskScoreExplanation';
 import { StaffStatus, PriorityTier, TaskType, PestType } from '../entity/enums';
 import { IRouteStrategy, RoutePlan, isVerifiedAccessRoute, ServiceArea, serviceAreaRings } from './routing/IRouteStrategy';
 import type { Vehicle } from '../entity/Vehicle';
@@ -7,6 +8,7 @@ export { generatePackingList } from './LogisticsPolicy';
 export type { PackingItem } from './LogisticsPolicy';
 
 export interface RouteTeam {
+  staffMembers?: Array<{ id: string; email: string; displayName?: string | null }>;
   teamId: string;
   hq: GeoPoint;
   capabilities: string[];
@@ -27,6 +29,7 @@ export interface RouteJob {
   clusterId?: string | null;
   sourceReportId?: string;
   mapClusterId?: string;
+  scoreExplanation?: TaskScoreExplanation;
   point: GeoPoint;
   requiredCapability: string;
   allowedCapabilities?: string[];
@@ -54,6 +57,7 @@ export interface PlannedWaypoint {
   clusterId?: string | null;
   sourceReportId?: string;
   mapClusterId?: string;
+  scoreExplanation?: TaskScoreExplanation;
   taskType?: string;
   pestType?: string;
   priority?: string;
@@ -68,6 +72,9 @@ export interface PlannedWaypoint {
 }
 
 export interface PlannedTeamRoute {
+  crewMembers?: Array<{ id: string; email: string; displayName?: string | null }>;
+  vehicleModel?: string;
+  vehiclePhotoUrl?: string;
   teamId: string;
   staffCount: number;
   depotLocation: string;
@@ -367,7 +374,14 @@ export class RouteOptimizationService {
         if (providerCalls >= maxProviderCalls) return false;
         providerCalls++; return true;
       });
-    return assignments.map((assignment, i) => this.buildRoute(assignment, i));
+    const memberOffsets = new Map<RouteTeam, number>();
+    return assignments.map((assignment, i) => {
+      const offset = memberOffsets.get(assignment.pool) ?? 0;
+      const members = assignment.pool.staffMembers?.slice(offset, offset + assignment.staffCount);
+      memberOffsets.set(assignment.pool, offset + assignment.staffCount);
+      return { ...this.buildRoute(assignment, i),
+        ...(members?.length === assignment.staffCount ? { crewMembers: members } : {}) };
+    });
   }
 
   /** ponytail: one bounded relocate/swap pass; increase the candidate cap only with measured budget headroom. */
@@ -530,6 +544,7 @@ export class RouteOptimizationService {
         label: `Stop ${index + 1}: ${job.locality ?? job.workOrderId} (${job.taskType ?? 'Task'})`,
         point: areaVisit?.accessPoint ?? job.point, isAreaAccess: areaVisit ? true : undefined,
         targetPoint: areaVisit?.targetPoint, isDemo: job.isDemo, workOrderId: job.workOrderId, clusterId: job.clusterId, sourceReportId: job.sourceReportId, mapClusterId: job.mapClusterId, taskType: job.taskType, pestType: job.pestType,
+        ...(job.scoreExplanation ? { scoreExplanation: job.scoreExplanation } : {}),
         reportIds: job.reportIds, reportCount: job.reportCount, individualCounts: job.individualCounts,
         priority: job.priority, requiredStaff: job.requiredStaff, status: isDone ? 'Completed' : job.status === 'InProgress' ? 'InProgress' : 'Pending',
         isCompleted: isDone, estimatedEffortMinutes: job.estimatedEffortMinutes ?? 35,
@@ -571,6 +586,7 @@ export class RouteOptimizationService {
       progressPercentage: Math.round(completedCount / jobs.length * 100), packingList,
       color: TEAM_COLORS[colorIndex % TEAM_COLORS.length]!,
       vehicleId: vehicle?.id, vehicleRegistration: vehicle?.registration, vehicleName: vehicle?.name,
+      vehicleModel: vehicle?.model ?? undefined, vehiclePhotoUrl: vehicle?.photoUrl ?? undefined,
       isDemoVehicle: vehicle?.isDemo, maxPayloadKg: vehicle?.maxPayloadKg, maxCargoVolumeM3: vehicle?.maxCargoVolumeM3,
       loadWeightKg: load.weightKg, loadVolumeM3: load.volumeM3,
       loadWeightPercentage: vehicle ? load.weightKg / vehicle.maxPayloadKg * 100 : undefined,

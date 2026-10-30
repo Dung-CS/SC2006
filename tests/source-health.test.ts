@@ -252,6 +252,16 @@ describe('3.1.16 — the geocoder, which has no ingestion job', () => {
     expect(row?.isStale).toBe(false);
   });
 
+  it('G3b — an unused healthy geocoder is not stale; a failed unused one is', async () => {
+    const now = new Date('2026-09-03T12:00:00Z');
+    const rowFor = async (healthy: boolean) =>
+      (await new SourceHealthController(new InMemoryIngestionRunStore(), INTERVALS, geocoder(healthy, null)).report(now)).find(
+        (r) => r.source === SourceKind.Geocoding,
+      );
+    expect((await rowFor(true))?.isStale).toBe(false);
+    expect((await rowFor(false))?.isStale).toBe(true);
+  });
+
   it('G4 — a healthy geocoder silent for three refresh intervals still warns (3.1.15)', async () => {
     const now = new Date('2026-09-10T12:00:00Z');
     const health = new SourceHealthController(

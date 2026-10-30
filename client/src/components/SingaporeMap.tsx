@@ -36,6 +36,9 @@ import * as L from 'leaflet';
 import type { Map as LeafletMap, LayerGroup, PathOptions } from 'leaflet';
 import { reportPhotoUrl } from '../lib/reportVisuals';
 import { label } from '../lib/labels';
+import { createReportRejectSection } from './TaskScoreCallout';
+import type { RejectReport } from './ReportRejectControl';
+import type { TaskScoreExplanation } from '../../../src/presentation/TaskScoreExplanation';
 
 /** Roughly the Republic, with enough margin that a cluster on the coast is not against the edge. */
 const SINGAPORE_BOUNDS: [[number, number], [number, number]] = [
@@ -113,6 +116,7 @@ export interface MapTask {
   teamId?: string;
   teamLabel?: string;
   assignmentState?: 'planned' | 'assigned' | 'unassigned' | 'unknown';
+  scoreExplanation?: TaskScoreExplanation;
 }
 
 export interface SingaporeMapProps {
@@ -121,6 +125,10 @@ export interface SingaporeMapProps {
   routes?: MapRoute[];
   tasks?: MapTask[];
   onTaskOpen?: (task: MapTask) => void;
+  /** Reject a report-sourced task's source report; the callout shows the control only when given. */
+  onRejectReport?: RejectReport;
+  /** Open the task view (where the score breakdown lives); the callout shows "Open task" only when given. */
+  onTaskDetail?: (task: MapTask) => void;
   basemap?: Basemap;
   /** Deliberate caller view changes may refit; data refreshes must not. */
   viewKey?: string;
@@ -146,6 +154,8 @@ export interface SingaporeMapProps {
   label: string;
   /** Called when a marker or its popup action link is selected. */
   onSelectMarker?: (marker: MapMarker) => void;
+  /** Centre the map on a marker and open its popup. A new object (same id) asks again. */
+  focusRequest?: { id: string } | null;
 }
 
 /**
@@ -262,7 +272,7 @@ function escapeHtml(text: string): string {
 }
 
 /** DOM text and URL properties keep source fields out of the HTML parser. */
-export function createTaskCallout(task: MapTask): HTMLElement {
+export function createTaskCallout(task: MapTask, onRejectReport?: RejectReport, onTaskDetail?: (task: MapTask) => void): HTMLElement {
   const card = document.createElement('div');
   card.className = 'map-popup-card';
   card.dataset.taskId = task.id;
@@ -282,6 +292,17 @@ export function createTaskCallout(task: MapTask): HTMLElement {
   add('Team', task.assignmentState === 'unassigned' ? 'Unassigned'
     : task.assignmentState === 'planned' ? `${team} (planned)`
     : task.assignmentState === 'unknown' ? 'Team not recorded' : team);
+  // The score breakdown is shown only in the opened task view, never in this popup.
+  if (onTaskDetail) {
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.dataset.part = 'open-task';
+    open.textContent = 'Open task';
+    open.addEventListener('click', () => onTaskDetail(task));
+    card.append(open);
+  }
+  const rejectSection = createReportRejectSection(task, onRejectReport);
+  if (rejectSection) card.append(rejectSection);
   const figure = document.createElement('figure');
   figure.className = 'report-reference-photo-card';
   const caption = document.createElement('figcaption');
@@ -329,6 +350,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
   const taskPopup = useRef<L.Popup | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const markerLayers = useRef<Partial<Record<MapMarker['kind'], LayerGroup>>>({});
+  const markerObjects = useRef<Map<string, L.Marker>>(new Map());
   const [drawn, setDrawn] = useState(false);
   const [failed, setFailed] = useState(false);
   const legendId = useId();
@@ -466,6 +488,9 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       for (const event of ['wheel', 'touchstart', 'keydown', 'pointerdown']) element.removeEventListener(event, markUserMoved);
       observer?.disconnect();
       window.removeEventListener('resize', handleWindowResize);
+      // Stop a running pan animation first: its transitionend would otherwise fire on a removed map.
+      map.current?.stop();
+      map.current?.closePopup();
       map.current?.remove();
       map.current = null;
       clusterLayer.current = null;
@@ -658,9 +683,14 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       taskPopup.current = L.popup({ autoPan: true, autoPanPadding: L.point(12, 12), maxHeight: 320, maxWidth: 300 })
         .on('remove', () => { taskPopup.current = null; setActiveTaskId(null); });
     }
-    taskPopup.current.setLatLng([task.point.latitude, task.point.longitude]).setContent(createTaskCallout(task));
+    // A refresh must not wipe a reject form the operator is using: keep the open card as it is.
+    const shown = taskPopup.current.getContent();
+    const typing = shown instanceof HTMLElement && shown.dataset.taskId === task.id &&
+      (shown.querySelector('form:not([hidden])') !== null || Array.from(shown.querySelectorAll('textarea')).some((box) => box.value !== ''));
+    taskPopup.current.setLatLng([task.point.latitude, task.point.longitude]);
+    if (!typing) taskPopup.current.setContent(createTaskCallout(task, props.onRejectReport, props.onTaskDetail));
     if (!instance.hasLayer(taskPopup.current)) taskPopup.current.openOn(instance);
-  }, [drawn, activeTaskId, props.tasks]);
+  }, [drawn, activeTaskId, props.tasks, props.onRejectReport, props.onTaskDetail]);
 
   // Frame once after data arrives, or after an explicit focus/team change. Polls only redraw.
   useEffect(() => {
@@ -709,6 +739,9 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           continue;
         }
         layer.clearLayers();
+        for (const m of markers) {
+          if (m.kind === kind) markerObjects.current.delete(m.id);
+        }
         if (hidden[kind] === true) {
           continue;
         }
@@ -743,6 +776,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           const mapMarker = L.marker([marker.latitude, marker.longitude], { icon })
             .bindPopup(popupHtml)
             .addTo(layer);
+          markerObjects.current.set(marker.id, mapMarker);
 
           if (props.onSelectMarker !== undefined) {
             mapMarker.on('dblclick', () => props.onSelectMarker?.(marker));
@@ -753,6 +787,20 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
       setFailed(true);
     }
   }, [drawn, markers, hidden, props.onSelectMarker]);
+
+  /** A list card asked for its marker: centre on it and open the popup. */
+  useEffect(() => {
+    const target = props.focusRequest;
+    const instance = map.current;
+    if (!drawn || !target || instance === null) {
+      return;
+    }
+    const found = markerObjects.current.get(target.id);
+    if (found !== undefined) {
+      instance.setView(found.getLatLng(), Math.max(instance.getZoom(), 15));
+      found.openPopup();
+    }
+  }, [drawn, props.focusRequest]);
 
   /** Intercept clicks on .map-popup-action-btn to trigger client routing or onSelectMarker. */
   useEffect(() => {
