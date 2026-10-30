@@ -97,10 +97,10 @@ jobs:
             postgis/postgis:15-3.4 \
             -c ssl=on -c ssl_cert_file=/var/lib/postgresql/server.crt -c ssl_key_file=/var/lib/postgresql/server.key
           for _ in $(seq 1 30); do
-            if docker exec pgtest pg_isready -U postgres -d dfence_test > /dev/null 2>&1; then break; fi
+            if docker exec pgtest pg_isready -h 127.0.0.1 -U postgres -d dfence_test > /dev/null 2>&1; then break; fi
             sleep 2
           done
-          docker exec pgtest pg_isready -U postgres -d dfence_test
+          docker exec pgtest pg_isready -h 127.0.0.1 -U postgres -d dfence_test
           cp pgcerts/ca.crt src/certs/prod-ca-2021.crt
       - name: Apply every migration from an empty database
         env:
