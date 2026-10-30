@@ -90,15 +90,19 @@ export async function packageRelease(out = join(root, 'scratchpad/ci-release')) 
   const entries = await files(payload);
   if (!entries.some((name) => name.startsWith('dist/client/dist/fonts/') && name.endsWith('.woff2'))) throw new Error('Client font assets missing.');
   const archive = join(out, 'deploy.zip');
-  python(`import pathlib,sys,zipfile
+  // Commit time, not a fixed date: App Service skips a file whose size and time both match, so a
+  // same-length edit (a colour change) would otherwise never reach production.
+  const committed = run('git', ['log', '-1', '--format=%ct'], { cwd: root }).trim();
+  python(`import pathlib,sys,time,zipfile
 base=pathlib.Path(sys.argv[1])
+stamp=time.gmtime(int(sys.argv[3]))[:6]
 with zipfile.ZipFile(sys.argv[2],'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
  for p in sorted(base.rglob('*')):
   if p.is_file():
-   info=zipfile.ZipInfo(p.relative_to(base).as_posix(),date_time=(1980,1,1,0,0,0))
+   info=zipfile.ZipInfo(p.relative_to(base).as_posix(),date_time=stamp)
    info.compress_type=zipfile.ZIP_DEFLATED
    info.external_attr=0o100644 << 16
-   z.writestr(info,p.read_bytes())`, [payload, archive]);
+   z.writestr(info,p.read_bytes())`, [payload, archive, committed]);
   const manifest = { schemaVersion: 1, commitSha: process.env.GITHUB_SHA ?? null,
     archiveSha256: sha256(await readFile(archive)), serverSha256: sha256(await readFile(join(payload, 'dist/src/server.mjs'))),
     clientSha256: sha256(await readFile(join(payload, 'dist/client/dist/app.js'))),
