@@ -1,18 +1,21 @@
 # Dengue Prioritiser — Feature Backlog
 
-## Current delivery delta - 2026-10-30 (dispatch map correction in progress)
+## Current delivery delta - 2026-10-30 (dispatch map HQ and icon correction)
 
 ### Use HQ filtering and preserve icon lookup keys
-- **Status:** In progress; root implementation and validation are pending.
-- **Correction:** Replace the Team categorical checkbox filter with an HQ filter. Preserve raw pest and task enum keys in `MapTask` for icon/photo lookup; format only visible labels.
-- **Verification:** None claimed for this correction until root confirms.
+- **Status:** Done (`5fde7891a11005c98c444638e9286d94d1b10696` deployed; Actions 40993118609 passed).
+- **Correction:** Replaced the Team categorical checkbox filter with an HQ filter. Preserved raw pest and task enum keys in `MapTask` for icon/photo lookup; only visible labels are formatted.
+- **Local validation:** 1,154 tests passed / 58 SQL tests skipped; typecheck, build and clean package extraction smoke passed. Final alternate-label regression passed 15 focused tests; full CI passed.
+- **Requirements:** v0.20, 759 unique numbered definitions.
+- **Live validation:** Root Edge runner passed all eight flows: views, HQ filters and icons against actual API data, none/multi/All checkbox selection, popup retention across two real polls, map bounds, desktop and actual 390px mobile with no overflow. Client SHA256 `5349229f49df7563102a4bdc8356de4687bf28818ae158a4038be0d9ae17f7f3` matches the local build.
+- **Evidence:** `scratchpad/hq-icons-20261030/webdriver/results.json`. No operational records were written; routing behaviour is unchanged.
 
-## Previous delivery delta - 2026-10-30 (dispatch map interaction)
+## Previous delivery delta - 2026-10-30 (dispatch map interaction, before correction)
 
 ### Make map controls and task callouts operational
-- **Status:** Prior v0.19 release baseline (d1ebbbe); superseded by the in-progress correction above for the categorical filter and enum-key fields.
+- **Status:** Prior v0.19 release baseline (d1ebbbe), superseded by the completed correction above.
 - **Acceptance:** Team/Job Type checkbox All/multiple/none; three map views; six-field callout and authenticated on-open photo; labelled references; no synthetic task heading; collapsed details; Singapore zoom/pan boundary; poll-stable popup/zoom. Preserve full verified route geometry and source-point/area-access semantics.
-- **Validation:** Prior release checks are historical baseline evidence only; they do not verify the current correction.
+- **Validation:** Prior release checks are historical baseline evidence for the original map interaction release.
 - **Evidence:** scratchpad/map-interaction-20261029/DEPLOYMENT.md and webdriver-warm/results.json. No operational record mutations.
 
 ## Current delivery delta - 2026-10-29 (unified authority operations and concise cards)

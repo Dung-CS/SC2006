@@ -1,6 +1,6 @@
 # D-Fence — Atomised Software Requirements
 
-Version 0.19 · drafted 2026-09-02, revised 2026-10-29 · status: DRAFT for team review; deployment evidence recorded separately
+Version 0.20 · drafted 2026-09-02, revised 2026-10-30 · status: DRAFT for team review; deployment evidence recorded separately
 Revised after adversarial review; findings and dispositions are recorded in §14.
 Project: NTU SC2006/CZ2006 team project (municipal pest prioritiser)
 Product name: D-Fence.
@@ -13,12 +13,21 @@ and entity titles omit fixture tokens and identifiers while metadata retains ide
 This amendment supersedes earlier authority-only exclusions. Historical referral records and frozen
 submissions remain intact. The v0.18 full-suite, deployment and live verification evidence is recorded in the unified-operations release report.
 
-Definition audit for v0.19: 759 anchored numbered definitions, 759 unique IDs, zero duplicates.
+Definition audit for v0.20: 759 anchored numbered definitions, 759 unique IDs, zero duplicates.
+
+**v0.20 replaces crew filtering with HQ filtering and fixes species icons.** HQ and Job Type
+checkboxes support All, multiple selections and none. Crew groups use recorded depot locations;
+tasks without a recorded HQ stay in a separate category. Map tasks retain source pest/task enum
+keys for icons and photo fallback; visible text uses readable labels. Routing is unchanged.
+
+Verification: release `5fde789` passed CI deployment and eight live Edge map checks, including HQ
+grouping, API-matched species icons and an actual 390px mobile viewport. Local full suite passed
+1,154 tests with 58 SQL tests skipped. Evidence: `scratchpad/hq-icons-20261030/DEPLOYMENT.md`.
 
 **v0.19 adds dispatch map task metadata.** Unplanned task responses carry their recorded target
 coordinates and optional map-cluster identity. Official cluster proposals expose a display-only
 boundary centroid while route-input area-access semantics remain unchanged; report proposals retain
-their exact source-report coordinates. Dispatch views change map content, Team and Job Type use
+their exact source-report coordinates. Dispatch views change map content, HQ and Job Type use
 checkboxes, and task callouts show pest, task, priority, location, photo and team. Singapore zoom and
 pan bounds apply. Local, CI deployment and live browser checks passed; release evidence is recorded separately.
 
@@ -1265,8 +1274,8 @@ otherwise.*
 - **11.10.4** The dispatch map shall draw route lines only from complete, validated driving-road geometry.
 - **11.10.5** The dispatch map shall distinguish Critical, High, Medium and Low cluster priorities through distinct colours, identified by the legend in 11.10.6.
 - **11.10.6** The dispatch map shall include a legend naming all four priority tiers.
-- **11.10.7** The Dispatch Proposal map shall show only clusters represented by unfinished task stops on complete, validated driving routes. The manager shall be able to show all road-accessible teams or one selected team. Other active clusters remain available on the operations map.
-- **11.10.8** The Dispatch Proposal screen shall provide a map-focus control for a proposal represented on the current road-route map. Other proposals shall state that they are not on that map.
+- **11.10.7** The Dispatch Routes view shall show unfinished task stops on complete, validated driving routes, filtered by HQ and Job Type checkbox groups that each support All, multiple selections and none. Selecting an HQ shall include its matching crews while retaining each included route's full verified geometry.
+- **11.10.8** The Dispatch Proposal and Unassigned / committed views shall show their recorded task locations without executable route lines; a location pin alone shall not claim verified road access. Tasks without a recorded HQ shall remain available in a separate filter category.
 - **11.10.9** Each route card shall display its crew size, required task staff counts, total duration, capacity use and routing source.
 - **11.10.10** Each route card shall display an ordered waypoint list including departure, tasks and return to outpost.
 - **11.10.11** Each route card shall display its packing checklist and task progress.
@@ -1277,7 +1286,7 @@ otherwise.*
 - **11.10.16** The Report a Site screen shall display a loading state while image analysis runs.
 - **11.10.17** The Report a Site screen shall retain manually entered report fields when image analysis fails.
 - **11.10.18** Each pest marker on the dispatch map shall show only a pest icon, coloured by priority, with no descriptive marker text. The marker shall have an accessible name; hover or popup detail may retain the descriptive information.
-- **11.10.19** Map data refreshes and unrelated screen controls shall preserve the current zoom and pan. The map shall frame once when initial data arrive, unless the user has already moved it; an explicit cluster focus, team or date change, or Fit to map control may frame it again.
+- **11.10.19** Map data refreshes and unrelated screen controls shall preserve the current zoom and pan. The map shall frame once when initial data arrive, unless the user has already moved it; an explicit focus, HQ, Job Type, view or date change, or Fit to map control may frame it again.
 - **11.10.20** The Dispatch Proposal map shall omit duplicate cluster-centroid icons and completed task-stop markers. Source reports and work-order lifecycle records shall remain unchanged. A locally completed stop shall also remove its cluster polygon when no other unfinished mapped stop represents that cluster.
 
 ## 11.11 Dispatch refresh, load display and fleet controls
