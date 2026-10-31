@@ -16,7 +16,7 @@ import { Pill, tierTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
 import { Pagination, usePagination } from '../../components/Pagination';
 import { specialisationLabel } from '../../lib/dispatchRouting';
-import { TaskType } from '../../../../src/entity/enums';
+import { HqLocation, TaskType } from '../../../../src/entity/enums';
 import { SingaporeMap, MapRoute, MapTask } from '../../components/SingaporeMap';
 import { ScreenProps } from '../ScreenProps';
 import { reportPhotoUrl } from '../../lib/reportVisuals';
@@ -237,6 +237,8 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
   const [activePackingLists, setActivePackingLists] = useState<Record<string, boolean>>({});
   const [checkedGear, setCheckedGear] = useState<Record<string, boolean>>({});
   const [assignmentNotice, setAssignmentNotice] = useState('');
+  const [creatingScratch, setCreatingScratch] = useState(false);
+  const [scratchHq, setScratchHq] = useState<HqLocation>(HqLocation.Central);
   // Local stop status overrides for interactive progress tracking
   const [stopOverrides, setStopOverrides] = useState<Record<string, 'Completed' | 'InProgress' | 'Pending'>>({});
 
@@ -275,9 +277,21 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
   const horizonOnlyUnassigned = horizonUnassigned.filter((job) => job.disposition !== 'committed');
   const horizonCommitted = horizonUnassigned.filter((job) => job.disposition === 'committed');
   const dailyUnplanned = plan?.unplanned ?? [];
-  // Unassigned tasks the manager can add to a dispatch by hand.
-  const addableTasks = dailyUnplanned.filter((job) => job.disposition !== 'committed')
-    .map((job) => ({ workOrderId: job.workOrderId, label: taskLocation(job.locality, job.point), taskType: job.taskType, pestType: job.pestType }));
+  // Unassigned tasks the manager can add to a dispatch by hand (from daily plan and horizon, excluding demo tasks without road access)
+  const allCandidatesMap = new Map<string, { workOrderId: string; label: string; taskType?: string; pestType?: string }>();
+  for (const job of [...(horizon?.unassigned ?? []), ...dailyUnplanned]) {
+    if (job.disposition === 'committed') continue;
+    if (job.isDemo && job.reason?.includes('driving route to this task could not be verified')) continue;
+    if (!allCandidatesMap.has(job.workOrderId)) {
+      allCandidatesMap.set(job.workOrderId, {
+        workOrderId: job.workOrderId,
+        label: taskLocation(job.locality, job.point),
+        taskType: job.taskType,
+        pestType: job.pestType,
+      });
+    }
+  }
+  const addableTasks = [...allCandidatesMap.values()];
   // A proposal alone is not evidence of road access. Only validated road-plan stops belong here.
   const roadRoutes = routes.filter((r) => r.route.source === 'onemap' && isUsableDrivingRoute({
     ...r.route, coordinates: r.route.coordinates.map((p) => new GeoPoint(p.latitude, p.longitude)),
@@ -463,6 +477,56 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
         className="flex items-center gap-2 rounded-full border border-accent/30 bg-accent-quiet px-4 py-2 text-sm text-accent"><CircleCheck size={16} aria-hidden="true" />{assignmentNotice}</p> : null}
       <SavedDispatches key={selectedDay} api={props.api} date={selectedDay} candidates={addableTasks}
         onSaved={(result) => { setAssignmentNotice(`Dispatch updated · ${result.workOrderIds.length} tasks. Route, crew and vehicle saved.`); routesLoad.retry(); }} />
+      <div className="my-3 flex items-center justify-between">
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent-quiet px-4 py-2 text-sm font-medium text-accent hover:bg-accent/20 transition-colors"
+          onClick={() => setCreatingScratch((prev) => !prev)}
+        >
+          <ClipboardPlus size={16} aria-hidden="true" />
+          {creatingScratch ? 'Hide scratch dispatch creator' : 'Create new dispatch from scratch'}
+        </button>
+      </div>
+      {creatingScratch ? (
+        <section className="my-4 rounded-3xl border-2 border-accent/40 bg-surface p-4 shadow-sm sm:p-6" data-part="create-dispatch-scratch">
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <h3 className="m-0 flex items-center gap-2 text-xl font-semibold tracking-tight">
+              <ClipboardPlus size={18} aria-hidden="true" /> Create new dispatch from scratch
+            </h3>
+            <button type="button" onClick={() => setCreatingScratch(false)}>Cancel</button>
+          </div>
+          <div className="my-3 flex items-center gap-3">
+            <label className="text-sm font-medium">
+              Base HQ depot:
+              <select
+                value={scratchHq}
+                onChange={(e) => setScratchHq(e.target.value as HqLocation)}
+                className="ml-2 rounded border border-line bg-surface px-2 py-1"
+              >
+                {Object.values(HqLocation).map((hq) => (
+                  <option key={hq} value={hq}>
+                    {hq} HQ
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <DispatchAssignmentEditor
+            key={`scratch-${scratchHq}-${selectedDay}`}
+            api={props.api}
+            date={selectedDay}
+            teamId={`scratch-${scratchHq}-team`}
+            proposedCrewIds={[]}
+            stops={[]}
+            candidates={addableTasks}
+            onAssigned={(result) => {
+              setAssignmentNotice(`Dispatch created from scratch · ${result.workOrderIds.length} tasks. Crew and vehicle saved.`);
+              setCreatingScratch(false);
+              routesLoad.retry();
+            }}
+          />
+        </section>
+      ) : null}
       {/*
         The map heading and the map's own toolbar float over the canvas in frosted panels on a wide
         screen. On a phone they stay in the flow above it, where they cannot cover the map.

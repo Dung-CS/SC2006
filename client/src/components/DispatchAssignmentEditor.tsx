@@ -44,6 +44,10 @@ export function DispatchAssignmentEditor(props: {
   const [vehicleId, setVehicleId] = useState('');
   const [stops, setStops] = useState<DispatchStop[]>(props.stops ?? []);
   const [adding, setAdding] = useState('');
+  const [showNewTaskForm, setShowNewTaskForm] = useState(false);
+  const [newLocality, setNewLocality] = useState('');
+  const [newTaskType, setNewTaskType] = useState('Inspection');
+  const [newPestType, setNewPestType] = useState('Mosquito');
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -85,6 +89,32 @@ export function DispatchAssignmentEditor(props: {
       return next;
     });
   }
+  async function createAndAddTask(): Promise<void> {
+    if (!newLocality.trim()) return;
+    setBusy(true); setFailure(null);
+    try {
+      const created = await props.api.post<{ id: string }>('/api/ops/work-orders', {
+        taskType: newTaskType,
+        pestType: newPestType,
+        scheduledDate: props.date,
+        instructions: `Field task at ${newLocality.trim()}`,
+      });
+      const newStop: DispatchStop = {
+        workOrderId: created.id,
+        label: `${newLocality.trim()} · ${cleanTitle(newTaskType, '')}`,
+        taskType: newTaskType,
+        pestType: newPestType,
+      };
+      setStops((prev) => [...prev, newStop]);
+      setNewLocality('');
+      setShowNewTaskForm(false);
+    } catch (error) {
+      setFailure(failureText(error, 'Could not create task.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save(): Promise<void> {
     if (!options) return;
     setBusy(true); setFailure(null);
@@ -93,7 +123,7 @@ export function DispatchAssignmentEditor(props: {
       const result = editing
         ? await props.api.post<Saved>('/api/ops/dispatch/assignment-edit', { date: props.date, assignmentId: props.assignmentId, crewIds, vehicleId, workOrderIds })
         : await props.api.post<Saved>('/api/ops/dispatch/assign', {
-          date: props.date, teamId: props.teamId, crewIds, vehicleId, computedAt: options.computedAt, ...(props.stops ? { workOrderIds } : {}) });
+          date: props.date, teamId: props.teamId, crewIds, vehicleId, computedAt: options.computedAt, workOrderIds });
       setAssigned(true);
       props.onAssigned(result);
     } catch (error) { setFailure(failureText(error, 'The dispatch could not be saved. Reload the options and try again.')); }
@@ -105,7 +135,8 @@ export function DispatchAssignmentEditor(props: {
     {assigned ? <p role="status">{editing ? 'Dispatch updated. Route, crew and vehicle saved.' : 'Dispatch assigned. Crew and vehicle saved.'}</p> : <>
       <button type="button" disabled={busy} onClick={() => void load()}>{options ? 'Reload assignment options' : editing ? 'Edit this dispatch' : 'Choose crew and vehicle'}</button>
       {options ? <>
-        {props.stops ? <fieldset><legend>Stops · in visit order</legend>
+        {props.stops !== undefined ? <fieldset><legend>Stops · in visit order</legend>
+          {stops.length === 0 ? <p className="text-sm text-ink-quiet py-2">No stops added yet. Choose an unassigned task or create a new task below.</p> : null}
           <ol className="dispatch-stop-list">{stops.map((stop, index) => <li key={stop.workOrderId} draggable={!busy}
             data-dragging={dragFrom === index || undefined} data-drop-target={dragOver === index && dragFrom !== index || undefined}
             onDragStart={(event) => { setDragFrom(index); event.dataTransfer?.setData('text/plain', stop.workOrderId); }}
@@ -130,6 +161,45 @@ export function DispatchAssignmentEditor(props: {
               setAdding('');
             }}>Add task</button>
           </label> : null}
+          <div className="dispatch-create-task-block mt-3 border-t border-line pt-2">
+            {!showNewTaskForm ? (
+              <button type="button" className="text-xs" disabled={busy} onClick={() => setShowNewTaskForm(true)}>
+                + Create new task for this dispatch
+              </button>
+            ) : (
+              <div className="grid gap-2 rounded-xl border border-line bg-surface p-3 text-sm my-2">
+                <div className="flex items-center justify-between">
+                  <strong>Create new task</strong>
+                  <button type="button" className="text-xs" onClick={() => setShowNewTaskForm(false)}>Cancel</button>
+                </div>
+                <label className="flex flex-col gap-1">Location description
+                  <input maxLength={100} placeholder="e.g. Blk 123 Tampines St 11" value={newLocality} onChange={(e) => setNewLocality(e.target.value)} disabled={busy} />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1">Task type
+                    <select value={newTaskType} onChange={(e) => setNewTaskType(e.target.value)} disabled={busy}>
+                      <option value="Inspection">Inspection</option>
+                      <option value="Fogging">Fogging</option>
+                      <option value="Larviciding">Larviciding</option>
+                      <option value="SourceReduction">Source Reduction</option>
+                      <option value="RefuseRemoval">Refuse Removal</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">Pest type
+                    <select value={newPestType} onChange={(e) => setNewPestType(e.target.value)} disabled={busy}>
+                      <option value="Mosquito">Mosquito</option>
+                      <option value="Rat">Rat</option>
+                      <option value="Cockroach">Cockroach</option>
+                      <option value="AsianHornetWasp">Hornet / Wasp</option>
+                    </select>
+                  </label>
+                </div>
+                <button type="button" disabled={busy || !newLocality.trim()} onClick={() => void createAndAddTask()}>
+                  {busy ? 'Creating...' : 'Create & add to dispatch'}
+                </button>
+              </div>
+            )}
+          </div>
         </fieldset> : null}
         <fieldset><legend>Crew · at least {requiredStaff}</legend>
           <div className="dispatch-crew-options">{options.crew.map((member) => <label key={member.id}>

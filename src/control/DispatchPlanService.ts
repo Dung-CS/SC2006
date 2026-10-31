@@ -346,7 +346,7 @@ export class DispatchPlanService {
         entry.value = { ...entry.value, plans, planStatus: entry.requested ? 'refreshing' : 'ready',
           computedAt: new Date().toISOString(), error: null,
           unassigned: [...pending.values()].filter((job) => job.disposition === 'committed' ||
-            !identities(job).some((id) => scheduled.has(id))).sort(priorityFirst), referrals: [...referralMap.values()] };
+            (!identities(job).some((id) => scheduled.has(id)) && !(job.isDemo && job.reason.includes('driving route to this task could not be verified')))).sort(priorityFirst), referrals: [...referralMap.values()] };
         entry.fingerprints = fingerprints;
         if (recomputed) entry.expiresAt = Date.now() + SNAPSHOT_TTL_MS;
         entry.retryAt = needsRetry ? Date.now() + RETRY_DELAY_MS : null;
@@ -404,6 +404,7 @@ export class DispatchPlanService {
         const plannedIds = new Set(routes.flatMap((route) => route.workOrderIds));
         const rank: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
         const unplanned = input.jobs.filter((job) => !plannedIds.has(job.workOrderId))
+          .filter((job) => !(job.isDemo && roadUnverified.has(job.workOrderId)))
           .sort((a, b) => (rank[a.priority ?? 'Medium'] ?? 2) - (rank[b.priority ?? 'Medium'] ?? 2))
           .map((job) => this.unplannedTask(job, roadUnverified, date));
         entry.value = { date, planStatus: entry.requested ? 'refreshing' : 'ready', routes, unplanned,

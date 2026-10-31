@@ -26,9 +26,7 @@ describe('Vehicle registry manager screen', () => {
     expect(screen.getByText('Model reference photo')).toBeTruthy();
     fireEvent.error(photo);
     expect(screen.getByText('Vehicle photo unavailable')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit DEMO-CENTRAL-VAN' }));
-    expect(screen.getByLabelText('Make and model')).toHaveProperty('value', vehicle.model);
-    expect(screen.getByLabelText('Photo URL or local path')).toHaveProperty('value', vehicle.photoUrl);
+    expect(screen.queryByRole('button', { name: /Edit DEMO-CENTRAL-VAN/i })).toBeNull();
   });
   it('shows demo status, capacity, dimensions and an HQ filter', async () => {
     const fetcher: Fetcher = async () => ({ ok: true, status: 200, json: async () => ({ vehicles: [demo] }) }) as Response;
@@ -45,7 +43,7 @@ describe('Vehicle registry manager screen', () => {
     expect(screen.getByText('No vehicles are recorded at this HQ.')).toBeTruthy();
   });
 
-  it('edits capacity and availability while retaining the explicit demo flag', async () => {
+  it('adds a vehicle with capacity and availability while retaining the explicit demo flag', async () => {
     const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
     const fetcher: Fetcher = async (url, init) => {
       if (init?.method === 'POST') {
@@ -55,13 +53,22 @@ describe('Vehicle registry manager screen', () => {
       return { ok: true, status: 200, json: async () => ({ vehicles: [demo] }) } as Response;
     };
     render(<VehicleRegistryScreen {...props(fetcher)} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit DEMO-CENTRAL-VAN' }));
+    await screen.findByText('Cargo van');
+    fireEvent.change(screen.getByLabelText('Registration'), { target: { value: 'GBD 1234 K' } });
+    fireEvent.change(screen.getByLabelText('Vehicle name'), { target: { value: 'New Van' } });
+    fireEvent.change(screen.getByLabelText('Make and model'), { target: { value: 'Toyota Hiace' } });
     fireEvent.change(screen.getByLabelText('Maximum payload (kg)'), { target: { value: '600' } });
+    fireEvent.change(screen.getByLabelText('Usable cargo volume (m³)'), { target: { value: '6' } });
+    fireEvent.change(screen.getByLabelText('Cargo bay length (cm)'), { target: { value: '300' } });
+    fireEvent.change(screen.getByLabelText('Cargo bay width (cm)'), { target: { value: '160' } });
+    fireEvent.change(screen.getByLabelText('Cargo bay height (cm)'), { target: { value: '140' } });
+    fireEvent.change(screen.getByLabelText('Seats including driver'), { target: { value: '3' } });
     fireEvent.click(screen.getByLabelText('Available for dispatch'));
-    fireEvent.click(screen.getByRole('button', { name: 'Save vehicle' }));
+    fireEvent.click(screen.getByLabelText('Demo data (illustrative vehicle)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add vehicle' }));
     await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0]).toMatchObject({ url: '/api/ops/vehicles/demo-vehicle-Central-van',
-      body: { maxPayloadKg: 600, maxCargoVolumeM3: 6, isAvailable: false, isDemo: true } });
+    expect(calls[0]).toMatchObject({ url: '/api/ops/vehicles',
+      body: { registration: 'GBD 1234 K', name: 'New Van', model: 'Toyota Hiace', maxPayloadKg: 600, isAvailable: false, isDemo: true } });
     expect(await screen.findByRole('status')).toBeTruthy();
   });
 });

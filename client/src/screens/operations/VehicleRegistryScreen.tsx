@@ -102,7 +102,6 @@ export function VehicleRegistryScreen(props: ScreenProps): JSX.Element {
             </div>
             <div className="flex items-center justify-between">
               <Pill tone={vehicle.isAvailable ? 'good' : 'neutral'}>{vehicle.isAvailable ? 'Available' : 'Unavailable'}</Pill>
-              <button type="button" aria-label={`Edit ${vehicle.registration}`} onClick={() => edit(vehicle)}>Edit vehicle</button>
             </div>
           </div>
         </article>)}

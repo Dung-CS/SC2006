@@ -13,7 +13,7 @@ import { ConfirmDialog, StateView, Toast } from '../../components/States';
 import { link } from '../../components/Link';
 import { Facts, Pill, statusTone } from '../../components/Presentation';
 import { label } from '../../lib/labels';
-import { staffDisplayName } from '../../lib/staffVisuals';
+import { staffDisplayName, staffPhotoUrl } from '../../lib/staffVisuals';
 import { SPECIALISATION_LABEL, specialisationLabel } from '../../lib/dispatchRouting';
 import { HqLocation, Role, StaffSpecialisation, StaffStatus } from '../../../../src/entity/enums';
 import { HQ_LABEL } from './StaffAccountsScreen';
@@ -75,10 +75,13 @@ export function CrewDetailScreen(props: ScreenProps): JSX.Element {
       <StateView state={state} onRetry={retry}>
         {member == null ? null : (
           <article data-entity-id={member.id}>
-            <h1 className="text-2xl sm:text-[2rem]">
-              <span data-part="entity-title">{staffDisplayName(member.email, member.role, member.displayName)}</span>{' '}
-              <Pill tone={member.isActive ? 'good' : 'neutral'}>{member.isActive ? 'Active' : 'Deactivated'}</Pill>
-            </h1>
+            <div className="flex items-center gap-4 mb-3">
+              <img src={staffPhotoUrl(member.email, member.role)} alt="Staff portrait" className="size-16 rounded-full object-cover ring-2 ring-line" />
+              <h1 className="text-2xl sm:text-[2rem] m-0">
+                <span data-part="entity-title">{staffDisplayName(member.email, member.role, member.displayName)}</span>{' '}
+                <Pill tone={member.isActive ? 'good' : 'neutral'}>{member.isActive ? 'Active' : 'Deactivated'}</Pill>
+              </h1>
+            </div>
             <Facts
               items={[
                 { label: 'Email', value: member.email, part: 'email' },

@@ -104,4 +104,42 @@ describe('dispatch assignment editor', () => {
     await waitFor(() => expect(posts[0]).toMatchObject({ url: '/api/ops/dispatch/assignment-edit',
       body: { assignmentId: 'd1', workOrderIds: ['a'], crewIds: ['crew-1'], vehicleId: 'van-1' } }));
   });
+
+  it('supports creating a dispatch from scratch with empty stops and adding tasks', async () => {
+    const { client, posts } = api({ '/api/ops/dispatch/assignment-options': options, '/api/ops/dispatch/assign': { id: 'saved-scratch', workOrderIds: ['task-1'] } });
+    const onAssigned = vi.fn();
+    render(<DispatchAssignmentEditor api={client} date="2099-01-01" teamId="scratch-Central-team" proposedCrewIds={[]}
+      stops={[]} candidates={[{ workOrderId: 'task-1', label: 'Tampines St 11' }]} onAssigned={onAssigned} />);
+    fireEvent.click(screen.getByText('Choose crew and vehicle'));
+    await screen.findByText('Assign dispatch');
+    expect(screen.getByText(/No stops added yet/)).toBeTruthy();
+    expect((screen.getByText('Assign dispatch') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'task-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+    expect(screen.getByText('Tampines St 11')).toBeTruthy();
+    expect((screen.getByText('Assign dispatch') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByText('Assign dispatch'));
+    await waitFor(() => expect(onAssigned).toHaveBeenCalledWith({ id: 'saved-scratch', workOrderIds: ['task-1'] }));
+    expect(posts[0]?.body.workOrderIds).toEqual(['task-1']);
+  });
+
+  it('allows manager to create a new task directly from the dispatch editor', async () => {
+    const { client, posts } = api({
+      '/api/ops/dispatch/assignment-options': options,
+      '/api/ops/work-orders': { id: 'new-wo-123' },
+      '/api/ops/dispatch/assign': { id: 'saved', workOrderIds: ['new-wo-123'] },
+    });
+    render(<DispatchAssignmentEditor api={client} date="2099-01-01" teamId="Central-VectorControl-Available" proposedCrewIds={['crew-1']} proposedVehicleId="van-1"
+      stops={[]} candidates={[]} onAssigned={vi.fn()} />);
+    fireEvent.click(screen.getByText('Choose crew and vehicle'));
+    await screen.findByText('Assign dispatch');
+    fireEvent.click(screen.getByText('+ Create new task for this dispatch'));
+    fireEvent.change(screen.getByPlaceholderText(/Blk 123/i), { target: { value: 'Jurong West St 42' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create & add to dispatch' }));
+    await screen.findByText(/Jurong West St 42/);
+    expect(posts[0]).toMatchObject({
+      url: '/api/ops/work-orders',
+      body: { taskType: 'Inspection', pestType: 'Mosquito', scheduledDate: '2099-01-01', instructions: 'Field task at Jurong West St 42' },
+    });
+  });
 });

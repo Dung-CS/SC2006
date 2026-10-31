@@ -149,6 +149,7 @@ import { buildDispatchRouteInputs } from './control/DispatchRouteInputs';
 import { reportClusterDistance, withLinkedReportOrders } from './control/ReportSpatialClustering';
 import { DispatchPlanInputs, DispatchPlanService } from './control/DispatchPlanService';
 import { createVehicleStore, seedDemoVehicles } from './persistence/VehicleRepository';
+import { deterministicSingaporeName } from './presentation/DisplayNames';
 import { VehicleController } from './control/VehicleController';
 import { VehicleRoutes } from './boundary/http/VehicleRoutes';
 import { RouteStrategyFactory } from './control/routing/RouteStrategyFactory';
@@ -885,6 +886,13 @@ async function main(): Promise<void> {
   const routePlanner = new RouteOptimizationService(RouteStrategyFactory.create(oneMap));
   const vehicleStore = createVehicleStore(database);
   await seedDemoVehicles(vehicleStore);
+  const crewAccounts = await accounts.findByRole(Role.CleaningCrew);
+  for (const member of crewAccounts) {
+    if (!member.displayName?.trim()) {
+      member.displayName = deterministicSingaporeName(member.id || member.email);
+      await accounts.save(member);
+    }
+  }
   const routeInputs = async (date: string, signal?: AbortSignal): Promise<DispatchPlanInputs> => {
     const checkCancelled = (): void => { if (signal?.aborted) throw new Error('Dispatch input loading was cancelled'); };
     checkCancelled();

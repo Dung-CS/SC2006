@@ -275,4 +275,17 @@ describe('dispatch assignment: report reject removes its stop', () => {
     expect((await f.saved()).workOrderIds).toEqual(first.workOrderIds);
     expect((await f.order(first.workOrderIds[0]!)).currentStatus()).toBe(WorkOrderStatus.Assigned);
   });
+
+  it('allows manager to create a new dispatch from scratch', async () => {
+    const f = await fixture();
+    const options = await f.service.options(date, 'scratch-Central-team', manager);
+    expect(options.crew.length).toBeGreaterThan(0);
+    expect(options.vehicles.length).toBeGreaterThan(0);
+    const assigned = await f.service.assign({
+      date, teamId: 'scratch-Central-team', crewIds: ['crew-1'], vehicleId: 'van-1', workOrderIds: ['b', 'c'],
+    }, manager);
+    expect(assigned.teamId).toBe('scratch-Central-team');
+    expect(assigned.workOrderIds).toEqual(['b', 'c']);
+    expect(assigned.routeSnapshot.waypointOrder.filter((wp) => !wp.isHq).map((wp) => wp.workOrderId)).toEqual(['b', 'c']);
+  });
 });

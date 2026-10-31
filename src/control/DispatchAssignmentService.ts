@@ -83,12 +83,52 @@ export class DispatchAssignmentService {
     await this.ac.authorise(by, 'workOrder:write', { kind: 'workOrder' });
   }
 
+  private inferHq(teamId: string): HqLocation {
+    for (const hq of Object.values(HqLocation)) {
+      if (teamId.toLowerCase().includes(hq.toLowerCase())) return hq;
+    }
+    return HqLocation.Central;
+  }
+
   private ready(date: string, teamId: string, computedAt?: string) {
     if (!validDispatchDate(date) || !teamId || date < singaporeDate(new Date())) {
       throw new DispatchAssignmentRejected('Choose today or a future dispatch date and a planned crew.', 400);
     }
     const found = this.plans.findReadyRoute(date, teamId);
-    if (!found || computedAt !== undefined && computedAt !== found.computedAt) {
+    if (!found) {
+      const hq = this.inferHq(teamId);
+      const coord = HQ_COORDINATES[hq] ?? HQ_COORDINATES[HqLocation.Central];
+      const emptyRoute: PlannedTeamRoute = {
+        teamId,
+        color: '#4CC9F0',
+        staffCount: 1,
+        totalStopsCount: 0,
+        totalDurationSeconds: 0,
+        totalTravelSeconds: 0,
+        totalEffortSeconds: 0,
+        capacityUsedPercentage: 0,
+        isWithinFourHourCap: true,
+        completedCount: 0,
+        progressPercentage: 0,
+        packingList: [],
+        loadWeightKg: 0,
+        loadVolumeM3: 0,
+        loadBasis: 'Scratch route',
+        status: StaffStatus.Available,
+        onCallLagHours: 0,
+        depotLocation: hq,
+        waypointOrder: [],
+        workOrderIds: [],
+        route: {
+          source: 'onemap',
+          distanceMetres: 0,
+          durationSeconds: 0,
+          coordinates: [coord, coord],
+        },
+      };
+      return { route: emptyRoute, computedAt: computedAt ?? new Date().toISOString() };
+    }
+    if (computedAt !== undefined && computedAt !== found.computedAt) {
       throw new DispatchAssignmentRejected('This dispatch plan changed or is not ready. Refresh the plan and choose the crew again.');
     }
     this.verified(found.route, 'This dispatch does not have a complete verified route. Refresh the plan.');
@@ -96,6 +136,7 @@ export class DispatchAssignmentService {
   }
 
   private verified(route: PlannedTeamRoute, message: string): PlannedTeamRoute {
+    if (route.workOrderIds.length === 0) return route;
     if (route.route.source !== 'onemap' || !route.isWithinFourHourCap ||
       !Number.isFinite(route.totalDurationSeconds) || route.totalDurationSeconds > 14_400 ||
       !route.workOrderIds.length || stopsOf(route).length !== route.workOrderIds.length ||
@@ -228,7 +269,8 @@ export class DispatchAssignmentService {
   private eligibleCrew(member: Account, route: PlannedTeamRoute): boolean {
     if (member.hqLocation !== route.depotLocation || ![StaffStatus.Available, StaffStatus.OnCall].includes(member.staffStatus)) return false;
     const lag = member.staffStatus === StaffStatus.OnCall ? member.onCallLagHours : 0;
-    if (!Number.isFinite(lag) || lag < 0 || lag > route.onCallLagHours) return false;
+    if (!Number.isFinite(lag) || lag < 0 || (route.onCallLagHours > 0 && lag > route.onCallLagHours)) return false;
+    if (stopsOf(route).length === 0) return true;
     return stopsOf(route).every((stop) => !!stop.taskType && !!stop.pestType && ineligibilityReason(member,
       { taskType: stop.taskType as TaskType, pestType: stop.pestType as PestType }, this.config.pestProfiles.get(stop.pestType as PestType) ?? null) === null);
   }
@@ -287,8 +329,12 @@ export class DispatchAssignmentService {
     this.selection(request, false);
     // Manual set: route the manager's stop list on roads before taking the write lock.
     const planned = this.ready(request.date, request.teamId, request.computedAt);
-    const manual = request.workOrderIds && request.workOrderIds.join() !== planned.route.workOrderIds.join()
+    const manual = request.workOrderIds && (planned.route.workOrderIds.length === 0 || request.workOrderIds.join() !== planned.route.workOrderIds.join())
       ? await this.manualRoute(planned.route, request.date, request.workOrderIds) : null;
+    const initialRoute = manual ?? planned.route;
+    if (initialRoute.workOrderIds.length === 0) {
+      throw new DispatchAssignmentRejected('Choose at least one task for this dispatch.', 400);
+    }
     const result = await this.unit.run(async (context) => {
       const resources = await this.resources(context, request.date);
       const previous = resources.assignments.find((assignment) => assignment.teamId === request.teamId && assignment.computedAt === request.computedAt);
@@ -297,7 +343,7 @@ export class DispatchAssignmentService {
         throw new DispatchAssignmentRejected('This dispatch is already assigned. Open its saved assignment.');
       }
       const { computedAt } = this.ready(request.date, request.teamId, request.computedAt);
-      const route = manual ?? planned.route;
+      const route = initialRoute;
       const { selected, vehicle } = this.chosen(resources, route, request.crewIds, request.vehicleId);
       const assignment: DispatchAssignment = { id: randomUUID(), date: request.date, teamId: request.teamId,
         crewIds: [...request.crewIds], vehicleId: request.vehicleId, workOrderIds: [], computedAt,

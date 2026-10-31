@@ -2,7 +2,7 @@ import { Vehicle } from '../entity/Vehicle';
 import { HqLocation } from '../entity/enums';
 import { VehicleStore } from '../ports/VehicleStore';
 import { Database, Row } from './Database';
-import { demoGoodsPlate } from '../entity/SingaporePlate';
+import { demoGoodsPlate, isValidGoodsPlate } from '../entity/SingaporePlate';
 
 export class VehicleRepository implements VehicleStore {
   constructor(private readonly db: Database) {}
@@ -83,7 +83,8 @@ export function demoVehicleIdentity(kind: DemoVehicleKind, hq: string): { model:
 
 /** Run only for an empty registry. Disabled or edited demo entries are never recreated on restart. */
 export async function seedDemoVehicles(store: VehicleStore): Promise<void> {
-  if ((await store.list()).length > 0) return;
+  const existing = await store.list();
+  if (existing.length === 0) {
   const taken = new Set<string>();
   const plate = (id: string): string => { const p = demoGoodsPlate(id, taken); taken.add(p); return p; };
   for (const hqLocation of Object.values(HqLocation)) {
@@ -95,5 +96,28 @@ export async function seedDemoVehicles(store: VehicleStore): Promise<void> {
     await store.save({ id: pickupId, registration: plate(pickupId), ...demoVehicleIdentity('pickup', hqLocation), hqLocation,
       maxPayloadKg: 1000, maxCargoVolumeM3: 3, cargoLengthCm: 240, cargoWidthCm: 150, cargoHeightCm: 100, seatCapacity: 5,
       isAvailable: true, isDemo: true });
+    }
+    return;
+  }
+  const taken = new Set<string>(existing.map((v) => v.registration).filter((p) => isValidGoodsPlate(p)));
+  for (const v of existing) {
+    const isDemo = v.isDemo || v.id.startsWith('demo-vehicle-');
+    const needsPlate = !isValidGoodsPlate(v.registration);
+    const kind: DemoVehicleKind = /pickup/i.test(`${v.id} ${v.name} ${v.registration}`) ? 'pickup' : 'van';
+    const idInfo = demoVehicleIdentity(kind, v.hqLocation);
+    const needsModel = !v.model;
+    const needsPhoto = !v.photoUrl;
+    if (isDemo && (needsPlate || needsModel || needsPhoto)) {
+      const registration = needsPlate ? demoGoodsPlate(v.id, taken) : v.registration;
+      taken.add(registration);
+      await store.save({
+        ...v,
+        model: v.model || idInfo.model,
+        photoUrl: v.photoUrl || idInfo.photoUrl,
+        name: v.name && !v.name.startsWith('Demo') ? v.name : idInfo.name,
+        registration,
+        isDemo: true,
+      });
+    }
   }
 }

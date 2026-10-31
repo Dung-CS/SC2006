@@ -3,7 +3,7 @@
  * Maps staff emails and roles deterministically to authentic portrait assets.
  */
 
-import { cleanTitle } from '../../../src/presentation/DisplayNames';
+import { cleanTitle, deterministicSingaporeName } from '../../../src/presentation/DisplayNames';
 
 export interface StaffVisual {
   email: string;
@@ -65,7 +65,7 @@ export function staffPhotoUrl(email: string, role?: string): string {
 export function staffDisplayName(email: string, role?: string, displayName?: string | null): string {
   if (displayName?.trim()) return displayName.trim();
   const clean = (email || '').split('@')[0] ?? '';
-  if (clean.toLowerCase().includes('ychow')) {
+  if (clean.toLowerCase().includes('ychow') || clean.toLowerCase().includes('yenkit')) {
     return 'Chow Yen Kit';
   }
   if (!clean || /\d/.test(clean) || /^(?:demo|walkthrough|uat|test|crew|staff|manager)(?:[-_.]|$)/i.test(clean) || /(?:^|[-_.])demo(?:[-_.]|$)/i.test(clean)) {
