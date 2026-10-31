@@ -197,7 +197,7 @@ describe('Dispatch map views and filters', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Save/ })).toBeTruthy());
     expect(screen.getAllByRole('button', { name: /Quit/ })[0]).toBeTruthy();
     // Quit returns to the dispatch cards
-    fireEvent.click(screen.getAllByRole('button', { name: /Quit/ })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Quit/ })[0]!);
     expect(screen.getByRole('button', { name: /View & Edit Dispatch Details/ })).toBeTruthy();
   });
 
