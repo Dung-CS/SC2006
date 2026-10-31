@@ -4,6 +4,7 @@ import { Vehicle } from '../entity/Vehicle';
 import { RouteJob, RouteTeam, PlannedTeamRoute, RouteOptimizationService } from './RouteOptimizationService';
 import { WorkOrderStatus } from '../entity/enums';
 import type { TaskScoreExplanation } from '../presentation/TaskScoreExplanation';
+import type { DispatchAssignment } from '../ports/DispatchAssignmentStore';
 
 const SNAPSHOT_TTL_MS = 5 * 60_000;
 const RETRY_DELAY_MS = 30_000;
@@ -17,6 +18,7 @@ export interface DispatchPlanInputs {
   jobs: DispatchJob[];
   vehicles: Vehicle[];
   referrals?: unknown[];
+  assignments?: DispatchAssignment[];
 }
 
 export type DispatchJob = RouteJob & { scheduledDate?: string };
@@ -399,8 +401,21 @@ export class DispatchPlanService {
         entry.value.planStatus = entry.value.computedAt ? 'refreshing' : 'pending';
         const start = Date.now();
         const roadUnverified = new Set<string>();
-        const allocatable = input.jobs.filter((job) => !isCommitted(job));
-        const routes = withLocalities(await this.planner.plan(input.teams, allocatable, input.vehicles, roadUnverified), input.jobs);
+        const fixedAssignments = (input.assignments ?? []).filter((a) => a.isFixed && a.status !== 'Cancelled');
+        const fixedTeamIds = new Set(fixedAssignments.map((a) => a.teamId));
+        const fixedJobIds = new Set(fixedAssignments.flatMap((a) => a.workOrderIds));
+        const fixedVehicleIds = new Set(fixedAssignments.map((a) => a.vehicleId));
+        const teamsToPlan = input.teams.filter((team) => !fixedTeamIds.has(team.teamId));
+        const allocatable = input.jobs.filter((job) => !isCommitted(job) && !fixedJobIds.has(job.workOrderId));
+        const availableVehicles = input.vehicles.filter((v) => !fixedVehicleIds.has(v.id));
+        const computedRoutes = withLocalities(await this.planner.plan(teamsToPlan, allocatable, availableVehicles, roadUnverified), input.jobs);
+        const fixedRoutes: PlannedTeamRoute[] = fixedAssignments.map((a) => ({
+          ...a.routeSnapshot,
+          isFixed: true,
+          assignmentId: a.id,
+          checklist: a.checklist ?? a.routeSnapshot.checklist,
+        }));
+        const routes = [...fixedRoutes, ...computedRoutes];
         const plannedIds = new Set(routes.flatMap((route) => route.workOrderIds));
         const rank: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
         const unplanned = input.jobs.filter((job) => !plannedIds.has(job.workOrderId))

@@ -1,5 +1,16 @@
 import type { PlannedTeamRoute } from '../control/RouteOptimizationService';
 
+export interface ChecklistItem {
+  id: string;
+  item: string;
+  quantity?: string;
+  icon?: string;
+  category?: string;
+  checked: boolean;
+  checkedBy?: string;
+  checkedAt?: string;
+}
+
 export interface DispatchAssignment {
   id: string;
   date: string;
@@ -13,6 +24,10 @@ export interface DispatchAssignment {
   createdBy: string;
   updatedAt?: string;
   updatedBy?: string;
+  /** Manually created or edited dispatches are fixed and unchanged by automatic assignment. */
+  isFixed?: boolean;
+  /** Logistics equipment checklist verified by crew. */
+  checklist?: ChecklistItem[];
   /** Cancelled when its last task was removed; its crew and vehicle are then free. */
   status?: 'Cancelled';
   /** Set when stops were removed but the road re-check of the rest failed or timed out. */

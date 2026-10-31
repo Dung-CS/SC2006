@@ -4,11 +4,12 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Backpack, Building2, CalendarDays, Car, Check, ChevronDown, ChevronRight, ChevronUp, Circle, CircleCheck,
+  ArrowLeft, Backpack, Building2, CalendarDays, Car, Check, CheckCircle, ChevronDown, ChevronRight, ChevronUp, Circle, CircleCheck,
   CircleHelp, ClipboardPlus, Clock, ExternalLink, Eye, Filter, Footprints, Hourglass, Inbox, Info, Layers,
-  ListChecks, LoaderCircle, MapPin, Navigation, PawPrint, RefreshCw, Route, ShieldCheck, Timer, TriangleAlert,
+  ListChecks, LoaderCircle, MapPin, Navigation, PawPrint, RefreshCw, Route, Save, ShieldCheck, Timer, Trash2, TriangleAlert,
   Truck, Users, Warehouse, Wrench, X,
 } from 'lucide-react';
+import type { ChecklistItem } from '../../../../src/ports/DispatchAssignmentStore';
 import { useLoad } from '../../lib/useLoad';
 import { StateView } from '../../components/States';
 import { link } from '../../components/Link';
@@ -140,6 +141,9 @@ interface PlannedRoutesPayload {
     loadWeightPercentage?: number;
     loadVolumePercentage?: number;
     loadBasis?: string;
+    isFixed?: boolean;
+    assignmentId?: string;
+    checklist?: ChecklistItem[];
   }>;
 }
 
@@ -415,6 +419,58 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
     setStopOverrides((prev) => ({ ...prev, [key]: status }));
   };
 
+  const [openedDispatchTeamId, setOpenedDispatchTeamId] = useState<string | null>(null);
+  const [checklistOverrides, setChecklistOverrides] = useState<Record<string, ChecklistItem[]>>({});
+  const [newChecklistText, setNewChecklistText] = useState('');
+  const [newChecklistQty, setNewChecklistQty] = useState('');
+
+  const handleAddChecklistItem = async (teamId: string, assignmentId?: string) => {
+    if (!newChecklistText.trim()) return;
+    const item = newChecklistText.trim();
+    const quantity = newChecklistQty.trim() || undefined;
+    if (assignmentId) {
+      try {
+        const res = await props.api.post<{ checklist: ChecklistItem[] }>('/api/ops/dispatch/checklist/item', {
+          assignmentId,
+          item,
+          quantity,
+        });
+        setChecklistOverrides((prev) => ({ ...prev, [teamId]: res.checklist }));
+        setNewChecklistText('');
+        setNewChecklistQty('');
+        routesLoad.retry();
+        return;
+      } catch {}
+    }
+    const current = checklistOverrides[teamId] ?? routes.find((r) => r.teamId === teamId)?.checklist ?? [];
+    const newItem: ChecklistItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      item,
+      quantity,
+      icon: '📦',
+      checked: false,
+    };
+    setChecklistOverrides((prev) => ({ ...prev, [teamId]: [...current, newItem] }));
+    setNewChecklistText('');
+    setNewChecklistQty('');
+  };
+
+  const handleRemoveChecklistItem = async (teamId: string, itemId: string, assignmentId?: string) => {
+    if (assignmentId) {
+      try {
+        const res = await props.api.post<{ checklist: ChecklistItem[] }>('/api/ops/dispatch/checklist/item/remove', {
+          assignmentId,
+          itemId,
+        });
+        setChecklistOverrides((prev) => ({ ...prev, [teamId]: res.checklist }));
+        routesLoad.retry();
+        return;
+      } catch {}
+    }
+    const current = checklistOverrides[teamId] ?? routes.find((r) => r.teamId === teamId)?.checklist ?? [];
+    setChecklistOverrides((prev) => ({ ...prev, [teamId]: current.filter((it) => it.id !== itemId) }));
+  };
+
   return (
     <section className="dispatch-screen" data-screen="DispatchProposal" data-requirement="11.2.16">
       {props.embedded ? <h2 className="tracking-tight">Dispatch <span data-part="selected-day" className="font-normal text-ink-quiet">{selectedDay}</span></h2>
@@ -569,282 +625,421 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
             {plan && !['pending', 'refreshing', 'failed'].includes(plan.planStatus ?? 'ready') &&
               routes.length === 0 && dailyUnplanned.length === 0 ?
               <p>No eligible tasks are waiting for this date.</p> : null}
-            <div className="grid grid-cols-1 gap-5">
-              {displayedRoutes.map((planned) => {
-                const totalStops = planned.waypointOrder.filter((wp) => !wp.isHq).length;
-                let completedStops = 0;
-                planned.waypointOrder.forEach((wp, idx) => {
-                  if (!wp.isHq) {
-                    const key = `${selectedDay}:${planned.teamId}-${idx}`;
-                    const st = stopOverrides[key] ?? wp.status;
-                    if (st === 'Completed') completedStops++;
-                  }
-                });
-                const progressPct = totalStops > 0 ? Math.round((completedStops / totalStops) * 100) : 0;
-                const hours = Math.floor(planned.totalDurationSeconds / 3600);
-                const minutes = Math.round((planned.totalDurationSeconds % 3600) / 60);
-                const hasExplicitBaseReturn = planned.waypointOrder.some((wp) => wp.requiresBaseReturn);
-                const walkingDistanceMetres = (planned.route.walkingVisits ?? []).reduce((total, visit) =>
-                  total + visit.outbound.distanceMetres + visit.return.distanceMetres, 0);
-                const drivingDistanceMetres = Math.max(0, planned.route.distanceMetres - walkingDistanceMetres);
+            {openedDispatchTeamId ? (() => {
+              const openedRoute = displayedRoutes.find((r) => r.teamId === openedDispatchTeamId) ?? routes.find((r) => r.teamId === openedDispatchTeamId);
+              if (!openedRoute) return null;
+              const openedTotalStops = openedRoute.waypointOrder.filter((wp) => !wp.isHq && accepts(openedRoute.teamId, wp.taskType)).length;
+              let openedCompletedStops = 0;
+              openedRoute.waypointOrder.forEach((wp, idx) => {
+                if (!wp.isHq && accepts(openedRoute.teamId, wp.taskType)) {
+                  const key = `${selectedDay}:${openedRoute.teamId}-${idx}`;
+                  const st = stopOverrides[key] ?? wp.status;
+                  if (st === 'Completed') openedCompletedStops++;
+                }
+              });
+              const openedProgressPct = openedTotalStops > 0 ? Math.round((openedCompletedStops / openedTotalStops) * 100) : 0;
+              const defaultChecklist: ChecklistItem[] = (openedRoute.packingList ?? []).map((item, idx) => ({
+                id: `${idx}-${item.item.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+                item: item.item,
+                quantity: item.quantity,
+                icon: item.icon,
+                category: item.category,
+                checked: false,
+              }));
+              const currentChecklist: ChecklistItem[] = checklistOverrides[openedRoute.teamId] ?? openedRoute.checklist ?? defaultChecklist;
 
-                return (
-                  <article
-                    key={planned.teamId}
-                    data-team={planned.teamId}
-                    // The team colour is data, so it stays inline; everything else is a utility.
-                    style={{ borderLeftColor: planned.color || 'var(--line)' }}
-                    className="rounded-3xl border border-l-4 border-line bg-surface p-4 shadow-sm transition-shadow duration-200 hover:shadow-md sm:p-6"
-                  >
-                    {/* Header: Team & Status */}
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-                      <div className="flex flex-wrap items-center gap-2.5">
-                        <span className="inline-block size-3 rounded-full ring-2 ring-surface" style={{ background: planned.color }} />
-                        <h2 className="m-0 text-xl font-semibold tracking-tight">{cleanTitle(planned.teamId, 'Field team')}</h2>
-                        <span className={`${CHIP} bg-accent-quiet text-accent`}>
-                          <Building2 size={13} aria-hidden="true" />{cleanTitle(planned.depotLocation, 'Depot')} Depot
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Pill
-                          tone={
-                            planned.status === 'Available'
-                              ? 'good'
-                              : planned.status === 'OnCall'
-                              ? 'neutral'
-                              : 'warn'
-                          }
-                        >
-                          {planned.status === 'OnCall'
-                            ? `On Call (+${planned.onCallLagHours}h lag)`
-                            : planned.status}
-                        </Pill>
-                        <span className={`${CHIP} ${planned.isWithinFourHourCap ? 'bg-tier-low/14 text-tier-low' : 'bg-tier-high/14 text-tier-high'}`}>
-                          <Timer size={13} aria-hidden="true" />{hours}h {minutes}m / 4h 00m cap ({planned.capacityUsedPercentage}%)
-                        </span>
-                      </div>
+              return (
+                <section className="dispatch-details-page rounded-3xl border border-line bg-surface p-5 sm:p-6 shadow-sm" data-part="dispatch-details-page">
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setOpenedDispatchTeamId(null)}
+                        className="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-accent transition-colors hover:text-accent-dark"
+                      >
+                        <ArrowLeft size={16} aria-hidden="true" /> Back to dispatches
+                      </button>
+                      <h2 className="m-0 text-2xl font-bold tracking-tight text-ink">
+                        Dispatch Details · {cleanTitle(openedRoute.depotLocation, 'Depot')} Depot
+                      </h2>
+                      <p className="mt-1 mb-0 text-sm text-ink-quiet">
+                        Team: <strong>{cleanTitle(openedRoute.teamId, 'Field team')}</strong> · Date: <strong>{selectedDay}</strong>
+                      </p>
                     </div>
 
-                    {/* Operational Summary */}
-                    <div className="dispatch-crew-members my-2 flex flex-wrap gap-2" data-part="crew-members">
-                      {planned.crewMembers?.length ? planned.crewMembers.map((member) => <span key={member.id} data-crew-id={member.id}
-                        className="inline-flex items-center gap-2 rounded-full border border-line bg-ground py-1 pr-3 pl-1 text-sm transition-colors hover:border-accent/40">
-                        <img src={staffPhotoUrl(member.email, 'CleaningCrew')} alt="Reference portrait" className="size-8 rounded-full object-cover" />
-                        {staffDisplayName(member.email, 'CleaningCrew', member.displayName)}
-                      </span>) : <span className="inline-flex items-center gap-1.5 text-sm text-ink-quiet"><Users size={14} aria-hidden="true" />{planned.staffCount ?? '?'} staff · names not recorded</span>}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {openedRoute.isFixed ? <Pill tone="good">Fixed / Manual</Pill> : null}
+                      <Pill tone={openedRoute.status === 'Available' ? 'good' : 'warn'}>{openedRoute.status}</Pill>
+                      <button
+                        type="button"
+                        onClick={() => setOpenedDispatchTeamId(null)}
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-line bg-surface px-4 text-sm font-bold text-ink hover:bg-ground"
+                      >
+                        <X size={15} aria-hidden="true" /> Quit
+                      </button>
                     </div>
-                    <DispatchAssignmentEditor key={`${selectedDay}:${planned.teamId}:${planned.workOrderIds.join(',')}`}
-                      api={props.api} date={selectedDay} teamId={planned.teamId}
-                      proposedCrewIds={planned.crewMembers?.map((member) => member.id) ?? []} proposedVehicleId={planned.vehicleId}
-                      stops={planned.waypointOrder.filter((wp) => !wp.isHq && wp.workOrderId).map((wp) => ({ workOrderId: wp.workOrderId!, label: stopDisplayName(wp) }))}
+                  </div>
+
+                  {/* Section 1: Assignment Editor (Editable by default for manager) */}
+                  <div className="my-5 rounded-2xl border border-accent/30 bg-accent-quiet/20 p-5">
+                    <h3 className="m-0 mb-1 text-base font-bold text-ink flex items-center gap-2">
+                      <Wrench size={18} className="text-accent" /> Dispatch Assignment &amp; Route Configuration
+                    </h3>
+                    <p className="mt-0 mb-4 text-xs text-ink-quiet">
+                      Editable by default. Modify crew members, assigned vehicle, or add/remove/reorder stops. Saving will fix this dispatch so it remains unchanged by automatic assignment.
+                    </p>
+
+                    <DispatchAssignmentEditor
+                      key={`${selectedDay}:${openedRoute.teamId}:${openedRoute.workOrderIds.join(',')}`}
+                      api={props.api}
+                      date={selectedDay}
+                      teamId={openedRoute.teamId}
+                      assignmentId={openedRoute.assignmentId}
+                      initialOpen={true}
+                      proposedCrewIds={openedRoute.crewMembers?.map((m) => m.id) ?? []}
+                      proposedVehicleId={openedRoute.vehicleId}
+                      stops={openedRoute.waypointOrder.filter((wp) => !wp.isHq && wp.workOrderId).map((wp) => ({
+                        workOrderId: wp.workOrderId!,
+                        label: stopDisplayName(wp),
+                        taskType: wp.taskType,
+                        pestType: wp.pestType,
+                      }))}
                       candidates={addableTasks}
-                      onAssigned={(result) => { setAssignmentNotice(`Dispatch assigned · ${result.workOrderIds.length} tasks. Crew and vehicle saved.`); routesLoad.retry(); }} />
-                    {planned.vehicleId ? (
-                      <section aria-label="Assigned vehicle and cargo load" className="my-3 rounded-xl border border-line bg-ground p-4 text-sm">
-                        {planned.vehiclePhotoUrl ? <figure className="dispatch-vehicle-photo m-0 mb-2"><img src={planned.vehiclePhotoUrl} alt={`${planned.vehicleModel || 'Vehicle'} reference photo`}
-                          className="h-36 w-full max-w-80 rounded-lg object-cover"
-                          onError={(event) => { event.currentTarget.hidden = true; }} /><figcaption className="text-xs text-ink-quiet">Model reference photo</figcaption></figure> : null}
-                        <p className="m-0 flex flex-wrap items-center gap-2"><Truck size={16} className="text-ink-quiet" aria-hidden="true" /><strong title={planned.vehicleRegistration} className="tracking-tight">{cleanTitle(planned.vehicleModel || planned.vehicleName, 'Assigned vehicle')}</strong>{' '}
-                          {planned.isDemoVehicle ? <Pill tone="warn">Illustrative capacity</Pill> : null}</p>
-                        <p className="mt-1 mb-0 text-ink-quiet">Payload: {planned.loadWeightKg?.toFixed(1)} / {planned.maxPayloadKg?.toFixed(1)} kg
-                          {planned.loadWeightPercentage != null ? ` (${planned.loadWeightPercentage.toFixed(1)}%)` : ''}.
-                          {' '}Cargo volume: {planned.loadVolumeM3?.toFixed(3)} / {planned.maxCargoVolumeM3?.toFixed(3)} m³
-                          {planned.loadVolumePercentage != null ? ` (${planned.loadVolumePercentage.toFixed(1)}%)` : ''}.</p>
-                        {planned.loadBasis ? <span title={planned.loadBasis}>Load basis</span> : null}
-                      </section>
-                    ) : null}
-                    <span className={`${CHIP} mb-3 border border-line text-ink-quiet`} title={planned.route.source === 'onemap' ? 'Provider-verified road route' : 'Direct-distance estimate'}>
-                      {planned.route.source === 'onemap' ? <ShieldCheck size={13} aria-hidden="true" /> : <Navigation size={13} aria-hidden="true" />}
-                      {planned.route.source === 'onemap' ? 'Verified route' : 'Estimated route'}</span>
-                    <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink-quiet [&_strong]:text-ink">
-                      <span className={METRIC}><MapPin size={15} aria-hidden="true" /><span><strong>{totalStops}</strong> stops</span></span>
-                      <span className={METRIC}><Car size={15} aria-hidden="true" /><span><strong>{(planned.route.distanceMetres / 1000).toFixed(1)} km</strong> total travel
-                        {walkingDistanceMetres > 0 ? ` (${(drivingDistanceMetres / 1000).toFixed(1)} km driving + ${(walkingDistanceMetres / 1000).toFixed(1)} km walking)` : ''}
-                        {' '}({Math.round((planned.route.drivingDurationSeconds ?? planned.route.durationSeconds) / 60)} min driving)</span></span>
-                      {(planned.route.walkingDurationSeconds ?? 0) > 0 ? <span className={METRIC}><Footprints size={15} aria-hidden="true" /><span><strong>{Math.round((planned.route.walkingDurationSeconds ?? 0) / 60)} min</strong> verified walking access and return</span></span> : null}
-                      <span className={METRIC}><Wrench size={15} aria-hidden="true" /><span><strong>{Math.round(planned.totalEffortSeconds / 60)} min</strong> on-site effort</span></span>
-                      {planned.onCallLagHours > 0 ? (
-                        <span className={METRIC}><Hourglass size={15} aria-hidden="true" /><span><strong>{planned.onCallLagHours}h</strong> mobilization lag</span></span>
+                      checklist={currentChecklist}
+                      saveLabel="Save"
+                      onQuit={() => setOpenedDispatchTeamId(null)}
+                      onAssigned={(result) => {
+                        setAssignmentNotice(`Dispatch saved and fixed · ${result.workOrderIds.length} tasks. Crew and vehicle saved.`);
+                        setOpenedDispatchTeamId(null);
+                        routesLoad.retry();
+                      }}
+                    />
+                  </div>
+
+                  {/* Section 2: Vehicle & Cargo Specifications */}
+                  {openedRoute.vehicleId ? (
+                    <section aria-label="Assigned vehicle and cargo load" className="my-5 rounded-2xl border border-line bg-ground p-5 text-sm">
+                      <h3 className="m-0 mb-3 text-base font-bold text-ink flex items-center gap-2">
+                        <Truck size={18} className="text-ink" /> Assigned Vehicle &amp; Cargo Capacity
+                      </h3>
+                      {openedRoute.vehiclePhotoUrl ? (
+                        <figure className="dispatch-vehicle-photo m-0 mb-3">
+                          <img
+                            src={openedRoute.vehiclePhotoUrl}
+                            alt={`${openedRoute.vehicleModel || 'Vehicle'} reference photo`}
+                            className="h-40 w-full max-w-sm rounded-xl object-cover"
+                            onError={(e) => { e.currentTarget.hidden = true; }}
+                          />
+                          <figcaption className="text-xs text-ink-quiet mt-1">Vehicle reference photo</figcaption>
+                        </figure>
                       ) : null}
+                      <p className="m-0 flex flex-wrap items-center gap-2">
+                        <strong title={openedRoute.vehicleRegistration} className="text-base tracking-tight">
+                          {cleanTitle(openedRoute.vehicleModel || openedRoute.vehicleName, 'Assigned vehicle')}
+                        </strong>
+                        {openedRoute.vehicleRegistration ? <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded border border-line bg-surface">{openedRoute.vehicleRegistration}</span> : null}
+                        {openedRoute.isDemoVehicle ? <Pill tone="warn">Illustrative capacity</Pill> : null}
+                      </p>
+                      <p className="mt-2 mb-1 text-ink-quiet">
+                        Payload: <strong>{openedRoute.loadWeightKg?.toFixed(1)} / {openedRoute.maxPayloadKg?.toFixed(1)} kg</strong>
+                        {openedRoute.loadWeightPercentage != null ? ` (${openedRoute.loadWeightPercentage.toFixed(1)}%)` : ''}.
+                        {' '}Cargo volume: <strong>{openedRoute.loadVolumeM3?.toFixed(3)} / {openedRoute.maxCargoVolumeM3?.toFixed(3)} m³</strong>
+                        {openedRoute.loadVolumePercentage != null ? ` (${openedRoute.loadVolumePercentage.toFixed(1)}%)` : ''}.
+                      </p>
+                      {openedRoute.loadBasis ? <p className="text-xs text-ink-quiet mt-1 mb-0 italic">{openedRoute.loadBasis}</p> : null}
+                    </section>
+                  ) : null}
+
+                  {/* Section 3: Logistics Equipment Checklist */}
+                  <section aria-label="Logistics equipment checklist" className="my-5 rounded-2xl border border-line bg-ground p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                      <h3 className="m-0 text-base font-bold text-ink flex items-center gap-2">
+                        <Backpack size={18} className="text-accent" /> Logistics &amp; Equipment Checklist ({currentChecklist.length} items)
+                      </h3>
+                      <span className="text-xs font-semibold text-ink-quiet">
+                        {currentChecklist.filter(i => i.checked).length} of {currentChecklist.length} checked by crew
+                      </span>
+                    </div>
+                    <p className="mt-0 mb-4 text-xs text-ink-quiet">
+                      Logistics list serves as a live checklist for the crew. Add or remove items below. The crew's checked/unchecked loading status updates in real time.
+                    </p>
+
+                    {/* Items list */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+                      {currentChecklist.map((item) => (
+                        <div key={item.id} className={`flex items-center justify-between gap-2 p-3 rounded-xl border text-sm transition-colors ${item.checked ? 'border-tier-low/40 bg-tier-low/10' : 'border-line bg-surface'}`}>
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input type="checkbox" checked={item.checked} readOnly aria-label={`${item.item} checked by crew`} className="size-4 rounded cursor-default" />
+                            <span className="text-base">{item.icon || '📦'}</span>
+                            <div className="min-w-0">
+                              <span className={`font-semibold ${item.checked ? 'line-through text-ink-quiet' : 'text-ink'}`}>
+                                {item.item}
+                              </span>
+                              {item.quantity ? <span className="ml-1.5 text-xs font-bold text-accent">({item.quantity})</span> : null}
+                              <div className="text-[11px] mt-0.5">
+                                {item.checked ? <span className="text-tier-low font-semibold flex items-center gap-1"><CircleCheck size={12} /> Checked by crew</span> : <span className="text-ink-quiet">Unchecked</span>}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${item.item}`}
+                            onClick={() => handleRemoveChecklistItem(openedRoute.teamId, item.id, openedRoute.assignmentId)}
+                            className="text-ink-quiet hover:text-tier-high p-1 rounded transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                      {!currentChecklist.length ? <p className="text-xs text-ink-quiet py-2">No logistics items on this checklist yet.</p> : null}
                     </div>
 
-                    {/* Only an explicit route instruction adds an intermediate depot return. */}
-                    {hasExplicitBaseReturn ? <span className="dispatch-status-chip" title="A route instruction adds the intermediate depot return; vehicle load limits otherwise guide allocation."><Warehouse size={14} aria-hidden="true" />Depot return required</span> : null}
+                    {/* Add new item form */}
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-line bg-surface p-3">
+                      <span className="text-xs font-bold text-ink">Add item:</span>
+                      <input
+                        type="text"
+                        placeholder="Item name (e.g. Spare Respirator Filters)"
+                        value={newChecklistText}
+                        onChange={(e) => setNewChecklistText(e.target.value)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-line bg-ground flex-1 min-w-44"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Qty (e.g. 2 sets)"
+                        value={newChecklistQty}
+                        onChange={(e) => setNewChecklistQty(e.target.value)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-line bg-ground w-24"
+                      />
+                      <button
+                        type="button"
+                        disabled={!newChecklistText.trim()}
+                        onClick={() => handleAddChecklistItem(openedRoute.teamId, openedRoute.assignmentId)}
+                        className="text-xs font-bold px-3 py-1.5 rounded-lg bg-accent-fill text-white hover:bg-accent-dark disabled:opacity-50"
+                      >
+                        + Add Item
+                      </button>
+                    </div>
+                  </section>
+
+                  {/* Section 4: Route Metrics & Stop Progress */}
+                  <section aria-label="Route and stops details" className="my-5 rounded-2xl border border-line bg-ground p-5">
+                    <h3 className="m-0 mb-3 text-base font-bold text-ink flex items-center gap-2">
+                      <Route size={18} className="text-ink" /> Route Metrics &amp; Stop Progress
+                    </h3>
+                    <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink-quiet [&_strong]:text-ink">
+                      <span className={METRIC}><MapPin size={15} aria-hidden="true" /><span><strong>{openedTotalStops}</strong> stops</span></span>
+                      <span className={METRIC}><Car size={15} aria-hidden="true" /><span><strong>{(openedRoute.route.distanceMetres / 1000).toFixed(1)} km</strong> total travel ({Math.round((openedRoute.route.drivingDurationSeconds ?? openedRoute.route.durationSeconds) / 60)} min driving)</span></span>
+                      {(openedRoute.route.walkingDurationSeconds ?? 0) > 0 ? <span className={METRIC}><Footprints size={15} aria-hidden="true" /><span><strong>{Math.round((openedRoute.route.walkingDurationSeconds ?? 0) / 60)} min</strong> verified walking</span></span> : null}
+                      <span className={METRIC}><Wrench size={15} aria-hidden="true" /><span><strong>{Math.round(openedRoute.totalEffortSeconds / 60)} min</strong> on-site effort</span></span>
+                    </div>
 
                     {/* Progress Bar */}
                     <div className="mb-4">
                       <div className="mb-1.5 flex justify-between text-sm font-semibold">
-                        <span>
-                          Dispatch Progress: {completedStops} of {totalStops} stops completed
-                        </span>
-                        <span className="tabular-nums text-ink-quiet">{progressPct}%</span>
+                        <span>Dispatch Progress: {openedCompletedStops} of {openedTotalStops} stops completed</span>
+                        <span className="tabular-nums text-ink-quiet">{openedProgressPct}%</span>
                       </div>
                       <div className="h-2 w-full overflow-hidden rounded-full bg-line">
                         <div
                           className="h-full rounded-full transition-[width] duration-300 ease-out"
-                          // Width and team colour are data, so they stay inline.
                           style={{
-                            width: `${progressPct}%`,
-                            background: progressPct === 100 ? 'var(--tier-low)' : `linear-gradient(90deg, ${planned.color || 'var(--accent)'}, var(--tier-low))`,
+                            width: `${openedProgressPct}%`,
+                            background: openedProgressPct === 100 ? 'var(--tier-low)' : `linear-gradient(90deg, ${openedRoute.color || 'var(--accent)'}, var(--tier-low))`,
                           }}
                         />
                       </div>
                     </div>
 
                     {/* Waypoint Step Tracker */}
-                    <div className="mb-4">
-                      <h3 className="mt-0 mb-2 text-sm font-semibold tracking-tight text-ink">Stops</h3>
-                      <ol className="m-0 flex list-none flex-col gap-2 p-0">
-                        {planned.waypointOrder.map((waypoint, index) => {
-                          if (!waypoint.isHq && (!accepts(planned.teamId, waypoint.taskType) || (stopOverrides[`${selectedDay}:${planned.teamId}-${index}`] ?? waypoint.status) === 'Completed')) return null;
-                          const overrideKey = `${selectedDay}:${planned.teamId}-${index}`;
-                          const currentStatus = stopOverrides[overrideKey] ?? waypoint.status;
-                          const isDone = currentStatus === 'Completed';
-                          const isInProg = currentStatus === 'InProgress';
+                    <ol className="m-0 flex list-none flex-col gap-2 p-0">
+                      {openedRoute.waypointOrder.map((waypoint, index) => {
+                        if (waypoint.isHq || !accepts(openedRoute.teamId, waypoint.taskType)) return null;
+                        const overrideKey = `${selectedDay}:${openedRoute.teamId}-${index}`;
+                        const currentStatus = stopOverrides[overrideKey] ?? waypoint.status;
+                        const isDone = currentStatus === 'Completed';
+                        const isInProg = currentStatus === 'InProgress';
 
-                          return (
-                            <li
-                              key={`${waypoint.label}-${index}`}
-                              data-work-order-id={!waypoint.isHq ? waypoint.workOrderId : undefined}
-                              data-priority={!waypoint.isHq ? waypoint.priority : undefined}
-                              className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition-colors duration-150 ${
-                                waypoint.isHq ? 'border-line bg-ground'
-                                  : isDone ? 'border-tier-low/40 bg-tier-low/14'
-                                  : isInProg ? 'border-accent/40 bg-accent-quiet'
-                                  : 'border-line bg-surface hover:border-accent/40'}`}
-                            >
-                              <div className="flex min-w-0 items-center gap-2.5">
-                                {waypoint.isHq ? <Building2 size={18} className="shrink-0 text-ink-quiet" aria-hidden="true" />
-                                  : waypoint.requiresBaseReturn ? <PawPrint size={18} className="shrink-0 text-tier-medium" aria-hidden="true" />
-                                  : isDone ? <CircleCheck size={18} className="shrink-0 text-tier-low" aria-hidden="true" />
-                                  : isInProg ? <Hourglass size={18} className="shrink-0 text-accent" aria-hidden="true" />
-                                  : <Circle size={18} className="shrink-0 text-ink-quiet" aria-hidden="true" />}
-                                <div className="min-w-0">
-                                  <img src={taskReferenceImage(waypoint.taskType, waypoint.pestType)} alt="Reference image; not incident evidence"
-                                    className="mr-2 inline-block size-10 rounded-md object-cover align-middle outline outline-1 -outline-offset-1 outline-white/10" />
-                                  <strong className={isDone ? 'text-tier-low' : 'text-ink'}>{stopDisplayName(waypoint)}
-                                  </strong>
-                                  {!waypoint.isHq ? <small className="block text-xs text-ink-quiet">Reference · {label(waypoint.pestType ?? 'Unknown')} · {label(waypoint.taskType ?? 'Unknown')}</small> : null}
-                                  {(() => {
-                                    const task = waypoint.isHq ? undefined : routeTasks.find((t) => t.id === (waypoint.workOrderId ?? `${selectedDay}:${planned.teamId}:${index}`));
-                                    return task ? <button type="button" data-part="open-task" className={`${GHOST_BUTTON} mt-1 text-xs`} onClick={() => openTaskDetail(task)}><ExternalLink size={14} aria-hidden="true" />Open task</button> : null;
-                                  })()}
-                                  {waypoint.isAreaAccess ? <small className="mt-0.5 block text-xs text-ink-quiet" title="Provider-verified road entry inside the authorised service area.">Area access point</small> : null}
-                                  {waypoint.priority ? (
-                                    <span className={`${CHIP} ml-2 ${
-                                      waypoint.priority === 'Critical' ? 'bg-tier-high/14 text-tier-high'
-                                        : waypoint.priority === 'High' ? 'bg-tier-medium/14 text-tier-medium'
-                                        : 'bg-line/60 text-ink-quiet'}`}>
-                                      {waypoint.priority} priority
-                                    </span>
-                                  ) : null}
-                                  {waypoint.isDemo ? <span className="ml-2"><Pill tone="warn">DEMO</Pill></span> : null}
-                                  {waypoint.estimatedEffortMinutes > 0 ? (
-                                    <span className="ml-2 inline-flex items-center gap-1 text-xs text-ink-quiet">
-                                      <Timer size={12} aria-hidden="true" />
-                                      Effort: {waypoint.estimatedEffortMinutes} mins
-                                      {waypoint.requiredStaff ? ` · ${waypoint.requiredStaff} staff required` : ''}
-                                    </span>
-                                  ) : null}
-                                </div>
+                        return (
+                          <li
+                            key={`${waypoint.label}-${index}`}
+                            data-work-order-id={waypoint.workOrderId}
+                            data-priority={waypoint.priority}
+                            className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
+                              isDone ? 'border-tier-low/40 bg-tier-low/14' : isInProg ? 'border-accent/40 bg-accent-quiet' : 'border-line bg-surface'
+                            }`}
+                          >
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              {isDone ? <CircleCheck size={18} className="shrink-0 text-tier-low" /> : isInProg ? <Hourglass size={18} className="shrink-0 text-accent" /> : <Circle size={18} className="shrink-0 text-ink-quiet" />}
+                              <img src={taskReferenceImage(waypoint.taskType, waypoint.pestType)} alt="" className="size-9 rounded-md object-cover" />
+                              <div className="min-w-0">
+                                <strong className={isDone ? 'text-tier-low' : 'text-ink'}>{stopDisplayName(waypoint)}</strong>
+                                <small className="block text-xs text-ink-quiet">{label(waypoint.pestType ?? 'Unknown')} · {label(waypoint.taskType ?? 'Unknown')}</small>
+                                {(() => {
+                                  const task = routeTasks.find((t) => t.id === waypoint.workOrderId);
+                                  return task ? <button type="button" data-part="open-task" className={`${GHOST_BUTTON} mt-1 text-xs`} onClick={() => openTaskDetail(task)}><ExternalLink size={13} />Open task</button> : null;
+                                })()}
                               </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => updateStopStatus(openedRoute.teamId, index, 'Completed')} className={`${STATUS_BUTTON} ${isDone ? 'border-tier-low bg-tier-low text-ground' : 'hover:border-tier-low hover:text-tier-low'}`}><Check size={14} />Done</button>
+                              <button type="button" onClick={() => updateStopStatus(openedRoute.teamId, index, 'InProgress')} className={`${STATUS_BUTTON} ${isInProg ? 'border-accent-fill bg-accent-fill text-white' : 'hover:border-accent hover:text-accent'}`}>In Progress</button>
+                              <button type="button" onClick={() => updateStopStatus(openedRoute.teamId, index, 'Pending')} className={`${STATUS_BUTTON} ${!isDone && !isInProg ? 'border-ink-quiet bg-ink-quiet text-ground' : 'hover:border-ink-quiet hover:text-ink'}`}>Pending</button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </section>
 
-                              {!waypoint.isHq ? (
-                                <div className="flex gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => updateStopStatus(planned.teamId, index, 'Completed')}
-                                    className={`${STATUS_BUTTON} ${isDone ? 'border-tier-low bg-tier-low text-ground' : 'hover:border-tier-low hover:text-tier-low'}`}
-                                  >
-                                    <Check size={14} aria-hidden="true" />Done
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => updateStopStatus(planned.teamId, index, 'InProgress')}
-                                    className={`${STATUS_BUTTON} ${isInProg ? 'border-accent-fill bg-accent-fill text-white' : 'hover:border-accent hover:text-accent'}`}
-                                  >
-                                    In Progress
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => updateStopStatus(planned.teamId, index, 'Pending')}
-                                    className={`${STATUS_BUTTON} ${!isDone && !isInProg ? 'border-ink-quiet bg-ink-quiet text-ground' : 'hover:border-ink-quiet hover:text-ink'}`}
-                                  >
-                                    Pending
-                                  </button>
+                  {/* Bottom Quit Button */}
+                  <div className="mt-6 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setOpenedDispatchTeamId(null)}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line bg-surface px-6 font-bold text-ink hover:bg-ground"
+                    >
+                      <X size={16} aria-hidden="true" /> Quit Details
+                    </button>
+                  </div>
+                </section>
+              );
+            })() : (
+              <div className="grid grid-cols-1 gap-5">
+                {displayedRoutes.map((planned) => {
+                  const totalStops = planned.waypointOrder.filter((wp) => !wp.isHq && accepts(planned.teamId, wp.taskType)).length;
+                  const hours = Math.floor(planned.totalDurationSeconds / 3600);
+                  const minutes = Math.round((planned.totalDurationSeconds % 3600) / 60);
+                  const walkingDistanceMetres = (planned.route.walkingVisits ?? []).reduce((total, visit) =>
+                    total + visit.outbound.distanceMetres + visit.return.distanceMetres, 0);
+
+                  return (
+                    <article
+                      key={planned.teamId}
+                      data-team={planned.teamId}
+                      style={{ borderLeftColor: planned.color || 'var(--line)' }}
+                      className="rounded-3xl border border-l-4 border-line bg-surface p-4 shadow-sm transition-shadow duration-200 hover:shadow-md sm:p-6"
+                    >
+                      {/* 1. HQ & Status */}
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <span className="inline-block size-3 rounded-full ring-2 ring-surface" style={{ background: planned.color }} />
+                          <h2 className="m-0 text-xl font-semibold tracking-tight">{cleanTitle(planned.teamId, 'Field team')}</h2>
+                          <span className={`${CHIP} bg-accent-quiet text-accent`}>
+                            <Building2 size={13} aria-hidden="true" />{cleanTitle(planned.depotLocation, 'Depot')} Depot
+                          </span>
+                          {planned.isFixed ? <Pill tone="good">Fixed / Manual Dispatch</Pill> : null}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Pill
+                            tone={
+                              planned.status === 'Available'
+                                ? 'good'
+                                : planned.status === 'OnCall'
+                                ? 'neutral'
+                                : 'warn'
+                            }
+                          >
+                            {planned.status === 'OnCall'
+                              ? `On Call (+${planned.onCallLagHours}h lag)`
+                              : planned.status}
+                          </Pill>
+                        </div>
+                      </div>
+
+                      {/* 2. Crew */}
+                      <div className="dispatch-crew-members my-2 flex flex-wrap gap-2" data-part="crew-members">
+                        {planned.crewMembers?.length ? planned.crewMembers.map((member) => (
+                          <span
+                            key={member.id}
+                            data-crew-id={member.id}
+                            className="inline-flex items-center gap-2 rounded-full border border-line bg-ground py-1 pr-3 pl-1 text-sm transition-colors hover:border-accent/40"
+                          >
+                            <img src={staffPhotoUrl(member.email, 'CleaningCrew')} alt="Reference portrait" className="size-8 rounded-full object-cover" />
+                            {staffDisplayName(member.email, 'CleaningCrew', member.displayName)}
+                          </span>
+                        )) : <span className="inline-flex items-center gap-1.5 text-sm text-ink-quiet"><Users size={14} aria-hidden="true" />{planned.staffCount ?? '?'} staff · names not recorded</span>}
+                      </div>
+
+                      {/* 3. Effort Breakdown */}
+                      <div className="my-3 grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-2xl border border-line bg-ground p-3 text-xs">
+                        <div>
+                          <span className="block text-ink-quiet font-medium">Total Duration</span>
+                          <strong className="text-sm text-ink">{hours}h {minutes}m</strong>
+                          <span className="block text-[11px] text-ink-quiet mt-0.5">{planned.capacityUsedPercentage}% of 4h cap</span>
+                        </div>
+                        <div>
+                          <span className="block text-ink-quiet font-medium">On-Site Effort</span>
+                          <strong className="text-sm text-ink">{Math.round(planned.totalEffortSeconds / 60)} min</strong>
+                        </div>
+                        <div>
+                          <span className="block text-ink-quiet font-medium">Travel Time</span>
+                          <strong className="text-sm text-ink">{Math.round((planned.route.drivingDurationSeconds ?? planned.route.durationSeconds) / 60)} min driving</strong>
+                          {walkingDistanceMetres > 0 ? <span className="block text-[11px] text-ink-quiet mt-0.5">+{Math.round((planned.route.walkingDurationSeconds ?? 0) / 60)} min walk</span> : null}
+                        </div>
+                        <div>
+                          <span className="block text-ink-quiet font-medium">Stops &amp; Status</span>
+                          <strong className="text-sm text-ink">{totalStops} stops</strong>
+                          {planned.onCallLagHours > 0 ? <span className="block text-[11px] text-tier-medium mt-0.5">{planned.onCallLagHours}h lag</span> : null}
+                        </div>
+                      </div>
+
+                      {/* 4. Stops */}
+                      <div className="my-3">
+                        <h3 className="mt-0 mb-2 text-sm font-semibold tracking-tight text-ink">Stops ({totalStops})</h3>
+                        <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
+                          {planned.waypointOrder.map((waypoint, index) => {
+                            if (waypoint.isHq || !accepts(planned.teamId, waypoint.taskType)) return null;
+                            const overrideKey = `${selectedDay}:${planned.teamId}-${index}`;
+                            const currentStatus = stopOverrides[overrideKey] ?? waypoint.status;
+                            const isDone = currentStatus === 'Completed';
+                            const isInProg = currentStatus === 'InProgress';
+                            return (
+                              <li
+                                key={`${waypoint.label}-${index}`}
+                                data-work-order-id={waypoint.workOrderId}
+                                data-priority={waypoint.priority}
+                                className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs transition-colors ${
+                                  isDone ? 'border-tier-low/40 bg-tier-low/10' : isInProg ? 'border-accent/40 bg-accent-quiet' : 'border-line bg-surface'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="font-bold text-ink-quiet">{index}.</span>
+                                  <img src={taskReferenceImage(waypoint.taskType, waypoint.pestType)} alt="" className="size-7 rounded object-cover" />
+                                  <div className="min-w-0">
+                                    <strong className={isDone ? 'text-tier-low' : 'text-ink'}>{stopDisplayName(waypoint)}</strong>
+                                    <span className="block text-[11px] text-ink-quiet truncate">{label(waypoint.pestType ?? 'Unknown')} · {label(waypoint.taskType ?? 'Unknown')}</span>
+                                  </div>
                                 </div>
-                              ) : null}
-                            </li>
-                          );
-                        })}
-                      </ol>
-                    </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {waypoint.priority ? (
+                                    <span className={`${CHIP} ${waypoint.priority === 'Critical' ? 'bg-tier-high/14 text-tier-high' : waypoint.priority === 'High' ? 'bg-tier-medium/14 text-tier-medium' : 'bg-line/60 text-ink-quiet'}`}>
+                                      {waypoint.priority}
+                                    </span>
+                                  ) : null}
+                                  <Pill tone={currentStatus === 'Completed' ? 'good' : currentStatus === 'InProgress' ? 'neutral' : 'warn'}>{currentStatus ?? 'Pending'}</Pill>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </div>
 
-                    {/* Logistics Equipment Packing List Toggle */}
-                    <div className="border-t border-dashed border-line pt-2.5">
+                      {/* Open Details Button */}
                       <button
                         type="button"
-                        onClick={() => togglePackingList(planned.teamId)}
-                        className="flex items-center gap-1.5 border-0 bg-transparent px-0 text-sm font-semibold text-accent transition-colors hover:text-accent-dark"
+                        data-part="open-dispatch-details"
+                        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-accent-fill py-2.5 font-bold text-white shadow-sm transition-colors hover:bg-accent-dark"
+                        onClick={() => setOpenedDispatchTeamId(planned.teamId)}
                       >
-                        <span className="inline-flex items-center gap-1.5"><Backpack size={16} aria-hidden="true" />Logistics & Equipment Packing List ({planned.packingList?.length ?? 0} items)</span>
-                        <span className="inline-flex items-center gap-0.5 font-medium text-ink-quiet">{activePackingLists[planned.teamId]
-                          ? <><ChevronUp size={14} aria-hidden="true" />Hide</> : <><ChevronDown size={14} aria-hidden="true" />View checklist</>}</span>
+                        <ExternalLink size={16} aria-hidden="true" /> View &amp; Edit Dispatch Details
                       </button>
-
-                      {activePackingLists[planned.teamId] ? (
-                        <div className="mt-2 rounded-xl border border-line bg-ground p-3">
-                          <p className="mt-0 mb-2.5 text-xs text-ink-quiet">
-                            Verify quantities and cargo dimensions before departure. Provisional item values are labelled below.
-                          </p>
-                          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,260px),1fr))] gap-2">
-                            {(planned.packingList ?? []).map((item, itemIdx) => {
-                              const key = `${planned.teamId}-${itemIdx}-${item.item}`;
-                              const isChecked = checkedGear[key] === true;
-
-                              return (
-                                <label
-                                  key={key}
-                                  className={`flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-xs transition-colors duration-150 ${
-                                    isChecked ? 'border-tier-low/40 bg-tier-low/14' : 'border-line bg-surface hover:border-accent/40'}`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => toggleGearItem(key)}
-                                    className="mt-0.5"
-                                  />
-                                  <div>
-                                    <span className="mr-1.5">{item.icon}</span>
-                                    <strong className={isChecked ? 'line-through' : ''}>
-                                      {item.item}
-                                    </strong>{' '}
-                                    <span className="font-semibold text-accent">({item.quantity})</span>
-                                    <div className="mt-0.5 text-[0.7rem] text-ink-quiet">
-                                      {item.reason}
-                                    </div>
-                                    {item.lengthCm != null && item.widthCm != null && item.heightCm != null ? (
-                                      <div>Each: {item.lengthCm} × {item.widthCm} × {item.heightCm} cm
-                                        {' '}· {item.unitWeightKg?.toFixed(2)} kg.</div>
-                                    ) : <div>Dimensions not recorded.</div>}
-                                    {item.totalWeightKg != null && item.totalVolumeM3 != null ? (
-                                      <div>Load for {item.quantityCount ?? '?'}: {item.totalWeightKg.toFixed(2)} kg
-                                        {' '}· {item.totalVolumeM3.toFixed(3)} m³.</div>
-                                    ) : null}
-                                    {item.isProvisional ? <div><strong>Provisional item values</strong></div> : null}
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </section>
         </StateView>
       ) : view === 'unassigned' ? (

@@ -12,7 +12,7 @@
  * names, and the two would drift.
  */
 import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { Backpack, ChevronRight } from 'lucide-react';
 import { useLoad } from '../../lib/useLoad';
 import { Freshness, QUEUE_REFRESH_MS, StateView } from '../../components/States';
 import { link } from '../../components/Link';
@@ -39,6 +39,21 @@ interface JobsPayload {
   }>;
 }
 
+interface ChecklistItem {
+  id: string;
+  item: string;
+  quantity?: string;
+  icon?: string;
+  checked: boolean;
+  checkedBy?: string;
+  checkedAt?: string;
+}
+
+interface ChecklistResponse {
+  assignment: { id: string } | null;
+  checklist: ChecklistItem[];
+}
+
 const FILTERS = ['Today', 'Upcoming', 'Completed', 'All'] as const;
 
 export function MyJobsScreen(props: ScreenProps): JSX.Element {
@@ -54,6 +69,12 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
       // the only way a new job appeared was if they happened to press something.
       refreshMs: QUEUE_REFRESH_MS,
     },
+  );
+
+  const { value: checklistVal, retry: retryChecklist } = useLoad<ChecklistResponse>(
+    props.api,
+    '/api/crew/dispatch/checklist',
+    { refreshMs: QUEUE_REFRESH_MS }
   );
 
   const { currentPage, setCurrentPage, pageSize, totalItems, pagedItems } = usePagination(
@@ -84,6 +105,49 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
           </button>
         ))}
       </div>
+
+      {checklistVal?.checklist?.length ? (
+        <section aria-label="Dispatch logistics checklist" className="my-4 rounded-3xl border border-line bg-surface p-4 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="m-0 flex items-center gap-2 text-base font-bold text-ink">
+              <Backpack size={18} className="text-accent" /> Equipment &amp; Logistics Checklist
+            </h2>
+            <span className="text-xs font-semibold text-ink-quiet">
+              {checklistVal.checklist.filter((i) => i.checked).length} of {checklistVal.checklist.length} loaded
+            </span>
+          </div>
+          <p className="mt-0 mb-3 text-xs text-ink-quiet">Verify and check each item as it is loaded onto your vehicle.</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {checklistVal.checklist.map((item) => (
+              <label
+                key={item.id}
+                className={`flex cursor-pointer items-center gap-2.5 rounded-xl border p-2.5 text-sm transition-colors ${
+                  item.checked ? 'border-tier-low/40 bg-tier-low/10' : 'border-line bg-ground hover:border-accent/40'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={item.checked}
+                  onChange={async (e) => {
+                    if (!checklistVal.assignment) return;
+                    await props.api.post('/api/crew/dispatch/checklist/toggle', {
+                      assignmentId: checklistVal.assignment.id,
+                      itemId: item.id,
+                      checked: e.target.checked,
+                    });
+                    retryChecklist();
+                  }}
+                  className="size-4 rounded"
+                />
+                <span className="text-base">{item.icon || '📦'}</span>
+                <span className={`font-medium ${item.checked ? 'text-ink-quiet line-through' : 'text-ink'}`}>
+                  {item.item} {item.quantity ? <span className="text-xs font-semibold text-accent">({item.quantity})</span> : null}
+                </span>
+              </label>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <StateView state={state} onRetry={retry}>
         <ol data-part="jobs" className="m-0 grid list-none gap-3 p-0">

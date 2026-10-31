@@ -17,7 +17,7 @@ import { ConfigSet } from '../config/ConfigSet';
 import { GeoPoint, singaporeDate } from '../entity/valueTypes';
 import { HqLocation, PestType, Role, StaffStatus, TaskType, WorkOrderStatus } from '../entity/enums';
 import { AccountStore, ClusterStore, WorkOrderStore } from '../ports/Stores';
-import { DispatchAssignment, DispatchAssignmentStore } from '../ports/DispatchAssignmentStore';
+import { ChecklistItem, DispatchAssignment, DispatchAssignmentStore } from '../ports/DispatchAssignmentStore';
 import { VehicleStore } from '../ports/VehicleStore';
 
 export class DispatchAssignmentRejected extends Error {
@@ -44,10 +44,12 @@ export interface AssignDispatchRequest {
   date: string; teamId: string; crewIds: string[]; vehicleId: string; computedAt?: string;
   /** Manual set: the ordered stop list when the manager changed the planned route. */
   workOrderIds?: string[];
+  checklist?: ChecklistItem[];
 }
 
 export interface EditDispatchRequest {
   date: string; assignmentId: string; crewIds: string[]; vehicleId: string; workOrderIds: string[];
+  checklist?: ChecklistItem[];
 }
 
 /** Road-routes a manager's stop list in the given order with the planner's own strategy and route builder. */
@@ -214,12 +216,13 @@ export class DispatchAssignmentService {
   }
 
   /** The saved snapshot names the real work orders, crew and vehicle. */
-  private snapshot(route: PlannedTeamRoute, selected: Account[], vehicle: Vehicle, ids: string[]): PlannedTeamRoute {
+  private snapshot(route: PlannedTeamRoute, selected: Account[], vehicle: Vehicle, ids: string[], checklist?: ChecklistItem[]): PlannedTeamRoute {
     const copy = structuredClone(route);
     if (ids.length) stopsOf(copy).forEach((stop, index) => { stop.workOrderId = ids[index]; });
     return { ...copy, workOrderIds: ids.length ? [...ids] : copy.workOrderIds, staffCount: selected.length, crewMembers: selected.map(memberCard),
       vehicleId: vehicle.id, vehicleName: vehicle.name, vehicleRegistration: vehicle.registration,
-      vehicleModel: vehicle.model ?? undefined, vehiclePhotoUrl: vehicle.photoUrl ?? undefined };
+      vehicleModel: vehicle.model ?? undefined, vehiclePhotoUrl: vehicle.photoUrl ?? undefined,
+      isFixed: true, checklist: checklist ?? copy.checklist };
   }
 
   /** Book each stop's order onto the assignment, in route order. */
@@ -345,12 +348,22 @@ export class DispatchAssignmentService {
       const { computedAt } = this.ready(request.date, request.teamId, request.computedAt);
       const route = initialRoute;
       const { selected, vehicle } = this.chosen(resources, route, request.crewIds, request.vehicleId);
+      const defaultChecklist: ChecklistItem[] = generatePackingList(stopsOf(route), selected.length).map((item, idx) => ({
+        id: `${idx}-${item.item.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        item: item.item,
+        quantity: item.quantity,
+        icon: item.icon,
+        category: item.category,
+        checked: false,
+      }));
+      const checklist = request.checklist ?? defaultChecklist;
       const assignment: DispatchAssignment = { id: randomUUID(), date: request.date, teamId: request.teamId,
         crewIds: [...request.crewIds], vehicleId: request.vehicleId, workOrderIds: [], computedAt,
-        routeSnapshot: this.snapshot(route, selected, vehicle, []), createdBy: by.accountId, createdAt: new Date().toISOString() };
+        routeSnapshot: this.snapshot(route, selected, vehicle, [], checklist), createdBy: by.accountId, createdAt: new Date().toISOString(),
+        isFixed: true, checklist };
       await context.assignments.save(assignment);
       assignment.workOrderIds = await this.book(context, route, assignment, by);
-      assignment.routeSnapshot = this.snapshot(route, selected, vehicle, assignment.workOrderIds);
+      assignment.routeSnapshot = this.snapshot(route, selected, vehicle, assignment.workOrderIds, checklist);
       await context.assignments.save(assignment);
       return assignment;
     });
@@ -386,7 +399,7 @@ export class DispatchAssignmentService {
         await context.workOrders.save(order);
         await context.lifecycle.transition(id, WorkOrderStatus.Created, by);
       }
-      return this.rebook(context, saved, route, chosen, by);
+      return this.rebook(context, saved, route, chosen, by, request.checklist);
     });
     this.invalidate();
     return result;
@@ -394,11 +407,19 @@ export class DispatchAssignmentService {
 
   /** Save an edited assignment on its fresh road route: the one write path shared by edit and removal. */
   private async rebook(context: AssignmentContext, saved: DispatchAssignment, route: PlannedTeamRoute,
-    chosen: { selected: Account[]; vehicle: Vehicle }, by: Principal): Promise<DispatchAssignment> {
+    chosen: { selected: Account[]; vehicle: Vehicle }, by: Principal, checklist?: ChecklistItem[]): Promise<DispatchAssignment> {
+    const list = checklist ?? saved.checklist ?? generatePackingList(stopsOf(route), chosen.selected.length).map((item, idx) => ({
+      id: `${idx}-${item.item.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      item: item.item,
+      quantity: item.quantity,
+      icon: item.icon,
+      category: item.category,
+      checked: false,
+    }));
     Object.assign(saved, { crewIds: chosen.selected.map((member) => member.id), vehicleId: chosen.vehicle.id,
-      updatedAt: new Date().toISOString(), updatedBy: by.accountId, needsRoadCheck: false });
+      updatedAt: new Date().toISOString(), updatedBy: by.accountId, needsRoadCheck: false, isFixed: true, checklist: list });
     saved.workOrderIds = await this.book(context, route, saved, by, saved.id);
-    saved.routeSnapshot = this.snapshot(route, chosen.selected, chosen.vehicle, saved.workOrderIds);
+    saved.routeSnapshot = this.snapshot(route, chosen.selected, chosen.vehicle, saved.workOrderIds, list);
     await context.assignments.save(saved);
     return saved;
   }
@@ -493,5 +514,74 @@ export class DispatchAssignmentService {
       throw new DispatchAssignmentRejected('A task location changed after road verification. Refresh the route before assignment.');
     }
     return order;
+  }
+
+  async toggleChecklistItem(assignmentId: string, itemId: string, checked: boolean, by: Principal): Promise<ChecklistItem[]> {
+    const result = await this.unit.run(async (context) => {
+      const assignment = await context.assignments.findById(assignmentId);
+      if (!assignment) throw new DispatchAssignmentRejected('Dispatch assignment not found.', 404);
+      if (!assignment.checklist) assignment.checklist = [];
+      const item = assignment.checklist.find((entry) => entry.id === itemId);
+      if (!item) throw new DispatchAssignmentRejected('Checklist item not found.', 404);
+      item.checked = checked;
+      item.checkedBy = by.accountId;
+      item.checkedAt = new Date().toISOString();
+      if (assignment.routeSnapshot) {
+        assignment.routeSnapshot.checklist = assignment.checklist;
+      }
+      await context.assignments.save(assignment);
+      return assignment.checklist;
+    });
+    this.invalidate();
+    return result;
+  }
+
+  async addChecklistItem(assignmentId: string, item: string, quantity: string | undefined, by: Principal): Promise<ChecklistItem[]> {
+    await this.authorise(by);
+    if (!item.trim()) throw new DispatchAssignmentRejected('Item name is required.', 400);
+    const result = await this.unit.run(async (context) => {
+      const assignment = await context.assignments.findById(assignmentId);
+      if (!assignment) throw new DispatchAssignmentRejected('Dispatch assignment not found.', 404);
+      if (!assignment.checklist) assignment.checklist = [];
+      const newItem: ChecklistItem = {
+        id: randomUUID(),
+        item: item.trim(),
+        quantity: quantity?.trim() || undefined,
+        icon: '📦',
+        checked: false,
+      };
+      assignment.checklist.push(newItem);
+      if (assignment.routeSnapshot) {
+        assignment.routeSnapshot.checklist = assignment.checklist;
+      }
+      await context.assignments.save(assignment);
+      return assignment.checklist;
+    });
+    this.invalidate();
+    return result;
+  }
+
+  async removeChecklistItem(assignmentId: string, itemId: string, by: Principal): Promise<ChecklistItem[]> {
+    await this.authorise(by);
+    const result = await this.unit.run(async (context) => {
+      const assignment = await context.assignments.findById(assignmentId);
+      if (!assignment) throw new DispatchAssignmentRejected('Dispatch assignment not found.', 404);
+      if (!assignment.checklist) assignment.checklist = [];
+      assignment.checklist = assignment.checklist.filter((entry) => entry.id !== itemId);
+      if (assignment.routeSnapshot) {
+        assignment.routeSnapshot.checklist = assignment.checklist;
+      }
+      await context.assignments.save(assignment);
+      return assignment.checklist;
+    });
+    this.invalidate();
+    return result;
+  }
+
+  async crewDispatch(date: string, by: Principal): Promise<{ assignment: DispatchAssignment | null; checklist: ChecklistItem[] }> {
+    const context = this.unit.read();
+    const assignments = await context.assignments.listByCrew(by.accountId);
+    const assignment = assignments.find((a) => a.date === date && a.status !== 'Cancelled') ?? null;
+    return { assignment, checklist: assignment?.checklist ?? [] };
   }
 }

@@ -79,10 +79,10 @@ export function staffDisplayName(email: string, role?: string, displayName?: str
 }
 
 /** One label for a vehicle everywhere: "Toyota Hiace - GBC 4821 K". Falls back to the cleaned name. */
-export function vehicleLabel(vehicle: { model?: string | null; name: string; registration: string }): string {
+export function vehicleLabel(vehicle: { model?: string | null; name: string; registration?: string | null; licensePlate?: string | null }): string {
   const model = vehicle.model?.trim();
   if (!model) return cleanTitle(vehicle.name, 'Vehicle');
-  const plate = vehicle.registration.trim();
+  const plate = (vehicle.registration ?? vehicle.licensePlate ?? '').trim();
   return /^DEMO-/i.test(plate) || !plate ? model : `${model} - ${plate}`;
 }
 

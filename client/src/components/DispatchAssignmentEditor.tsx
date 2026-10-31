@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GripVertical, Trash2 } from 'lucide-react';
 import { ApiClient, ApiError } from '../lib/ApiClient';
 import { staffDisplayName, staffPhotoUrl, vehicleLabel } from '../lib/staffVisuals';
 import { cleanTitle } from '../../../src/presentation/DisplayNames';
+import type { ChecklistItem } from '../../../src/ports/DispatchAssignmentStore';
 
 interface CrewOption { id: string; email: string; displayName?: string | null }
 interface VehicleOption { id: string; name: string; model?: string | null; photoUrl?: string | null; registration: string }
@@ -37,6 +38,10 @@ export function DispatchAssignmentEditor(props: {
   candidates?: DispatchStop[];
   /** Set to edit a saved dispatch instead of creating one. */
   assignmentId?: string;
+  initialOpen?: boolean;
+  checklist?: ChecklistItem[];
+  saveLabel?: string;
+  onQuit?: () => void;
   onAssigned: (result: Saved) => void;
 }): JSX.Element {
   const [options, setOptions] = useState<AssignmentOptions | null>(null);
@@ -59,15 +64,25 @@ export function DispatchAssignmentEditor(props: {
   const requiredStaff = !options ? 0 : props.stops && changed
     ? Math.max(1, ...stops.map((stop) => options.stopStaff?.[stop.workOrderId] ?? 1)) : options.requiredStaff;
   const addable = (props.candidates ?? []).filter((task) => !stops.some((stop) => stop.workOrderId === task.workOrderId));
+
+  useEffect(() => {
+    if (props.initialOpen && !options && !busy) {
+      void load();
+    }
+  }, [props.initialOpen]);
+
   async function load(): Promise<void> {
     setBusy(true); setFailure(null);
     try {
       const query = new URLSearchParams({ date: props.date, teamId: props.teamId, ...(editing ? { assignmentId: props.assignmentId! } : {}) });
       const value = await props.api.get<AssignmentOptions>(`/api/ops/dispatch/assignment-options?${query}`);
-      setOptions(value);
-      const proposed = props.proposedCrewIds.filter((id) => value.crew.some((member) => member.id === id));
-      setCrewIds(proposed.length >= value.requiredStaff ? proposed : value.crew.slice(0, value.requiredStaff).map((member) => member.id));
-      setVehicleId(value.vehicles.some((vehicle) => vehicle.id === props.proposedVehicleId) ? props.proposedVehicleId! : value.vehicles[0]?.id ?? '');
+      const crew = Array.isArray(value?.crew) ? value.crew : [];
+      const vehicles = Array.isArray(value?.vehicles) ? value.vehicles : [];
+      const safeValue: AssignmentOptions = { ...value, crew, vehicles, requiredStaff: value?.requiredStaff ?? 1 };
+      setOptions(safeValue);
+      const proposed = props.proposedCrewIds.filter((id) => crew.some((member) => member.id === id));
+      setCrewIds(proposed.length >= safeValue.requiredStaff ? proposed : crew.slice(0, safeValue.requiredStaff).map((member) => member.id));
+      setVehicleId(vehicles.some((vehicle) => vehicle.id === props.proposedVehicleId) ? props.proposedVehicleId! : vehicles[0]?.id ?? '');
     } catch (error) { setFailure(failureText(error, 'Assignment options could not be loaded. Try again.')); }
     finally { setBusy(false); }
   }
@@ -121,9 +136,14 @@ export function DispatchAssignmentEditor(props: {
     const workOrderIds = stops.map((stop) => stop.workOrderId);
     try {
       const result = editing
-        ? await props.api.post<Saved>('/api/ops/dispatch/assignment-edit', { date: props.date, assignmentId: props.assignmentId, crewIds, vehicleId, workOrderIds })
+        ? await props.api.post<Saved>('/api/ops/dispatch/assignment-edit', {
+            date: props.date, assignmentId: props.assignmentId, crewIds, vehicleId, workOrderIds,
+            ...(props.checklist ? { checklist: props.checklist } : {}),
+          })
         : await props.api.post<Saved>('/api/ops/dispatch/assign', {
-          date: props.date, teamId: props.teamId, crewIds, vehicleId, computedAt: options.computedAt, workOrderIds });
+            date: props.date, teamId: props.teamId, crewIds, vehicleId, computedAt: options.computedAt, workOrderIds,
+            ...(props.checklist ? { checklist: props.checklist } : {}),
+          });
       setAssigned(true);
       props.onAssigned(result);
     } catch (error) { setFailure(failureText(error, 'The dispatch could not be saved. Reload the options and try again.')); }
@@ -202,25 +222,30 @@ export function DispatchAssignmentEditor(props: {
           </div>
         </fieldset> : null}
         <fieldset><legend>Crew · at least {requiredStaff}</legend>
-          <div className="dispatch-crew-options">{options.crew.map((member) => <label key={member.id}>
+          <div className="dispatch-crew-options">{(options.crew ?? []).map((member) => <label key={member.id}>
             <input type="checkbox" value={member.id} checked={crewIds.includes(member.id)} disabled={busy}
               onChange={(event) => setCrewIds((previous) => event.target.checked ? [...previous, member.id] : previous.filter((id) => id !== member.id))} />
             <img src={staffPhotoUrl(member.email, 'CleaningCrew')} alt="Reference portrait" />
             <a href={`/ops/staff/${member.id}`}>{staffDisplayName(member.email, 'CleaningCrew', member.displayName)}</a>
           </label>)}</div>
-          {!options.crew.length ? <p>No eligible crew is available.</p> : null}
+          {!options.crew?.length ? <p>No eligible crew is available.</p> : null}
         </fieldset>
         <fieldset><legend>Vehicle</legend>
-          <div className="dispatch-vehicle-options">{options.vehicles.map((vehicle) => <label key={vehicle.id}>
+          <div className="dispatch-vehicle-options">{(options.vehicles ?? []).map((vehicle) => <label key={vehicle.id}>
             <input type="radio" name={`dispatch-vehicle-${props.assignmentId ?? props.teamId}`} value={vehicle.id} checked={vehicleId === vehicle.id} disabled={busy}
               onChange={() => setVehicleId(vehicle.id)} />
             {vehicle.photoUrl ? <img src={vehicle.photoUrl} alt={`${vehicle.model || 'Vehicle'} model reference`} /> : null}
             <span>{vehicleLabel(vehicle)}</span>
           </label>)}</div>
-          {!options.vehicles.length ? <p>No suitable HQ vehicle is available.</p> : null}
+          {!options.vehicles?.length ? <p>No suitable HQ vehicle is available.</p> : null}
         </fieldset>
-        <button type="button" disabled={busy || crewIds.length < requiredStaff || !vehicleId || (!!props.stops && !stops.length)}
-          onClick={() => void save()}>{editing ? 'Save changes' : 'Assign dispatch'}</button>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button type="button" disabled={busy || crewIds.length < requiredStaff || !vehicleId || (!!props.stops && !stops.length)}
+            onClick={() => void save()}>{props.saveLabel ?? (editing ? 'Save changes' : 'Assign dispatch')}</button>
+          {props.onQuit ? (
+            <button type="button" disabled={busy} onClick={props.onQuit} className="btn-quit">Quit</button>
+          ) : null}
+        </div>
       </> : null}
     </>}
   </section>;

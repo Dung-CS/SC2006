@@ -44,6 +44,11 @@ function mount(plan: Record<string, unknown>, proposals: object[] = [], photoRep
       url.startsWith('/api/ops/dispatch/horizon') ? {
         startDate: today, days: 7, planStatus: 'ready', unassigned: [], ...plan,
         plans: (plan.plans as unknown[]) ?? [{ date: today, routes: [], ...plan }],
+      } : url.startsWith('/api/ops/dispatch/assignment-options') ? {
+        crew: [{ id: 'crew-1', email: 'crew1@dfence.test', displayName: 'Test Crew' }],
+        vehicles: [{ id: 'demo-1', name: 'Demo Van', model: 'Toyota Hiace', registration: 'GBD1234A', licensePlate: 'GBD1234A' }],
+        requiredStaff: 1,
+        stopStaff: {},
       } : { date: today, proposals: proposals.map((proposal) => ({ scheduledDate: today, ...proposal })) };
     return { ok: true, status: 200, json: async () => body } as Response;
   };
@@ -177,15 +182,23 @@ describe('Dispatch map views and filters', () => {
     expect(document.getElementById('horizon-days')).toBeTruthy();
   });
 
-  it('keeps vehicle and packing details behind the collapsed disclosure', async () => {
+  it('keeps vehicle and packing details inside editable details page with save and quit', async () => {
     mount({ computedAt: '2026-10-27T09:00:00Z', planStatus: 'refreshing', routes: [route] });
     await screen.findByText('Updating');
     expect(document.querySelector<HTMLDetailsElement>('.dispatch-details')?.open).toBe(false);
     details();
-    expect(screen.getByText(/Payload: 25.0 \/ 750.0 kg/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Logistics & Equipment Packing List/ }));
-    expect(screen.getByText(/Each: 30/)).toBeTruthy();
-    expect(screen.getByText('Provisional item values')).toBeTruthy();
+    // Card displays effort breakdown, HQ, and stops, but vehicle & packing details are in the details page
+    expect(screen.getByRole('button', { name: /View & Edit Dispatch Details/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /View & Edit Dispatch Details/ }));
+    // Details page opened: vehicle payload, checklist, and save/quit buttons
+    expect(screen.getByText(/25\.0 \/ 750\.0 kg/)).toBeTruthy();
+    expect(screen.getByText(/Logistics & Equipment Checklist/)).toBeTruthy();
+    expect(screen.getByText('Inspection kit')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save/ })).toBeTruthy());
+    expect(screen.getAllByRole('button', { name: /Quit/ })[0]).toBeTruthy();
+    // Quit returns to the dispatch cards
+    fireEvent.click(screen.getAllByRole('button', { name: /Quit/ })[0]);
+    expect(screen.getByRole('button', { name: /View & Edit Dispatch Details/ })).toBeTruthy();
   });
 
   it('keeps proposal source identities in work-order form links without creating records', async () => {

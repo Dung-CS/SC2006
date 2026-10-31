@@ -893,10 +893,13 @@ async function main(): Promise<void> {
       await accounts.save(member);
     }
   }
+  const assignmentUnit = new DispatchAssignmentUnit(database,
+    { accounts, workOrders, reports, clusters, scores, audit: auditStore, treatments, vehicles: vehicleStore },
+    ac, config, notifier, reportClusterDistanceMetres);
   const routeInputs = async (date: string, signal?: AbortSignal): Promise<DispatchPlanInputs> => {
     const checkCancelled = (): void => { if (signal?.aborted) throw new Error('Dispatch input loading was cancelled'); };
     checkCancelled();
-    const [crew, orders, activeClusters, proposals, verified, actioned, latestScores, vehicles] = await Promise.all([
+    const [crew, orders, activeClusters, proposals, verified, actioned, latestScores, vehicles, savedAssignments] = await Promise.all([
       accounts.findByRole(Role.CleaningCrew),
       workOrders.findAllOpen(),
       clusters.findActive(),
@@ -905,6 +908,7 @@ async function main(): Promise<void> {
       reports.findByStatus(ReportStatus.Actioned),
       scores.latest(),
       vehicleStore.list(),
+      assignmentUnit.read().assignments.list(date),
     ]);
     checkCancelled();
     const knownClusters = new Map(activeClusters.map((cluster) => [cluster.id, cluster]));
@@ -938,12 +942,10 @@ async function main(): Promise<void> {
       .flatMap((order) => order.assignedVehicleId ? [order.assignedVehicleId] : []));
     return { ...buildDispatchRouteInputs({ date, crew, orders: reportOrders, clusters: [...knownClusters.values()], proposals,
       profiles: config.pestProfiles, reports: [...verified, ...actioned], scores: latestScores, reportClusterDistanceMetres }),
-      vehicles: vehicles.filter((vehicle) => !reservedVehicleIds.has(vehicle.id)) };
+      vehicles: vehicles.filter((vehicle) => !reservedVehicleIds.has(vehicle.id)),
+      assignments: savedAssignments };
   };
   const dispatchPlans = new DispatchPlanService(routeInputs, routePlanner);
-  const assignmentUnit = new DispatchAssignmentUnit(database,
-    { accounts, workOrders, reports, clusters, scores, audit: auditStore, treatments, vehicles: vehicleStore },
-    ac, config, notifier, reportClusterDistanceMetres);
   staff.linkDispatches(new DispatchListController(ac, assignmentUnit));
   const assignmentService = new DispatchAssignmentService(ac, dispatchPlans, assignmentUnit, config,
     () => dispatchPlans.invalidateAll(), { jobs: async (date) => (await routeInputs(date)).jobs, planner: routePlanner });

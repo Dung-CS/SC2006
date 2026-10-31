@@ -3,6 +3,7 @@ import type { TaskScoreExplanation } from '../presentation/TaskScoreExplanation'
 import { StaffStatus, PriorityTier, TaskType, PestType } from '../entity/enums';
 import { IRouteStrategy, RoutePlan, isVerifiedAccessRoute, ServiceArea, serviceAreaRings } from './routing/IRouteStrategy';
 import type { Vehicle } from '../entity/Vehicle';
+import type { ChecklistItem } from '../ports/DispatchAssignmentStore';
 import { generatePackingList, logisticsLoad, itemFitsCargo, LOGISTICS_LOAD_BASIS, PackingItem } from './LogisticsPolicy';
 export { generatePackingList } from './LogisticsPolicy';
 export type { PackingItem } from './LogisticsPolicy';
@@ -104,6 +105,9 @@ export interface PlannedTeamRoute {
   loadWeightPercentage?: number;
   loadVolumePercentage?: number;
   loadBasis: string;
+  isFixed?: boolean;
+  assignmentId?: string;
+  checklist?: ChecklistItem[];
 }
 
 // Maximum shift duration: strictly capped at 4 hours (14,400 seconds)

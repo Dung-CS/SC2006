@@ -288,4 +288,36 @@ describe('dispatch assignment: report reject removes its stop', () => {
     expect(assigned.workOrderIds).toEqual(['b', 'c']);
     expect(assigned.routeSnapshot.waypointOrder.filter((wp) => !wp.isHq).map((wp) => wp.workOrderId)).toEqual(['b', 'c']);
   });
+
+  it('manually created and edited dispatches are marked isFixed and persist logistics checklist', async () => {
+    const f = await fixture();
+    const assigned = await f.service.assign({
+      date, teamId: 'manual-team', crewIds: ['crew-1'], vehicleId: 'van-1', workOrderIds: ['b', 'c'],
+      checklist: [{ id: 'chk-1', item: 'Respirators', quantity: '2 sets', category: 'Safety', icon: '🤿', checked: false }],
+    }, manager);
+    expect(assigned.isFixed).toBe(true);
+    expect(assigned.checklist).toHaveLength(1);
+    expect(assigned.checklist![0]!.item).toBe('Respirators');
+    expect(assigned.checklist![0]!.checked).toBe(false);
+
+    // Manager adds item
+    const withAdded = await f.service.addChecklistItem(assigned.id, 'Fogging Nozzle', '1 spare', manager);
+    expect(withAdded).toHaveLength(2);
+    expect(withAdded[1]!.item).toBe('Fogging Nozzle');
+
+    // Crew toggles checklist item
+    const crewPrincipal = principalFor(Role.CleaningCrew, 'crew-1');
+    const toggled = await f.service.toggleChecklistItem(assigned.id, 'chk-1', true, crewPrincipal);
+    expect(toggled.find((i) => i.id === 'chk-1')?.checked).toBe(true);
+
+    // Crew reads dispatch
+    const crewView = await f.service.crewDispatch(date, crewPrincipal);
+    expect(crewView).not.toBeNull();
+    expect(crewView!.checklist.find((i) => i.id === 'chk-1')?.checked).toBe(true);
+
+    // Manager removes item
+    const withRemoved = await f.service.removeChecklistItem(assigned.id, 'chk-1', manager);
+    expect(withRemoved).toHaveLength(1);
+    expect(withRemoved[0]!.item).toBe('Fogging Nozzle');
+  });
 });
