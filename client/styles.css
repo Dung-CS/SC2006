@@ -827,11 +827,15 @@ ul[data-part='list'] > li {
   box-shadow: var(--shadow-border);
 }
 
-/* The night basemap is already muted. A street (Default_HD) basemap is dimmed so it does not glare on the dark page. */
+/* Mute and grey basemap tiles so coloured routes, clusters and markers pop with high contrast. */
+.map-canvas .leaflet-tile-pane {
+  filter: grayscale(100%) contrast(90%) brightness(0.85);
+}
+
 .map-canvas[data-basemap='Default_HD'] .leaflet-tile-pane,
 .map-canvas[data-basemap='Original_HD'] .leaflet-tile-pane,
 .map-canvas[data-basemap='Grey_HD'] .leaflet-tile-pane {
-  filter: brightness(0.8) contrast(1.05);
+  filter: grayscale(100%) contrast(90%) brightness(0.85);
 }
 
 .map-canvas[data-size='tall'] {

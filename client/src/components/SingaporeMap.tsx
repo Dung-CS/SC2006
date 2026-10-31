@@ -54,8 +54,8 @@ const SINGAPORE_CENTRE: [number, number] = [1.3521, 103.8198];
 export const ONEMAP_ATTRIBUTION =
   '<a href="https://www.onemap.gov.sg/" rel="noreferrer">OneMap</a> © Singapore Land Authority';
 
-/** Basemaps: night is the default on the dark site; plain and grey stay for a screen that needs a street-readable or colour-free map. */
-export type Basemap = 'Night_HD' | 'Default_HD' | 'Grey_HD';
+/** Basemaps: grey is default where colours (routes, clusters) must carry; night and plain stay for other screens. */
+export type Basemap = 'Grey_HD' | 'Night_HD' | 'Default_HD';
 
 export interface MapCluster {
   clusterId: string;
@@ -407,7 +407,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           scrollWheelZoom: true,
           tap: true,
         });
-        L.tileLayer(`https://www.onemap.gov.sg/maps/tiles/${props.basemap ?? 'Night_HD'}/{z}/{x}/{y}.png`, {
+        L.tileLayer(`https://www.onemap.gov.sg/maps/tiles/${props.basemap ?? 'Grey_HD'}/{z}/{x}/{y}.png`, {
           attribution: ONEMAP_ATTRIBUTION,
           maxZoom: 18,
           // OneMap serves Singapore alone; beyond it the tiles are blank, and blank tiles look
@@ -598,7 +598,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
           const polyline = L.polyline(latlngs, {
             color: r.color,
             weight: 5,
-            opacity: 0.85,
+            opacity: 0.95,
             lineJoin: 'round',
           });
           polyline.bindTooltip(`Team ${r.teamId}: ${r.label}`, { sticky: true });
@@ -889,7 +889,7 @@ export function SingaporeMap(props: SingaporeMapProps): JSX.Element {
         ref={container}
         className="map-canvas"
         data-size={props.size ?? 'tall'}
-        data-basemap={props.basemap ?? 'Night_HD'}
+        data-basemap={props.basemap ?? 'Grey_HD'}
         role="application"
         aria-label={`${props.tasks !== undefined ? `Dispatch tasks map. ${props.tasks.length} task(s).` : `Map of active dengue clusters. ${props.clusters.length} cluster(s).`} Arrow keys pan, plus and minus zoom.`}
         aria-describedby={legendId}

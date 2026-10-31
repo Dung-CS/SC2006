@@ -472,7 +472,7 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
           <h2 className="m-0 flex flex-wrap items-baseline gap-x-2 text-lg font-semibold tracking-tight" title={view === 'routes' ? 'Full planned route' : undefined}>{view === 'routes' ? 'Routes' : view === 'unassigned' ? 'Horizon tasks' : 'Daily proposals'} <small className="text-xs font-normal text-ink-quiet">{mapTasks.length} locations</small></h2>
           {view !== 'routes' ? <p className="dispatch-map-note m-0 flex items-center gap-1 text-xs text-ink-quiet"><TriangleAlert size={12} aria-hidden="true" />{view === 'proposals' ? 'Candidate locations' : 'Recorded task locations'} · Road access not verified</p> : null}
         </div>
-        <SingaporeMap label="dispatch-routes-map" viewKey={photoScope} showClusterBadges={false}
+        <SingaporeMap label="dispatch-routes-map" viewKey={photoScope} showClusterBadges={false} basemap="Grey_HD"
           clusters={[]} routes={view === 'routes' ? mapRoutes : []} tasks={mapTasks} onTaskOpen={openTask} onTaskDetail={openTaskDetail} size="tall"
           onRejectReport={async (id, reason) => { await props.api.post(`/api/ops/moderation/${encodeURIComponent(id)}/reject`, { reason }); routesLoad.retry(); retry(); }} />
         {unavailableTasks.length > 0 ? <p className="dispatch-map-note mt-1 mb-0 text-sm text-ink-quiet">{unavailableTasks.length} locations unavailable</p> : null}
