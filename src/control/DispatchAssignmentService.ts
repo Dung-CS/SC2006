@@ -20,6 +20,15 @@ import { AccountStore, ClusterStore, WorkOrderStore } from '../ports/Stores';
 import { ChecklistItem, DispatchAssignment, DispatchAssignmentStore } from '../ports/DispatchAssignmentStore';
 import { VehicleStore } from '../ports/VehicleStore';
 
+export interface CrewDispatchStop {
+  workOrderId: string;
+  pestType: string | null;
+  taskType: string | null;
+  location: string;
+  priority: string | null;
+  status: string | null;
+}
+
 export class DispatchAssignmentRejected extends Error {
   constructor(message: string, readonly status = 409) { super(message); this.name = 'DispatchAssignmentRejected'; }
 }
@@ -578,10 +587,47 @@ export class DispatchAssignmentService {
     return result;
   }
 
-  async crewDispatch(date: string, by: Principal): Promise<{ assignment: DispatchAssignment | null; checklist: ChecklistItem[] }> {
+  async crewDispatch(date: string, by: Principal): Promise<{ assignment: DispatchAssignment | null; checklist: ChecklistItem[]; stops: CrewDispatchStop[] }> {
     const context = this.unit.read();
     const assignments = await context.assignments.listByCrew(by.accountId);
     const assignment = assignments.find((a) => a.date === date && a.status !== 'Cancelled') ?? null;
-    return { assignment, checklist: assignment?.checklist ?? [] };
+    if (!assignment) {
+      return { assignment: null, checklist: [], stops: [] };
+    }
+
+    const waypoints = assignment.routeSnapshot?.waypointOrder?.filter((wp) => !wp.isHq) ?? [];
+    const waypointMap = new Map(waypoints.filter((wp) => wp.workOrderId).map((wp) => [wp.workOrderId!, wp]));
+
+    const waypointIds = waypoints.map((wp) => wp.workOrderId).filter((id): id is string => typeof id === 'string' && !!id);
+    const seen = new Set<string>();
+    const orderedIds: string[] = [];
+    for (const id of waypointIds) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        orderedIds.push(id);
+      }
+    }
+    for (const id of assignment.workOrderIds) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        orderedIds.push(id);
+      }
+    }
+
+    const orders = await Promise.all(orderedIds.map((id) => context.workOrders.findById(id)));
+    const stops: CrewDispatchStop[] = orderedIds.map((id, index) => {
+      const order = orders[index];
+      const wp = waypointMap.get(id);
+      return {
+        workOrderId: id,
+        pestType: order?.pestType ?? wp?.pestType ?? null,
+        taskType: order?.taskType ?? wp?.taskType ?? null,
+        location: order?.location ?? wp?.label ?? 'Singapore',
+        priority: order?.priority ?? wp?.priority ?? null,
+        status: order ? order.currentStatus() : (wp?.status ?? null),
+      };
+    });
+
+    return { assignment, checklist: assignment.checklist ?? [], stops };
   }
 }

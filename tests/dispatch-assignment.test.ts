@@ -314,6 +314,22 @@ describe('dispatch assignment: report reject removes its stop', () => {
     const crewView = await f.service.crewDispatch(date, crewPrincipal);
     expect(crewView).not.toBeNull();
     expect(crewView!.checklist.find((i) => i.id === 'chk-1')?.checked).toBe(true);
+    expect(crewView.assignment?.id).toBe(assigned.id);
+    expect(crewView.stops).toHaveLength(2);
+    expect(crewView.stops.map((s) => s.workOrderId)).toEqual(['b', 'c']);
+    expect(crewView.stops[0]).toMatchObject({
+      workOrderId: 'b',
+      pestType: 'Mosquito',
+      taskType: 'Inspection',
+      status: 'Assigned',
+    });
+
+    // Unassigned crew member only gets their own dispatch (empty when not assigned)
+    const otherCrew = principalFor(Role.CleaningCrew, 'crew-2');
+    const otherView = await f.service.crewDispatch(date, otherCrew);
+    expect(otherView.assignment).toBeNull();
+    expect(otherView.checklist).toEqual([]);
+    expect(otherView.stops).toEqual([]);
 
     // Manager removes item
     const withRemoved = await f.service.removeChecklistItem(assigned.id, 'chk-1', manager);
