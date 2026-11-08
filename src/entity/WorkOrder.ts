@@ -16,7 +16,7 @@ export class WorkOrder {
   /** Locality of the cluster or report where work is scheduled. */
   location?: string;
   /**
-   * 8.1.16 — the pest this work order addresses. 8.1.14 means it is never a Wildlife pest.
+   * 8.1.16 — the pest this work order addresses. In v0.18+ wildlife pests are handled by dedicated AuthorityResponse staff.
    * Null only on a legacy row whose pest could not be recovered: shown as unknown and never
    * assignable, because defaulting it to Mosquito would invent history.
    */

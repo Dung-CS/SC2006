@@ -239,34 +239,7 @@ export function WorkOrderDetailScreen(props: ScreenProps): JSX.Element {
                 enforces, so nothing recommended here can be refused there. Ranked by first-choice
                 capability, then fewest open orders; no invented match percentage.
               */}
-              {routing === undefined ? null : routing.referral !== null ? (
-                <div className="dispatch-wildlife-banner" role="alert" data-part="wildlife-referral">
-                  <div className="dispatch-wildlife-title">Not crew work: refer this case (8.1.14, 8.6)</div>
-                  <p className="dispatch-wildlife-body">
-                    {label(order.pestType ?? 'Unknown pest')} cases go to {routing.referral.authority}. No crew member can be
-                    assigned.{' '}
-                    {order.sourceReportId == null ? (
-                      'Refer the source report from the moderation queue instead.'
-                    ) : (
-                      <a
-                        href={`/ops/referrals/${order.sourceReportId}`}
-                        onClick={link(props, `/ops/referrals/${order.sourceReportId}`)}
-                      >
-                        Refer the source report
-                      </a>
-                    )}
-                  </p>
-                  <div className="dispatch-wildlife-cta">
-                    <strong>{routing.referral.authority}</strong>{' '}
-                    <a
-                      href={`tel:${routing.referral.contactNumber.replace(/\s/g, '')}`}
-                      className="dispatch-wildlife-phone"
-                    >
-                      {routing.referral.contactNumber}
-                    </a>
-                  </div>
-                </div>
-              ) : top === undefined ? (
+              {routing === undefined ? null : top === undefined ? (
                 <div role="status" data-part="no-eligible-crew" className="rounded-2xl border border-tier-medium/40 bg-tier-medium/14 p-4 [&_p]:m-0">
                   <p>
                   No active crew member has a recorded capability that covers {label(order.taskType)} for{' '}

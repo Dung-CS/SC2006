@@ -127,10 +127,10 @@ already documented as deliberate — it just has to be exercised:
 |---|---|---|
 | Mosquito | NEA vector control | current path, unchanged |
 | Cockroach, rodent, ant, termite | Town council / NEA (premises-dependent) | — |
-| Snake, wild boar, macaque | **NParks AVS, 1800-476-1600** | advisory-only: the app must NOT dispatch a cleaning crew to a wild boar |
+| Snake, wild boar, macaque | Dedicated staff (`AuthorityResponse`) | Dispatched to dedicated authority response staff, not standard cleaning crew |
 
-Making the app *decline* to dispatch its own crew for wildlife, and route to AVS instead, is a
-stronger demo moment than any additional data source — it shows the domain was thought about.
+Dispatching wildlife to a dedicated internal staff type (AuthorityResponse) rather than standard cleaning crews
+shows the domain was thought about.
 
 ### P3 — NEA "Areas with High Aedes Population" (Gravitrap) as a second live NEA feed
 **Effort: S. Impact: high. Dataset `d_5d060d8b7838a15e8906fb22c50dbf51`, GEOJSON, last updated

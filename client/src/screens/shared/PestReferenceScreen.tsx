@@ -125,9 +125,6 @@ export function PestReferenceScreen(props: ScreenProps): JSX.Element {
                   </td>
                 <td>
                   {pest.authority}
-                  {/* 8.1.14 in words. A resident should not discover only after filing that we do
-                      not send anyone for this one. 11.7.5 — said, not signalled by a colour. */}
-                  {pest.referred ? ' — we refer this to them, we do not send a crew' : ''}
                 </td>
                 <td>
                   <a href={`tel:${pest.contactNumber.replace(/\s/g, '')}`}>{pest.contactNumber}</a>

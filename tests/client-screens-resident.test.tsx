@@ -395,12 +395,12 @@ describe('Report a Site — §11.2.8, §5.1.4–5.1.6, §5.1.15–5.1.17', () =>
     expect(body.pestType).toBe('Mosquito');
   });
 
-  it('R9 — a wildlife pest must say indoors or outdoors, and says who handles it (5.1.16, 8.1.14)', async () => {
+  it('R9 — a wildlife pest must say indoors or outdoors, and does not route to external authorities (5.1.16, 8.1.14)', async () => {
     const { fetcher, calls } = router({
       '/api/pests': {
         body: {
           pests: [
-            { pestType: 'Snake', pestClass: 'Wildlife', evidenceTier: 'B', severityMultiplier: 0.75, authority: 'AVS (NParks Animal Response Centre)', contactNumber: '1800 476 1600', referred: true },
+            { pestType: 'Snake', pestClass: 'Wildlife', evidenceTier: 'B', severityMultiplier: 0.75, authority: 'AVS (NParks Animal Response Centre)', contactNumber: '1800 476 1600', referred: false },
           ],
         },
       },
@@ -410,9 +410,8 @@ describe('Report a Site — §11.2.8, §5.1.4–5.1.6, §5.1.15–5.1.17', () =>
     await waitFor(() => expect(screen.getByLabelText('What did you see?')).toBeTruthy());
 
     choosePest('Snake');
-    // 8.1.14 in words, before the form is filled in rather than after it is submitted.
-    await waitFor(() => expect(screen.getByText(/handles Snake, not D-Fence/)).toBeTruthy());
-    expect(screen.getByText('1800 476 1600')).toBeTruthy();
+    // Wildlife is handled by dedicated D-Fence staff, so no external referral notice is shown.
+    expect(screen.queryByText(/handles Snake, not D-Fence/)).toBeNull();
 
     fireEvent.change(screen.getByLabelText('Describe what you saw'), { target: { value: 'A snake by the lift.' } });
     fireEvent.change(screen.getByLabelText('Latitude'), { target: { value: '1.4' } });

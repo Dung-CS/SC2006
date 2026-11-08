@@ -19,7 +19,7 @@ export function computeTriagePriority(
   if (injuryReported) return { priority: 'Critical', rationale: 'Injury reported. Seek urgent medical help where needed.' };
   if ([PestType.WildBoar, PestType.Snake, PestType.Macaque].includes(pestType as PestType)) {
     const indoor = locationContext === LocationContext.Indoor;
-    return { priority: indoor ? 'Critical' : pestType === PestType.Macaque ? 'Medium' : 'High', rationale: `${pestType} reported${indoor ? ' indoors' : ''}. Keep a safe distance and contact the relevant wildlife authority.` };
+    return { priority: indoor ? 'Critical' : pestType === PestType.Macaque ? 'Medium' : 'High', rationale: `${pestType} reported${indoor ? ' indoors' : ''}. Keep a safe distance; dedicated wildlife team inspection is required.` };
   }
   if (pestType === PestType.Rat || pestType === PestType.Cockroach) return {
     priority: count >= 5 ? 'High' : 'Medium', rationale: `${count} ${pestType} reported. ${count >= 5 ? 'Count meets the high-density threshold.' : 'Count is below the high-density threshold.'}`,

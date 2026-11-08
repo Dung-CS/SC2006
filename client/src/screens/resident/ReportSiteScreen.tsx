@@ -325,19 +325,6 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
           ))}
         </select>
 
-        {/* 8.1.14 in words, and before the form is filled in rather than after it is submitted.
-            11.2.27's screen is one click away, which is the dialog map's whoThisHandles transition. */}
-        {chosen?.referred === true ? (
-          <p data-part="authority" role="status">
-            {chosen.authority} handles {readable(chosen.pestType)}, not D-Fence. We will pass this to
-            them. If the animal is inside or someone is hurt, call{' '}
-            <a href={`tel:${chosen.contactNumber.replace(/\s/g, '')}`}>{chosen.contactNumber}</a>{' '}
-            first.{' '}
-            <a href="/pests" onClick={link(props, '/pests')}>
-              Who handles which pest
-            </a>
-          </p>
-        ) : null}
 
         {/* 5.1.16 — mandatory for wildlife, because 4.4.7 raises an indoor sighting to Critical and
             cannot do so from a value nobody supplied. Not shown for other pests: an unanswerable

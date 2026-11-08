@@ -71,9 +71,9 @@ export class PestProfile {
     return driversFor(this.evidenceTier);
   }
 
-  /** 8.1.14, 8.6.1 — wildlife is referred, never dispatched to a Cleaning Crew. */
+  /** Wildlife cases are handled by dedicated internal staff (AuthorityResponse), not referred to external authorities. */
   isReferrable(): boolean {
-    return this.pestClass === PestClass.Wildlife;
+    return false;
   }
 
   /**

@@ -1670,8 +1670,8 @@ changes:
   A weight set is v0.8's unchanged. The tier thresholds in 4.1.8 are untouched.
 - **§1.5** wildlife observation ingestion and **§1.6** vector control operator registry ingestion
   added, both against sources verified live on 2026-09-16.
-- **§8.6 Referral** added: the system refuses to dispatch its own crew against wildlife (8.1.14) and
-  refers to the responsible authority instead, without writing a treatment record (8.6.11).
+- **§8.6 Referral** retained for historical referral records and outcome tracking; wildlife cases
+  are dispatched to dedicated internal AuthorityResponse staff (8.1.14 updated in v0.18+).
 - 5.1.15–5.1.19 add the pest type, location context and injury fields; 5.1.18 stops a snake report
   being refused as a duplicate of a cockroach report 40 metres away.
 - §13 gains seven new assumption rows, including the honest statement of what the vector control

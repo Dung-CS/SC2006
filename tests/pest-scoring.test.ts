@@ -38,9 +38,13 @@ import { Cluster } from '../src/entity/Cluster';
 import { Principal } from '../src/control/Principal';
 import { principalFor } from '../src/control/DashboardController';
 import { GeoPoint, Polygon, PremisesMix } from '../src/entity/valueTypes';
+import { randomUUID } from 'node:crypto';
+import { Account } from '../src/entity/Account';
+import { Referral } from '../src/entity/Referral';
+import { InMemoryAccountStore } from '../src/persistence/memory/InMemoryAccountStores';
 import {
   ChangeClass, Driver, EvidenceTier, ForecastRegion, LocationContext, PestType, PriorityTier,
-  ReportStatus, ReportType, Role, TaskType, Trajectory,
+  ReportStatus, ReportType, Role, StaffSpecialisation, TaskType, Trajectory, WorkOrderStatus,
 } from '../src/entity/enums';
 
 const MANAGER = principalFor(Role.OperationsManager, 'manager-1');
@@ -115,7 +119,7 @@ describe('A: every pest names the authority that publishes its channel (8.6.2, 8
     // fourth pest pointed at AVS. A referral that names the right agency and the wrong number is
     // still a resident who cannot reach anyone.
     expect(bee.authorityContactNumber).toBe('1800 471 7300');
-    expect(bee.isReferrable()).toBe(true);
+    expect(bee.isReferrable()).toBe(false);
   });
 
   it('A2 — the three nuisance birds go to AVS', () => {
@@ -341,6 +345,9 @@ describe('F: referral to an external authority (8.6, 8.1.14)', () => {
   let dispatch: DispatchController;
   let clusters: InMemoryClusterStore;
   let resident: RecordingNotifier;
+  let accounts: InMemoryAccountStore;
+  const authorityCrewId = randomUUID();
+  const generalCrewId = randomUUID();
   let storedClusterId = '';
   const clusterId = (): string => storedClusterId;
 
@@ -351,6 +358,26 @@ describe('F: referral to an external authority (8.6, 8.1.14)', () => {
     workOrders = new InMemoryWorkOrderStore();
     treatments = new InMemoryTreatmentRecordStore();
     clusters = new InMemoryClusterStore();
+    accounts = new InMemoryAccountStore();
+
+    const authorityCrew = new Account();
+    authorityCrew.id = authorityCrewId;
+    authorityCrew.email = 'authority@dfence.gov.sg';
+    authorityCrew.displayName = 'Authority Crew';
+    authorityCrew.role = Role.CleaningCrew;
+    authorityCrew.specialisation = StaffSpecialisation.AuthorityResponse;
+    authorityCrew.isActive = true;
+    await accounts.save(authorityCrew);
+
+    const generalCrew = new Account();
+    generalCrew.id = generalCrewId;
+    generalCrew.email = 'general@dfence.gov.sg';
+    generalCrew.displayName = 'General Crew';
+    generalCrew.role = Role.CleaningCrew;
+    generalCrew.specialisation = StaffSpecialisation.GeneralInspection;
+    generalCrew.isActive = true;
+    await accounts.save(generalCrew);
+
     // A real notifier, not null: 8.6.6 is a message, and a null notifier makes every assertion
     // about what the resident was told vacuously true.
     resident = new RecordingNotifier();
@@ -374,13 +401,28 @@ describe('F: referral to an external authority (8.6, 8.1.14)', () => {
         new WorkOrderTransitionTable(), workOrders, treatments, new RecordingNotifier(), null,
       ),
       workOrders, clusters, new InMemoryPriorityScoreStore(), new RecordingNotifier(),
-      null, 10, null, c,
+      lifecycle, 10, null, c, accounts, reports,
     );
   });
 
-  async function verifiedWildlifeReport(): Promise<Report> {
-    const r = report({ pestType: PestType.WildBoar, locationContext: LocationContext.Outdoor });
+  async function verifiedWildlifeReport(pestType = PestType.WildBoar): Promise<Report> {
+    const r = report({ pestType, locationContext: LocationContext.Outdoor });
     return reports.save(r);
+  }
+
+  async function historicalReferral(r: Report): Promise<Referral> {
+    const ref = new Referral();
+    ref.id = randomUUID();
+    ref.reportId = r.id;
+    ref.destinationAuthority = 'AVS';
+    ref.destinationContactNumber = '1800-476-1600';
+    ref.referredAt = NOW;
+    ref.referredBy = MANAGER.accountId;
+    ref.reason = 'Animal seen repeatedly at the void deck bins.';
+    await referrals.save(ref);
+    r.applyStatus(ReportStatus.Actioned);
+    await reports.save(r);
+    return ref;
   }
 
   it('F1 — wildlife inspection work can be created within unified authority operations', async () => {
@@ -415,41 +457,54 @@ describe('F: referral to an external authority (8.6, 8.1.14)', () => {
     ).rejects.toThrow(/8\.1\.17/);
   });
 
-  it('F2 — a referral records destination, referrer, time and reason, and Actions the report', async () => {
-    const r = await verifiedWildlifeReport();
-    const referral = await controller.refer(r.id, 'Boar seen repeatedly at the void deck bins.', MANAGER, NOW);
+  it('F2 — a wildlife report produces a work order assigned only to AuthorityResponse, and referral is refused (8.6, 8.1.14)', async () => {
+    for (const pest of [PestType.Snake, PestType.Macaque, PestType.WildBoar]) {
+      const r = await verifiedWildlifeReport(pest);
+      // Attempting to refer wildlife is refused — no referral path remains
+      await expect(controller.refer(r.id, `${pest} seen repeatedly on site.`, MANAGER, NOW)).rejects.toThrow(
+        ReferralRefused,
+      );
 
-    expect(referral.destinationAuthority).toContain('AVS');
-    expect(referral.referredBy).toBe(MANAGER.accountId);
-    expect(referral.referredAt).toEqual(NOW);
-    expect((await reports.findById(r.id))?.currentStatus()).toBe(ReportStatus.Actioned);
+      // Wildlife produces an inspection work order through normal dispatch flow
+      const wo = await dispatch.createWorkOrder(
+        { sourceReportId: r.id, taskType: TaskType.Inspection, scheduledDate: '2099-01-01' },
+        MANAGER,
+      );
+      expect(wo.pestType).toBe(pest);
+      expect(wo.taskType).toBe(TaskType.Inspection);
+
+      // Assigning to a crew lacking AuthorityResponse is refused
+      await expect(dispatch.assign(wo.id, generalCrewId, MANAGER)).rejects.toThrow(
+        /AuthorityResponse|cannot carry out Inspection/,
+      );
+
+      // Assigning to AuthorityResponse crew succeeds
+      const assigned = await dispatch.assign(wo.id, authorityCrewId, MANAGER);
+      expect(assigned.assigneeId).toBe(authorityCrewId);
+      expect(assigned.currentStatus()).toBe(WorkOrderStatus.Assigned);
+    }
   });
 
-  /**
-   * F3 and F4 are one defect in two places. Writing a treatment record on referral is the natural
-   * thing for a developer to do — the case is closed, after all — and it would corrupt 4.1.17's
-   * feedback loop by telling the scorer a locality was treated when nobody treated it. F3 catches
-   * the write; F4 catches the consequence, so removing the write without understanding why still
-   * leaves a test standing.
-   */
-  it('F3 — a referral writes no work order and no treatment record (8.6.10, 8.6.11)', async () => {
+  it('F3 — an unreferrable wildlife case writes no referral record or treatment record (8.6.10, 8.6.11)', async () => {
     const r = await verifiedWildlifeReport();
-    await controller.refer(r.id, 'Boar seen repeatedly at the void deck bins.', MANAGER, NOW);
+    await expect(controller.refer(r.id, 'Boar seen repeatedly at the void deck bins.', MANAGER, NOW)).rejects.toThrow(
+      ReferralRefused,
+    );
 
-    expect(await workOrders.findOpenForCluster(clusterId())).toHaveLength(0);
+    expect(referrals.size()).toBe(0);
     expect(await treatments.allForCluster(clusterId())).toHaveLength(0);
   });
 
-  it('F4 — treatment recency is untouched by a referral (8.6.11)', async () => {
+  it('F4 — treatment recency is untouched by a historical referral (8.6.11)', async () => {
     const r = await verifiedWildlifeReport();
     const before = (await treatments.allForCluster(clusterId())).length;
-    await controller.refer(r.id, 'Boar seen repeatedly at the void deck bins.', MANAGER, NOW);
+    await historicalReferral(r);
     expect(await treatments.allForCluster(clusterId())).toHaveLength(before);
   });
 
-  it('F5 — recording the outcome closes the report (8.6.8, 8.6.9)', async () => {
+  it('F5 — recording the outcome of a historical referral closes the report (8.6.8, 8.6.9)', async () => {
     const r = await verifiedWildlifeReport();
-    const referral = await controller.refer(r.id, 'Boar seen repeatedly at the void deck bins.', MANAGER, NOW);
+    const referral = await historicalReferral(r);
     await controller.recordOutcome(referral.id, 'AVS attended and relocated the animal.', MANAGER, NOW);
 
     expect((await reports.findById(r.id))?.currentStatus()).toBe(ReportStatus.Closed);
@@ -468,7 +523,7 @@ describe('F: referral to an external authority (8.6, 8.1.14)', () => {
     expect(() => unconfigured.destinationFor(PestType.Snake)).toThrow(ReferralRefused);
   });
 
-  it('F7 — an unverified report is refused, and a reason of "n/a" is too (8.6.1, 8.6.4)', async () => {
+  it('F7 — an unverified report is refused, and wildlife referral is refused (8.6.1, 8.6.4)', async () => {
     const pending = await reports.save(
       report({ pestType: PestType.WildBoar, status: ReportStatus.Submitted } as Partial<Report> & { pestType: PestType }),
     );
@@ -477,36 +532,25 @@ describe('F: referral to an external authority (8.6, 8.1.14)', () => {
     );
 
     const verified = await verifiedWildlifeReport();
-    await expect(controller.refer(verified.id, 'n/a', MANAGER, NOW)).rejects.toThrow(/at least 10/);
+    await expect(controller.refer(verified.id, 'Boar seen repeatedly at the void deck bins.', MANAGER, NOW)).rejects.toThrow(
+      ReferralRefused,
+    );
   });
 
-  /**
-   * F8 and F9 were not in the designed set. They are here because 8.6.6 was unwired *and* the
-   * behaviour standing in its place was a false statement to the resident: the referral sets the
-   * report Actioned (8.6.5), 5.2.8 fires on that move, and the default Actioned wording told a
-   * resident whose snake went to AVS that it "has been scheduled for treatment". Nothing was
-   * scheduled and nothing was treated. A missing notification is a gap; a wrong one is a defect.
-   */
-  it('F8 — the resident is told their report was referred, and to whom (8.6.6)', async () => {
-    const r = await verifiedWildlifeReport();
-    await controller.refer(r.id, 'Boar seen repeatedly at the void deck bins.', MANAGER, NOW);
-
-    const sent = resident.to(RESIDENT.accountId);
-    expect(sent).toHaveLength(1);
-    // Naming the authority is the requirement, so it is asserted literally rather than by a
-    // "referred" keyword that would pass on a message naming nobody.
-    expect(sent[0]).toContain('AVS');
-    expect(sent[0]).toMatch(/referred to/i);
-    // The sentence this replaced. If it ever comes back, this is the line that fails.
-    expect(sent[0]).not.toMatch(/scheduled for treatment/);
+  it('F8 — referral notice template names the destination authority (8.6.6)', () => {
+    const profile = c.pestProfiles.get(PestType.Snake)!;
+    const notice = ReferralController.referralNotice(profile);
+    expect(notice).toContain('AVS');
+    expect(notice).toMatch(/referred to/i);
+    expect(notice).not.toMatch(/scheduled for treatment/);
   });
 
-  it('F9 — closing a referral does not claim D-Fence treated anything (8.6.9, 8.6.11)', async () => {
+  it('F9 — closing a historical referral does not claim D-Fence treated anything (8.6.9, 8.6.11)', async () => {
     const r = await verifiedWildlifeReport();
-    const referral = await controller.refer(r.id, 'Boar seen repeatedly at the void deck bins.', MANAGER, NOW);
+    const referral = await historicalReferral(r);
     await controller.recordOutcome(referral.id, 'AVS attended and relocated the animal.', MANAGER, NOW);
 
-    const closing = resident.to(RESIDENT.accountId)[1] ?? '';
+    const closing = resident.to(RESIDENT.accountId)[0] ?? '';
     expect(closing).toContain('AVS');
     expect(closing).toContain('relocated the animal');
     // 8.6.11 writes no TreatmentRecord, so the resident must not be told there was a treatment.

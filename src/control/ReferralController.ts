@@ -13,7 +13,7 @@
  * 4.1.17 feedback loop that makes a score fall after work is done.
  */
 import { randomUUID } from 'node:crypto';
-import { PestType, ReportStatus, Role } from '../entity/enums';
+import { PestClass, PestType, ReportStatus, Role, StaffSpecialisation } from '../entity/enums';
 import { Uuid } from '../entity/valueTypes';
 import { Referral } from '../entity/Referral';
 import { Report } from '../entity/Report';
@@ -113,6 +113,12 @@ export class ReferralController {
       throw new ReferralRefused(
         `the report is ${report.currentStatus()}, not Verified`,
         'verify the report before referring it (8.6.1)',
+      );
+    }
+    if (profile.pestClass === PestClass.Wildlife || !profile.isReferrable()) {
+      throw new ReferralRefused(
+        `${report.pestType} cases are handled by dedicated internal staff (${StaffSpecialisation.AuthorityResponse}), not referred to external authorities`,
+        'create an inspection work order for the dedicated authority response team instead',
       );
     }
     if ((await this.referrals.findByReport(reportId)) !== null) {

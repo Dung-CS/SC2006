@@ -2257,8 +2257,8 @@ than mosquitoes.
 - Change the duplicate-window query to match on pest type.
 
 ### US-11.8 — Refer what we have no authority to do
-> **Built 2026-09-16.** `Referral`, `ReferralController`, `ReferralRoutes`, and both screens (11.2.27 Pest Reference, 11.2.28 Referral). 8.1.14 refuses a wildlife work order and 8.1.17 restricts task types by pest class. 8.6.6's resident notification is wired as of 2026-09-17, and it replaced a false message: the referral's 8.6.5 transition was telling the resident their report "has been scheduled for treatment".
-**As** an Operations Manager, **I want** to route a wildlife case to AVS and record what came of it
+> **Built 2026-09-16; updated v0.18+ to dedicated staff.** `Referral`, `ReferralController`, `ReferralRoutes`, and screens (11.2.27, 11.2.28) retained for historical records. Wildlife cases are dispatched to dedicated AuthorityResponse staff.
+**As** an Operations Manager, **I want** wildlife cases dispatched to dedicated internal staff (AuthorityResponse) and historical referrals tracked
 **so that** widening the product is honest rather than cosmetic.
 
 **Traces:**
@@ -2282,7 +2282,7 @@ than mosquitoes.
 - 11.3.21
 
 **Acceptance:**
-- Work-order creation is refused for a wildlife pest class and the referral action is offered instead.
+- Wildlife cases produce Inspection work orders dispatched to dedicated AuthorityResponse staff; historical referrals are tracked.
 - A referral records destination, referrer, timestamp and reason, sets the report Actioned, and
   notifies the resident naming the authority.
 - Recording an outcome closes the report.
@@ -2323,7 +2323,7 @@ by actually removing the work.
 | 6 | US-8.4 to US-8.6, US-8.8, US-8.7 | The full loop runs end to end. |
 | 7 | US-6.1 to US-6.4, US-9.1, US-9.2, US-1.6, US-10.5 | The phone buzzes, the map works, the system survives a feed outage. Stop here. |
 | 8 | US-11.1, US-11.2, US-11.7 | **The v0.4 widening, minimum viable.** Profiles exist, the score is severity × urgency with dengue provably unchanged, and a resident can report any of the 22 pests. This alone answers the TA. |
-| 9 | US-11.3, US-11.6, US-11.8 | Evidence tiers, the critical override and referral to AVS. The wildlife story now closes without pretending we dispatch to it. |
+| 9 | US-11.3, US-11.6, US-11.8 | Evidence tiers, the critical override and dedicated AuthorityResponse dispatch (v0.18+). |
 | 10 | US-11.4, US-11.5 | The two external sources. **Cut these first** — the model is designed to run tier C on stored reports alone. |
 
 **Weeks 8–10 do not exist in the seven-week schedule.** They are written as a sequence, not a promise
