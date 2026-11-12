@@ -76,10 +76,15 @@ async function main(): Promise<void> {
 
     for (const file of files) {
       const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
-      const checksum = createHash('sha256').update(sql).digest('hex').slice(0, 16);
+      const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 16);
+      const checksum = hash(sql);
       const previous = applied.get(file);
+      // Git converts line endings per machine, so the same file can be recorded from a Windows
+      // checkout (CRLF) and later read on the Linux deploy runner (LF). Same SQL, same migration.
+      const lf = sql.replace(/\r\n/g, '\n');
+      const sameFile = [hash(lf), hash(lf.replace(/\n/g, '\r\n'))].includes(previous ?? '');
 
-      if (previous === checksum) {
+      if (previous === checksum || sameFile) {
         console.log(`  = ${file} (already applied)`);
         continue;
       }
