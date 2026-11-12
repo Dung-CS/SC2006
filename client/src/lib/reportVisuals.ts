@@ -1,7 +1,11 @@
+import { LocationContext, PestType } from '../../../src/entity/enums';
+
 export interface SamplePhotoOption {
   id: string;
   name: string;
   type: string;
+  pestType?: PestType;
+  locationContext?: LocationContext;
   url: string;
   filename: string;
   sizeBytes: number;
@@ -18,6 +22,8 @@ export const SAMPLE_REPORT_PHOTOS: SamplePhotoOption[] = [
     id: 'sample-python-snake',
     name: '🐍 Reticulated Python (Drain)',
     type: 'BlockedDrain',
+    pestType: PestType.Snake,
+    locationContext: LocationContext.Indoor,
     url: '/visuals/pests/reticulated-python-snake.jpg',
     filename: 'evidence-reticulated-python-snake.jpg',
     sizeBytes: 3085676,
@@ -29,6 +35,8 @@ export const SAMPLE_REPORT_PHOTOS: SamplePhotoOption[] = [
     id: 'sample-brown-rat',
     name: 'Brown rat',
     type: 'UnclearedRefuse',
+    pestType: PestType.Rat,
+    locationContext: LocationContext.Outdoor,
     url: '/visuals/pests/rattus-norvegicus-brown-rat.jpg',
     filename: 'evidence-brown-rat.jpg',
     sizeBytes: 4479232,
@@ -40,6 +48,8 @@ export const SAMPLE_REPORT_PHOTOS: SamplePhotoOption[] = [
     id: 'sample-house-crow',
     name: 'House crow',
     type: 'UnclearedRefuse',
+    pestType: PestType.HouseCrow,
+    locationContext: LocationContext.Outdoor,
     url: '/visuals/pests/corvus-splendens-house-crow-singapore.webp',
     filename: 'evidence-house-crow.webp',
     sizeBytes: 12656,
@@ -51,6 +61,8 @@ export const SAMPLE_REPORT_PHOTOS: SamplePhotoOption[] = [
     id: 'sample-cockroach-refuse',
     name: 'German cockroach',
     type: 'UnclearedRefuse',
+    pestType: PestType.Cockroach,
+    locationContext: LocationContext.Indoor,
     url: '/visuals/pests/blattella-germanica-german-cockroach.jpg',
     filename: 'evidence-german-cockroach-chute.jpg',
     sizeBytes: 1040309,
@@ -62,6 +74,8 @@ export const SAMPLE_REPORT_PHOTOS: SamplePhotoOption[] = [
     id: 'sample-wasp-nest',
     name: 'Hornet/wasp reference',
     type: 'Other',
+    pestType: PestType.BeeWasp,
+    locationContext: LocationContext.Outdoor,
     url: '/visuals/pests/asian-hornet-wasp.webp',
     filename: 'evidence-asian-hornet-wasp-nest.webp',
     sizeBytes: 116700,
@@ -73,6 +87,8 @@ export const SAMPLE_REPORT_PHOTOS: SamplePhotoOption[] = [
     id: 'sample-standing-water',
     name: 'Standing water',
     type: 'StandingWater',
+    pestType: PestType.Mosquito,
+    locationContext: LocationContext.Outdoor,
     url: '/visuals/reports/standing-water.webp',
     filename: 'evidence-standing-water.jpg',
     sizeBytes: 143360,
@@ -84,6 +100,8 @@ export const SAMPLE_REPORT_PHOTOS: SamplePhotoOption[] = [
     id: 'sample-blocked-drain',
     name: '🌧️ Blocked Storm Drain',
     type: 'BlockedDrain',
+    pestType: PestType.Mosquito,
+    locationContext: LocationContext.Outdoor,
     url: '/visuals/reports/blocked-drain.webp',
     filename: 'evidence-blocked-drain.jpg',
     sizeBytes: 218112,

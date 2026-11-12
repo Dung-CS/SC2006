@@ -339,8 +339,12 @@ export class DispatchAssignmentService {
       throw new DispatchAssignmentRejected('Select distinct crew members and one vehicle.', 400);
     }
     this.selection(request, false);
+    // A manager's explicit stop list is routed afresh, so it does not depend on the plan version.
+    // The background replanner stamps a new computedAt every ~30 s; holding a manual save to the
+    // version the editor loaded rejected every save made after that window.
+    const planVersion = request.workOrderIds ? undefined : request.computedAt;
     // Manual set: route the manager's stop list on roads before taking the write lock.
-    const planned = this.ready(request.date, request.teamId, request.computedAt);
+    const planned = this.ready(request.date, request.teamId, planVersion);
     const manual = request.workOrderIds && (planned.route.workOrderIds.length === 0 || request.workOrderIds.join() !== planned.route.workOrderIds.join())
       ? await this.manualRoute(planned.route, request.date, request.workOrderIds) : null;
     const initialRoute = manual ?? planned.route;
@@ -349,12 +353,12 @@ export class DispatchAssignmentService {
     }
     const result = await this.unit.run(async (context) => {
       const resources = await this.resources(context, request.date);
-      const previous = resources.assignments.find((assignment) => assignment.teamId === request.teamId && assignment.computedAt === request.computedAt);
+      const { computedAt } = this.ready(request.date, request.teamId, planVersion);
+      const previous = resources.assignments.find((assignment) => assignment.teamId === request.teamId && assignment.computedAt === computedAt);
       if (previous) {
         if (previous.vehicleId === request.vehicleId && [...previous.crewIds].sort().join() === [...request.crewIds].sort().join()) return previous;
         throw new DispatchAssignmentRejected('This dispatch is already assigned. Open its saved assignment.');
       }
-      const { computedAt } = this.ready(request.date, request.teamId, request.computedAt);
       const route = initialRoute;
       const { selected, vehicle } = this.chosen(resources, route, request.crewIds, request.vehicleId);
       const defaultChecklist: ChecklistItem[] = generatePackingList(stopsOf(route), selected.length).map((item, idx) => ({

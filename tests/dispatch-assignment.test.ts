@@ -109,6 +109,20 @@ describe('dispatch assignment: manual set before saving', () => {
     expect(f.invalidations()).toBe(1);
   });
 
+  it('saves a manual stop list after the background replanner has moved the plan version on', async () => {
+    const f = await fixture();
+    const saved = await f.service.assign({ date, teamId: f.route.teamId, crewIds: ['crew-1'], vehicleId: 'van-1',
+      computedAt: '2098-12-30T23:59:30.000Z', workOrderIds: ['c', 'b'] }, manager);
+    expect(saved.workOrderIds).toEqual(['c', 'b']);
+    expect(saved.computedAt).toBe(f.computedAt);
+  });
+
+  it('still refuses a plain assignment against a stale plan version', async () => {
+    const f = await fixture();
+    await expect(f.service.assign({ date, teamId: f.route.teamId, crewIds: ['crew-1'], vehicleId: 'van-1',
+      computedAt: '2098-12-30T23:59:30.000Z' }, manager)).rejects.toThrow(/plan changed or is not ready/);
+  });
+
   it('keeps the planned route when the list is unchanged and names real work orders in the snapshot', async () => {
     const f = await fixture();
     const saved = await set(f, [...f.route.workOrderIds]);

@@ -229,9 +229,17 @@ export class OneMapGateway implements GeocodingSource {
       end: `${end.latitude},${end.longitude}`,
       routeType: profile,
     });
-    const res = await this.http.get(`${this.baseUrl}/api/public/routingsvc/route?${query}`, {
+    let res = await this.http.get(`${this.baseUrl}/api/public/routingsvc/route?${query}`, {
       headers: { Authorization: this.token as string }, attempts: 2,
     });
+    let attempts429 = 0;
+    while (res.status === 429 && attempts429 < 3) {
+      attempts429 += 1;
+      await new Promise((r) => setTimeout(r, 1500 * attempts429));
+      res = await this.http.get(`${this.baseUrl}/api/public/routingsvc/route?${query}`, {
+        headers: { Authorization: this.token as string }, attempts: 2,
+      });
+    }
     if (res.status === 401 && !refreshed) {
       await this.requestToken();
       return this.profileRoute(start, end, profile, true, strictMode);

@@ -668,7 +668,7 @@ async function main(): Promise<void> {
 
   // 1.1.1 and 1.2.1 intervals come from configuration, not from constants here (10.6.2).
   const clusterInterval = (config.ingestionIntervals.get(SourceKind.Clusters) ?? 3600) * 1000;
-  const rainInterval = (config.ingestionIntervals.get(SourceKind.Rainfall) ?? 300) * 1000;
+  const rainInterval = (config.ingestionIntervals.get(SourceKind.Rainfall) ?? 1200) * 1000;
   setInterval(() => void cycle().catch((e: unknown) => console.error('cycle failed:', e)), Math.min(clusterInterval, rainInterval));
 
   // 3.1.15 — no more than 48 hours between refreshes. The gateway also refreshes lazily an hour

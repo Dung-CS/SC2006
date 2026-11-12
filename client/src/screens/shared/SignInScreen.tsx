@@ -73,7 +73,7 @@ export function SignInScreen(props: ScreenProps): JSX.Element {
         <Field
           id="email"
           label="Email"
-          type="email"
+          type="text"
           value={email.value}
           touched={email.touched}
           rules={emailRules}

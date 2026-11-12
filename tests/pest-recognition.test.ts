@@ -72,6 +72,27 @@ describe('Image inference boundary', () => {
       expect(await PestRecognitionService.recognize(input)).toMatchObject({ status: 'unavailable' });
     } finally { load.mockRestore(); }
   });
+  it('parses structured output fields: locationContext, conditionType, suggestedDescription', async () => {
+    const payload = {
+      specimens: [{ pestType: PestType.Snake, confidence: 0.95, box: [0.1, 0.2, 0.3, 0.4] }],
+      locationContext: 'Indoor',
+      conditionType: 'BlockedDrain',
+      suggestedDescription: 'Large reticulated python coiled inside residential drainage channel.',
+    };
+    const req = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(payload) }] } }],
+    })));
+    const outcome = await new PestVisionGateway('test-key', undefined, req).detect(input);
+    expect(outcome).toMatchObject({
+      status: 'detected',
+      pestType: PestType.Snake,
+      estimatedCount: 1,
+      locationContext: 'Indoor',
+      conditionType: 'BlockedDrain',
+      suggestedDescription: 'Large reticulated python coiled inside residential drainage channel.',
+    });
+  });
+
   it('returns honest zero without a fallback mosquito', async () => {
     expect(await new PestVisionGateway('test', undefined, provider([])).detect(input)).toMatchObject({ status: 'no-detection', estimatedCount: 0, boundingBoxes: [] });
   });

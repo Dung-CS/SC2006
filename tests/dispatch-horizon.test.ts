@@ -268,4 +268,85 @@ describe('Background dispatch horizon', () => {
     expect(result.unassigned).toHaveLength(20_000);
     expect(new Set(result.unassigned.map((item) => item.workOrderId)).size).toBe(20_000);
   });
+
+  it('never multiplies fixed routes on repeated horizon refreshes with unchanged fingerprint', async () => {
+    const fixedAssignment = {
+      id: 'fixed-1',
+      date,
+      teamId: 'Central-Team-1',
+      crewIds: ['crew-1'],
+      vehicleId: 'van-1',
+      workOrderIds: ['wo-1'],
+      computedAt: new Date().toISOString(),
+      routeSnapshot: {
+        teamId: 'Central-Team-1',
+        staffCount: 1,
+        color: '#4CC9F0',
+        workOrderIds: ['wo-1'],
+        depotLocation: HqLocation.Central,
+        status: 'Available',
+        onCallLagHours: 0,
+        totalStopsCount: 1,
+        totalDurationSeconds: 1800,
+        totalTravelSeconds: 600,
+        totalEffortSeconds: 1200,
+        capacityUsedPercentage: 25,
+        isWithinFourHourCap: true,
+        completedCount: 0,
+        progressPercentage: 0,
+        packingList: [],
+        loadWeightKg: 10,
+        loadVolumeM3: 0.1,
+        loadBasis: 'Fixed',
+        waypointOrder: [{
+          label: 'Stop 1',
+          point,
+          status: 'Pending' as const,
+          isCompleted: false,
+          estimatedEffortMinutes: 20,
+          cumulativeDurationSeconds: 1200,
+          requiresBaseReturn: false,
+          isBaseReturn: false,
+          isHq: false,
+        }],
+        route: {
+          source: 'onemap',
+          distanceMetres: 1000,
+          durationSeconds: 600,
+          coordinates: [point],
+        },
+      } as unknown as PlannedTeamRoute,
+      createdAt: new Date().toISOString(),
+      createdBy: 'manager-1',
+      isFixed: true,
+    };
+    const load = vi.fn(async () => ({
+      ...input([job('wo-1')]),
+      teams: [{ teamId: 'Central-Team-1', hq: point, capabilities: ['Vector'], staffCount: 1, maxStops: 5 }],
+      vehicles: [{ id: 'van-1', registration: 'GBD 1234 A', name: 'Van', isDemo: false, hqLocation: HqLocation.Central,
+        isAvailable: true, seatCapacity: 2, maxPayloadKg: 1000, maxCargoVolumeM3: 10, cargoLengthCm: 400, cargoWidthCm: 200, cargoHeightCm: 200 }],
+      assignments: [fixedAssignment],
+    }));
+    const planner = { plan: vi.fn(async () => []) };
+    const service = new DispatchPlanService(load, planner);
+
+    // First request
+    service.snapshotRange(date, 3);
+    await complete();
+    const first = service.snapshotRange(date, 3);
+    expect(first.planStatus).toBe('ready');
+    expect(first.plans[0]!.routes).toHaveLength(1);
+    expect(first.plans[0]!.routes[0]!.teamId).toBe('Central-Team-1');
+    expect(first.plans[0]!.routes[0]!.isFixed).toBe(true);
+
+    // Simulate 30-second background invalidation loops (as done in server.ts setInterval)
+    for (let loop = 0; loop < 5; loop++) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      service.invalidateAll();
+      await complete();
+      const updated = service.snapshotRange(date, 3);
+      expect(updated.planStatus).toBe('ready');
+      expect(updated.plans[0]!.routes).toHaveLength(1);
+    }
+  });
 });

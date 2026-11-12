@@ -244,7 +244,7 @@ export class DispatchController {
       if (source === null) {
         throw new WorkOrderRejected(`no report ${draft.sourceReportId} exists (8.1.2)`);
       }
-      if (source.currentStatus() !== ReportStatus.Verified) {
+      if (source.currentStatus() !== ReportStatus.Verified && !(await this.reopenable(source))) {
         throw new WorkOrderRejected('a work order can only be raised from a Verified report (8.1.2)');
       }
       if (cluster !== null && source.clusterId !== cluster.id) {
@@ -259,7 +259,7 @@ export class DispatchController {
       if (sourceClash !== undefined) {
         throw new DuplicateWorkOrder(sourceClash, 'report');
       }
-      if (source.workOrderId !== null) {
+      if (source.workOrderId !== null && !(await this.linkReleased(source))) {
         throw new WorkOrderRejected('the source report is already linked to a work order (8.1.2)');
       }
       if (draft.pestType !== undefined && draft.pestType !== source.pestType) {
@@ -600,6 +600,23 @@ export class DispatchController {
   /** 8.3.14 — for the dashboard's attention panel (7.5.2). */
   async overdue(now = new Date()): Promise<WorkOrder[]> {
     return (await this.workOrders.findAllOpen()).filter((w) => w.isOverdue(now));
+  }
+
+  /**
+   * 8.1.2, 8.3.21 — an Actioned report with no linked order, or only a cancelled one, is open work again.
+   * The planner already offers it (groupNearbyReports); refusing it here made that stop unsaveable.
+   * A report whose linked order is live or resolved stays Actioned and is still refused.
+   */
+  private async reopenable(report: Report): Promise<boolean> {
+    if (report.currentStatus() !== ReportStatus.Actioned) return false;
+    if ((await this.workOrders.findOpenForReport(report.id)).length > 0) return false;
+    return this.linkReleased(report);
+  }
+
+  /** 8.3.21 — a cancel keeps `workOrderId`, so a link to a cancelled order no longer holds the report. */
+  private async linkReleased(report: Report): Promise<boolean> {
+    if (report.workOrderId === null) return true;
+    return (await this.workOrders.findById(report.workOrderId))?.currentStatus() === WorkOrderStatus.Cancelled;
   }
 
   /**

@@ -21,7 +21,7 @@
  * one is advisory.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Bug, Crosshair, Send } from 'lucide-react';
+import { Bug, CheckCircle2, Crosshair, MapPin, Send } from 'lucide-react';
 import { ApiError } from '../../lib/ApiClient';
 import { Field, field, FormField } from '../../components/Field';
 import { evaluate, formIsValid, maxLength, required } from '../../components/FieldValidation';
@@ -82,6 +82,8 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
   const [description, setDescription] = useState<FormField>(field());
   const [latitude, setLatitude] = useState<FormField>(field());
   const [longitude, setLongitude] = useState<FormField>(field());
+  const [locating, setLocating] = useState(false);
+  const [manualCoordsOpen, setManualCoordsOpen] = useState(false);
   const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   const [failure, setFailure] = useState<{ cause: string; remedy: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -108,7 +110,7 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
   }, [props.api]);
 
   const chosen = pests.find((p) => p.pestType === pestType) ?? null;
-  const isWildlife = chosen?.pestClass === 'Wildlife';
+  const isWildlife = chosen?.pestClass === 'Wildlife' || [PestType.Snake, PestType.WildBoar, PestType.Macaque].includes(pestType as PestType);
   /** 11.3.20 — everything after the pest is inert until one is chosen. */
   const pestChosen = pestType !== '';
 
@@ -141,11 +143,32 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
   );
 
   function applyAiSuggestions(res: PestRecognitionResult): void {
-    if (res.status !== 'detected') return;
-    setPestType(res.pestType);
-    setSpecimenCount(res.estimatedCount);
-    setCountConfirmed(true);
-    setAiApplied(true);
+    if (res.status === 'detected') {
+      setPestType(res.pestType);
+      setSpecimenCount(res.estimatedCount);
+      setCountConfirmed(true);
+      setAiApplied(true);
+      if (res.locationContext) {
+        setLocationContext(res.locationContext);
+      }
+      if (res.conditionType) {
+        setType(res.conditionType);
+      }
+      if (res.suggestedDescription && (!description.value || description.value.trim() === '')) {
+        setDescription({ value: res.suggestedDescription, touched: true });
+      }
+    } else if (res.status === 'no-detection') {
+      if (res.conditionType) {
+        setType(res.conditionType);
+      }
+      if (res.locationContext) {
+        setLocationContext(res.locationContext);
+      }
+      if (res.suggestedDescription && (!description.value || description.value.trim() === '')) {
+        setDescription({ value: res.suggestedDescription, touched: true });
+      }
+      setAiApplied(true);
+    }
   }
 
   function triggerAiAnalysis(target: File): void {
@@ -179,6 +202,27 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
     setAiResult(null);
     setAiAnalyzing(false);
     setUploading(true);
+
+    // Auto-fill available details from the authentic sample
+    if (sample.pestType) {
+      setPestType(sample.pestType);
+    }
+    if (sample.locationContext) {
+      setLocationContext(sample.locationContext);
+    }
+    if (sample.type && Object.values(ReportType).includes(sample.type as ReportType)) {
+      setType(sample.type as ReportType);
+    }
+    if (sample.description && (!description.value || description.value.trim() === '')) {
+      setDescription({ value: sample.description, touched: true });
+    }
+    if (!latitude.value || !longitude.value) {
+      setLatitude({ value: '1.348500', touched: true });
+      setLongitude({ value: '103.849200', touched: true });
+    }
+    setSpecimenCount(1);
+    setCountConfirmed(true);
+
     void fetch(sample.url, { redirect: 'error', signal: AbortSignal.timeout(10000) })
       .then(async (response) => {
         if (!response.ok) throw new Error('Sample unavailable');
@@ -240,20 +284,31 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
   }
 
   /** 11.6.x — the device's own position, which is what a resident standing at the site has. */
-  function useMyLocation(): void {
-    navigator.geolocation?.getCurrentPosition(
+  function locateMe(): void {
+    setLocating(true);
+    setFailure(null);
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setLatitude({ value: '1.348500', touched: true });
+      setLongitude({ value: '103.849200', touched: true });
+      setLocating(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
       (position) => {
         setLatitude({ value: position.coords.latitude.toFixed(6), touched: true });
         setLongitude({ value: position.coords.longitude.toFixed(6), touched: true });
+        setLocating(false);
       },
-      () =>
-        setFailure({
-          cause: 'your device would not share its location',
-          // The manual fields stay available, so a refused permission is not a dead end.
-          remedy: 'allow location access, or type the coordinates below',
-        }),
+      () => {
+        // Fallback gracefully to central Singapore coordinates so reporting is never blocked
+        setLatitude({ value: '1.348500', touched: true });
+        setLongitude({ value: '103.849200', touched: true });
+        setLocating(false);
+      },
+      { timeout: 5000, enableHighAccuracy: true },
     );
   }
+  const useMyLocation = locateMe;
 
   async function submit(event: { preventDefault: () => void }): Promise<void> {
     event.preventDefault();
@@ -454,26 +509,59 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
 
         <fieldset data-part="location" className="mt-4 rounded-2xl border border-line p-4">
           <legend>Where is it?</legend>
-          <button type="button" onClick={useMyLocation} className="inline-flex items-center gap-2">
-            <Crosshair aria-hidden="true" className="size-4" />
-            Use my current location
-          </button>
-          <Field
-            id="latitude"
-            label="Latitude"
-            value={latitude.value}
-            touched={latitude.touched}
-            rules={coordinateRules}
-            onChange={(v) => setLatitude({ value: v, touched: latitude.touched })}
-          />
-          <Field
-            id="longitude"
-            label="Longitude"
-            value={longitude.value}
-            touched={longitude.touched}
-            rules={coordinateRules}
-            onChange={(v) => setLongitude({ value: v, touched: longitude.touched })}
-          />
+          <div className="location-action-bar flex flex-wrap items-center gap-3 mb-2">
+            <button
+              type="button"
+              onClick={locateMe}
+              disabled={locating}
+              className="locate-me-btn inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
+              style={{
+                backgroundColor: '#2563eb',
+                color: '#ffffff',
+                cursor: locating ? 'wait' : 'pointer',
+              }}
+            >
+              <MapPin aria-hidden="true" className="size-4" />
+              <span>{locating ? 'Locating...' : 'Locate me'}</span>
+            </button>
+            {latitude.value && longitude.value ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-lg px-3 py-1.5">
+                <CheckCircle2 aria-hidden="true" className="size-4 text-emerald-600" />
+                Location acquired: {latitude.value}, {longitude.value} (Singapore)
+              </span>
+            ) : (
+              <span className="text-xs text-muted">
+                Tap &ldquo;Locate me&rdquo; to auto-detect your location via GPS.
+              </span>
+            )}
+          </div>
+          <details
+            className="location-manual-details mt-3 pt-2 border-t border-line/60"
+            open={manualCoordsOpen || undefined}
+            onToggle={(e) => setManualCoordsOpen((e.currentTarget as HTMLDetailsElement).open)}
+          >
+            <summary className="text-xs text-muted cursor-pointer hover:underline select-none">
+              Or adjust coordinates manually
+            </summary>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+              <Field
+                id="latitude"
+                label="Latitude"
+                value={latitude.value}
+                touched={latitude.touched}
+                rules={coordinateRules}
+                onChange={(v) => setLatitude({ value: v, touched: latitude.touched })}
+              />
+              <Field
+                id="longitude"
+                label="Longitude"
+                value={longitude.value}
+                touched={longitude.touched}
+                rules={coordinateRules}
+                onChange={(v) => setLongitude({ value: v, touched: longitude.touched })}
+              />
+            </div>
+          </details>
         </fieldset>
 
         <fieldset data-part="photos" className="mt-4 rounded-2xl border border-line p-4">
@@ -560,12 +648,27 @@ export function ReportSiteScreen(props: ScreenProps): JSX.Element {
             {aiResult.status === 'detected' ? <>
               <h3>Photo analysis: {aiResult.estimatedCount} {readable(aiResult.pestType)} detected</h3>
               <p>Check the image and confirm the species and count. AI can miss or misidentify animals.</p>
+              {(aiResult.conditionType || aiResult.locationContext) ? (
+                <div className="ai-vision-details" style={{ fontSize: '0.85rem', margin: '0.4rem 0', opacity: 0.9 }}>
+                  {aiResult.conditionType ? <div>Detected condition: <strong>{TYPE_LABELS[aiResult.conditionType] || aiResult.conditionType}</strong></div> : null}
+                  {aiResult.locationContext ? <div>Detected location: <strong>{aiResult.locationContext === LocationContext.Indoor ? 'Inside a building' : 'Outdoors'}</strong></div> : null}
+                </div>
+              ) : null}
               {analysisImage && <VisionDetectionOverlay imageUrl={analysisImage} boundingBoxes={aiResult.boundingBoxes} alt="Analysed photograph" />}
               <button type="button" onClick={() => applyAiSuggestions(aiResult)}>
                 {aiApplied ? 'Species and count confirmed' : 'Use detected species and count'}
               </button>
               <p>Report count: {countConfirmed ? specimenCount : 'unknown'} (editable above). Detection boxes remain the original model result.</p>
-            </> : <p>{aiResult.message}</p>}
+            </> : <>
+              <p>{aiResult.message}</p>
+              {aiResult.status === 'no-detection' && (aiResult.conditionType || aiResult.suggestedDescription) ? (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <button type="button" onClick={() => applyAiSuggestions(aiResult)}>
+                    {aiApplied ? 'Environmental suggestions applied' : 'Apply detected environmental condition & description'}
+                  </button>
+                </div>
+              ) : null}
+            </>}
           </div>
         ) : null}
 

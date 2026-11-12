@@ -151,4 +151,26 @@ describe('Possible duplicate report groups', () => {
       .rejects.toBeInstanceOf(DuplicateWorkOrder);
     expect(a.workOrderId).toBeNull(); expect(b.workOrderId).toBeNull();
   });
+
+  it('books a planned Actioned report whose work order was cancelled or removed, as the planner offers it', async () => {
+    const f = fixture();
+    const orphan = report('orphan'); orphan.applyStatus(ReportStatus.Actioned);
+    const cancelledSource = report('c', 500, { workOrderId: 'gone' }); cancelledSource.applyStatus(ReportStatus.Actioned);
+    for (const r of [orphan, cancelledSource]) await f.reports.save(r);
+    await f.orders.save(order('gone', 'c', WorkOrderStatus.Cancelled));
+    expect((await f.dispatch.proposeDailyList(date, manager)).map((p) => p.sourceReportId).sort()).toEqual(['c', 'orphan']);
+    for (const id of ['orphan', 'c']) {
+      await expect(f.dispatch.createWorkOrder({ sourceReportId: id, taskType: TaskType.Inspection, scheduledDate: date }, manager))
+        .resolves.toMatchObject({ sourceReportId: id });
+    }
+  });
+
+  it('still refuses an Actioned report whose linked work order is resolved', async () => {
+    const f = fixture();
+    const r = report('a', 0, { workOrderId: 'done' }); r.applyStatus(ReportStatus.Actioned);
+    await f.reports.save(r);
+    await f.orders.save(order('done', 'a', WorkOrderStatus.Completed));
+    await expect(f.dispatch.createWorkOrder({ sourceReportId: 'a', taskType: TaskType.Inspection, scheduledDate: date }, manager))
+      .rejects.toThrow(/Verified report \(8\.1\.2\)/);
+  });
 });

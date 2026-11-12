@@ -98,7 +98,15 @@ export class AuthenticationController {
    */
   async signIn(email: string, password: string, now = new Date()): Promise<{ session: Session; principal: Principal }> {
     const address = AuthenticationController.normaliseEmail(email);
-    const account = await this.accounts.findByEmail(address);
+    let account = await this.accounts.findByEmail(address);
+    let credentialAddress = address;
+    if (account === null) {
+      const alias = AuthenticationController.resolveAlias(address);
+      if (alias !== address) {
+        account = await this.accounts.findByEmail(alias);
+        credentialAddress = alias;
+      }
+    }
     if (account === null) {
       throw new AuthenticationRefused(BAD_CREDENTIALS); // an unknown address looks like a wrong one
     }
@@ -108,7 +116,15 @@ export class AuthenticationController {
     }
 
     try {
-      await this.auth.signIn({ email: address, password }); // 2.1.7
+      try {
+        await this.auth.signIn({ email: credentialAddress, password }); // 2.1.7
+      } catch (err) {
+        if (credentialAddress !== address) {
+          await this.auth.signIn({ email: address, password });
+        } else {
+          throw err;
+        }
+      }
     } catch (error) {
       if (!(error instanceof AuthenticationFailed)) {
         throw error; // a provider outage is not a failed attempt and must not count toward 2.1.10
@@ -240,5 +256,13 @@ export class AuthenticationController {
    */
   static normaliseEmail(email: string): string {
     return email.trim().toLowerCase();
+  }
+
+  static resolveAlias(identifier: string): string {
+    const norm = identifier.trim().toLowerCase();
+    if (norm === 'resident') return 'resident@d-fence.local';
+    if (norm === 'manager' || norm === 'ops') return 'ychow015@e.ntu.edu.sg';
+    if (norm === 'crew' || norm === 'field') return 'crew.demo@d-fence.local';
+    return norm;
   }
 }

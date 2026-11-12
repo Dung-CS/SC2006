@@ -1,4 +1,4 @@
-import { LocationContext, PestType } from '../entity/enums';
+import { LocationContext, PestType, ReportType } from '../entity/enums';
 import { ConfigLoader } from '../config/ConfigLoader';
 import { PestVisionGateway } from '../boundary/gateways/PestVisionGateway';
 import { GeminiVisionStrategy } from './vision/GeminiVisionStrategy';
@@ -8,8 +8,26 @@ export interface BoundingBox { label: string; confidence: number; box: [number, 
 export type PriorityTier = 'Critical' | 'High' | 'Medium' | 'Low';
 export interface TriageResult { priority: PriorityTier; rationale: string }
 export type PestRecognitionOutcome =
-  | { status: 'detected'; pestType: PestType; estimatedCount: number; boundingBoxes: BoundingBox[]; cacheHit?: true }
-  | { status: 'no-detection'; estimatedCount: 0; boundingBoxes: []; message: string; cacheHit?: true }
+  | {
+      status: 'detected';
+      pestType: PestType;
+      estimatedCount: number;
+      boundingBoxes: BoundingBox[];
+      locationContext?: LocationContext;
+      conditionType?: ReportType;
+      suggestedDescription?: string;
+      cacheHit?: true;
+    }
+  | {
+      status: 'no-detection';
+      estimatedCount: 0;
+      boundingBoxes: [];
+      locationContext?: LocationContext;
+      conditionType?: ReportType;
+      suggestedDescription?: string;
+      message: string;
+      cacheHit?: true;
+    }
   | { status: 'unavailable'; message: string; cacheHit?: never };
 export function formatPestName(value: string): string { return value.replace(/([a-z])([A-Z])/g, '$1 $2'); }
 export function computeTriagePriority(

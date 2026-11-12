@@ -330,7 +330,7 @@ export class DispatchPlanService {
             return dailyInput;
           }, { plan: (teams, jobs, vehicles, roadUnverified) => {
             if (fingerprint === entry.fingerprints[index] && reuseUntil > Date.now() && previousPlans[index]?.computedAt) {
-              return Promise.resolve(structuredClone(previousPlans[index]!.routes));
+              return Promise.resolve(structuredClone(previousPlans[index]!.routes.filter((r) => !r.isFixed)));
             }
             recomputed = true;
             // Leave time to publish the planner's accepted routes before the outer
@@ -421,7 +421,14 @@ export class DispatchPlanService {
         entry.value.planStatus = entry.value.computedAt ? 'refreshing' : 'pending';
         const start = Date.now();
         const roadUnverified = new Set<string>();
-        const fixedAssignments = (input.assignments ?? []).filter((a) => a.isFixed && a.status !== 'Cancelled');
+        const fixedByTeam = new Map<string, DispatchAssignment>();
+        for (const a of (input.assignments ?? []).filter((item) => item.isFixed && item.status !== 'Cancelled')) {
+          const prev = fixedByTeam.get(a.teamId);
+          if (!prev || (a.createdAt || '') >= (prev.createdAt || '')) {
+            fixedByTeam.set(a.teamId, a);
+          }
+        }
+        const fixedAssignments = [...fixedByTeam.values()];
         const fixedTeamIds = new Set(fixedAssignments.map((a) => a.teamId));
         const fixedJobIds = new Set(fixedAssignments.flatMap((a) => a.workOrderIds));
         const fixedVehicleIds = new Set(fixedAssignments.map((a) => a.vehicleId));
@@ -435,7 +442,7 @@ export class DispatchPlanService {
           assignmentId: a.id,
           checklist: a.checklist ?? a.routeSnapshot.checklist,
         }));
-        const routes = [...fixedRoutes, ...computedRoutes];
+        const routes = [...fixedRoutes, ...computedRoutes.filter((r) => !fixedTeamIds.has(r.teamId))];
         const plannedIds = new Set(routes.flatMap((route) => route.workOrderIds));
         const rank: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
         const unplanned = input.jobs.filter((job) => !plannedIds.has(job.workOrderId))

@@ -690,7 +690,8 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                     </p>
 
                     <DispatchAssignmentEditor
-                      key={`${selectedDay}:${openedRoute.teamId}:${openedRoute.workOrderIds.join(',')}`}
+                      // Not keyed on the stop list: a background replan must not remount the editor and drop the manager's edits.
+                      key={`${selectedDay}:${openedRoute.teamId}`}
                       api={props.api}
                       date={selectedDay}
                       teamId={openedRoute.teamId}

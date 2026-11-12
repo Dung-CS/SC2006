@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ReportSiteScreen } from '../client/src/screens/resident/ReportSiteScreen';
 import { ApiClient } from '../client/src/lib/ApiClient';
-import { Role, PestType } from '../src/entity/enums';
+import { Role, PestType, LocationContext, ReportType } from '../src/entity/enums';
 import { analyzePestPhoto, preparePestPhoto } from '../client/src/lib/pestRecognition';
 import { uploadPhoto } from '../client/src/lib/PhotoUpload';
 import type { PestRecognitionOutcome } from '../src/control/PestRecognitionService';
@@ -127,6 +127,53 @@ describe('Photo analysis confirmation', () => {
     await screen.findByText('Photo analysis failed. Confirm the pest and observed count manually.');
     expect(screen.queryByText(/D-Fence analysing/)).toBeNull();
   });
+  it('auto-fills locationContext, conditionType and description from AI detection when description is empty', async () => {
+    const richDetected: PestRecognitionOutcome = {
+      status: 'detected',
+      pestType: PestType.Snake,
+      estimatedCount: 1,
+      boundingBoxes: [{ label: 'Snake #1', confidence: 0.95, box: [0.1, 0.1, 0.4, 0.4] }],
+      locationContext: LocationContext.Indoor,
+      conditionType: ReportType.BlockedDrain,
+      suggestedDescription: 'Reticulated python coiled in residential drain',
+    };
+    vi.mocked(analyzePestPhoto).mockResolvedValue(richDetected);
+    show();
+    await add();
+    await screen.findByText('Photo analysis: 1 Snake detected');
+    expect(screen.getByText(/Detected condition:/)).toBeTruthy();
+    expect(screen.getByText(/Detected condition:/)).toBeTruthy();
+    expect(screen.getAllByText(/Blocked drain/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Inside a building/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Use detected species and count'));
+    expect((screen.getByLabelText('What did you see?') as HTMLSelectElement).value).toBe('Snake');
+    expect((screen.getByLabelText('What did you find?') as HTMLSelectElement).value).toBe('BlockedDrain');
+    expect((screen.getByLabelText('Inside a building') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('Describe what you saw') as HTMLTextAreaElement).value).toBe('Reticulated python coiled in residential drain');
+  });
+
+  it('auto-fills sample photo details immediately on chip tap', async () => {
+    show();
+    const snakeChip = screen.getByRole('button', { name: /Reticulated Python/i });
+    fireEvent.click(snakeChip);
+    expect((screen.getByLabelText('What did you see?') as HTMLSelectElement).value).toBe('Snake');
+    expect((screen.getByLabelText('Inside a building') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('What did you find?') as HTMLSelectElement).value).toBe('BlockedDrain');
+    expect((screen.getByLabelText('Describe what you saw') as HTMLTextAreaElement).value).toContain('Reticulated python');
+    expect((screen.getByLabelText('I confirm the report count from my observation') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('Latitude') as HTMLInputElement).value).toBe('1.348500');
+    expect((screen.getByLabelText('Longitude') as HTMLInputElement).value).toBe('103.849200');
+  });
+
+  it('acquires location via Locate me button and displays verified location badge', async () => {
+    show();
+    const locateBtn = screen.getByRole('button', { name: /Locate me/i });
+    fireEvent.click(locateBtn);
+    expect(await screen.findByText(/Location acquired: 1.348500, 103.849200/)).toBeTruthy();
+    expect((screen.getByLabelText('Latitude') as HTMLInputElement).value).toBe('1.348500');
+    expect((screen.getByLabelText('Longitude') as HTMLInputElement).value).toBe('103.849200');
+  });
+
   it('keeps manual report submission available when photo upload rejects', async () => {
     vi.mocked(uploadPhoto).mockRejectedValueOnce(new Error('network'));
     const api = show();

@@ -44,7 +44,7 @@
   },
   "ingestionIntervalsSeconds": {
     "Clusters": 3600,
-    "Rainfall": 300,
+    "Rainfall": 1200,
     "Forecast": 21600
   },
   "sources": {

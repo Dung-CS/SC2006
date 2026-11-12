@@ -57,7 +57,15 @@ export function emailRule(): FieldRule {
     requirement: '2.1.1',
     // Deliberately loose. The server and the mail provider are the real check; a clever regular
     // expression here rejects valid addresses and teaches users the form is broken.
-    check: (v) => (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? null : 'enter a valid email address'),
+    // Also accepts simple demo usernames (resident, manager, crew, etc.).
+    check: (v) => {
+      const trimmed = v.trim();
+      if (!trimmed) return null;
+      if (['resident', 'manager', 'crew', 'ops', 'field'].includes(trimmed.toLowerCase())) {
+        return null;
+      }
+      return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmed) ? null : 'enter a valid email address';
+    },
   };
 }
 
