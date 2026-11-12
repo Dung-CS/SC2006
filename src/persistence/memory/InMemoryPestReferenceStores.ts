@@ -46,6 +46,10 @@ export class InMemoryObservationStore implements ObservationStore {
   /** Keyed by the supplier's observation id — this map *is* requirement 1.5.11. */
   private readonly records = new Map<string, ObservationRecord>();
 
+  async existingIds(observationIds: string[]): Promise<Set<string>> {
+    return new Set(observationIds.filter((id) => this.records.has(id)));
+  }
+
   async save(observations: ObservationRecord[]): Promise<number> {
     let written = 0;
     for (const observation of observations) {

@@ -136,7 +136,13 @@ export class ObservationIngestionJob extends AbstractIngestionJob {
     const bound: ObservationRecord[] = [];
     this.unbound = 0;
 
-    for (const record of batch.records as ObservationRecord[]) {
+    // Egress guard (2026-11-12). Each cycle re-fetches the 90-day window, and `save` ignores ids it
+    // already holds (1.5.11). Binding those again cost two polygon lookups each, returning full
+    // cluster GeoJSON: ~8.8 lookups a minute, ~7.6 GB a month. Known ids skip the lookup entirely.
+    const records = batch.records as ObservationRecord[];
+    const known = await this.observations.existingIds(records.map((record) => record.observationId));
+    for (const record of records) {
+      if (known.has(record.observationId)) continue;
       let locality = await this.locator.containing(record.location);
       if (locality === null) {
         // Fallback to nearest active cluster locality within 25 km so Singapore-wide
@@ -152,7 +158,7 @@ export class ObservationIngestionJob extends AbstractIngestionJob {
     }
 
     const written = await this.observations.save(bound);
-    this.accepted = bound.length;
+    this.accepted = bound.length + known.size;
     return written;
   }
 

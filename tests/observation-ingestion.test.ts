@@ -270,3 +270,23 @@ describe('The observation ingestion job (1.5.8-1.5.14)', () => {
     expect(source.calls[0]?.since).toBe(daysBefore(OBSERVATION_WINDOW_DAYS));
   });
 });
+
+describe('Egress guard: a re-fetched window does not re-bind stored observations', () => {
+  it('looks up clusters only for observations the store does not hold yet', async () => {
+    let lookups = 0;
+    class CountingLocator extends FakeLocator {
+      override async containing(point: GeoPoint): Promise<Cluster | null> { lookups += 1; return super.containing(point); }
+    }
+    const store = new InMemoryObservationStore();
+    const results = [admissible({ id: 1 }), admissible({ id: 2 })];
+    const make = (rows: RawObservation[]): ObservationIngestionJob => new ObservationIngestionJob(
+      new FakeObservationSource(rows), new InMemoryIngestionRunStore(), store, new CountingLocator(), SNAKE,
+      async () => undefined, () => RETRIEVED_AT);
+    await make(results).run('MANUAL');
+    expect(lookups).toBe(2);
+    const again = await make([...results, admissible({ id: 3 })]).run('MANUAL');
+    expect(lookups).toBe(3);
+    expect(again.acceptedCount).toBe(3);
+    expect((await store.all()).map((o) => o.observationId).sort()).toEqual(['1', '2', '3']);
+  });
+});

@@ -51,6 +51,15 @@ export class ObservationRepository implements ObservationStore {
    * taken from `RETURNING` rather than from the length of the input, because those two differ by
    * exactly the overlap between runs and that overlap is the thing 1.5.11 exists to discount.
    */
+  async existingIds(observationIds: string[]): Promise<Set<string>> {
+    if (observationIds.length === 0) return new Set();
+    const rows = await this.db.query(
+      `SELECT observation_id FROM observation_record WHERE observation_id = ANY($1)`,
+      [observationIds],
+    );
+    return new Set(rows.map((r) => String(r.observation_id)));
+  }
+
   async save(observations: ObservationRecord[]): Promise<number> {
     if (observations.length === 0) {
       return 0;

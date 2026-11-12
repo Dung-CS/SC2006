@@ -449,6 +449,8 @@ export interface OperatorRegistryStore {
 export interface ObservationStore {
   /** @returns the number of records that were new. Existing ids are left untouched — 1.5.11. */
   save(observations: ObservationRecord[]): Promise<number>;
+  /** Which of these ids are already stored, so ingestion can skip binding them (egress guard). */
+  existingIds(observationIds: string[]): Promise<Set<string>>;
   /** 4.1.24 — the density driver's input: how many observations of this pest, in this locality. */
   countByLocality(pestType: PestType, localityId: string, since: Date): Promise<number>;
   all(): Promise<ObservationRecord[]>;
