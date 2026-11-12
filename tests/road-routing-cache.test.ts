@@ -42,25 +42,25 @@ describe('Road routing directed-leg reuse', () => {
     expect(failing).toHaveBeenCalledTimes(2);
   });
 
-  it('refreshes road time at the five-minute expiry', async () => {
+  it('refreshes road time at the six-hour expiry', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(0);
     const drivingRoute = vi.fn(async (start, end) => leg(start, end));
     const routes = strategy(drivingRoute);
     await routes.calculateRoute([a, b]);
-    now.mockReturnValue(299_999);
+    now.mockReturnValue(21_599_999);
     await routes.calculateRoute([a, b]);
     expect(drivingRoute).toHaveBeenCalledTimes(1);
-    now.mockReturnValue(300_000);
+    now.mockReturnValue(21_600_000);
     await routes.calculateRoute([a, b]);
     expect(drivingRoute).toHaveBeenCalledTimes(2);
   });
 
-  it('evicts the least recently used leg after 512 successful directed legs', async () => {
+  it('evicts the least recently used leg after 4096 successful directed legs', async () => {
     const drivingRoute = vi.fn(async (start, end) => leg(start, end));
     const routes = strategy(drivingRoute);
-    for (let i = 0; i < 513; i++) await routes.calculateRoute([a, new GeoPoint(1.4, 103 + i / 10000)]);
-    expect(drivingRoute).toHaveBeenCalledTimes(513);
+    for (let i = 0; i < 4097; i++) await routes.calculateRoute([a, new GeoPoint(1.4, 103 + i / 100000)]);
+    expect(drivingRoute).toHaveBeenCalledTimes(4097);
     await routes.calculateRoute([a, new GeoPoint(1.4, 103)]);
-    expect(drivingRoute).toHaveBeenCalledTimes(514);
+    expect(drivingRoute).toHaveBeenCalledTimes(4098);
   });
 });

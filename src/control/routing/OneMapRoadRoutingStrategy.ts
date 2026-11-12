@@ -2,6 +2,11 @@ import { DrivingRouteLeg, isUsableDrivingRoute, MAX_ROAD_SNAP_METRES, OneMapGate
 import { GeoPoint } from '../../entity/valueTypes';
 import { IRouteStrategy, RoutePlan, WalkingVisit, isVerifiedAccessRoute, isInsideServiceArea, ServiceArea, AreaVisit } from './IRouteStrategy';
 
+// OneMap road times carry no live traffic, so a leg stays valid for a working day. The planner
+// retries every thirty seconds and reuses these legs to reach jobs a single budget cannot verify.
+const LEG_TTL_MS = 6 * 60 * 60_000;
+const MAX_CACHED_LEGS = 4096;
+
 export class OneMapRoadRoutingStrategy implements IRouteStrategy {
   private readonly legs = new Map<string, { value: DrivingRouteLeg; expiresAt: number }>();
   private readonly inFlight = new Map<string, {
@@ -86,8 +91,8 @@ export class OneMapRoadRoutingStrategy implements IRouteStrategy {
           throw new Error('OneMap walking leg did not verify ten-minute access');
         }
         const copy = this.copyLeg(value);
-        this.legs.set(key, { value: copy, expiresAt: Date.now() + 5 * 60_000 });
-        while (this.legs.size > 512) this.legs.delete(this.legs.keys().next().value!);
+        this.legs.set(key, { value: copy, expiresAt: Date.now() + LEG_TTL_MS });
+        while (this.legs.size > MAX_CACHED_LEGS) this.legs.delete(this.legs.keys().next().value!);
         return copy;
       }).finally(() => {
         if (this.inFlight.get(key) === current) this.inFlight.delete(key);
