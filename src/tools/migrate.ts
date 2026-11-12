@@ -4,6 +4,7 @@
  *     npx tsx src/tools/migrate.ts             # apply anything not yet applied
  *     npx tsx src/tools/migrate.ts --status    # list what has been applied, change nothing
  *     npx tsx src/tools/migrate.ts --reconcile # accept an edited file's new checksum
+ *     npx tsx src/tools/migrate.ts --phase=expand|contract  # only additions, or only *.contract.sql
  *
  * Deliberately small. A migration framework would be a dependency and a vocabulary to learn for a
  * schema that is one file long; what is actually needed is that a migration runs **once**, in
@@ -53,7 +54,17 @@ async function main(): Promise<void> {
       (await client.query<{ filename: string; checksum: string }>('SELECT filename, checksum FROM schema_migration'))
         .rows.map((r) => [r.filename, r.checksum]),
     );
-    const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+    // Expand and contract. `*.contract.sql` files remove schema, so the deploy applies them only
+    // after the new code is live and healthy (--phase=contract). Everything else only adds schema
+    // the old code can ignore (--phase=expand), which is what lets a rollback be a plain redeploy.
+    const phase = process.argv.find((a) => a.startsWith('--phase='))?.slice('--phase='.length);
+    if (phase !== undefined && phase !== 'expand' && phase !== 'contract') {
+      throw new Error(`Unknown --phase=${phase}. Use expand or contract.`);
+    }
+    const files = readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith('.sql'))
+      .filter((f) => phase === undefined || f.endsWith('.contract.sql') === (phase === 'contract'))
+      .sort();
 
     if (process.argv.includes('--status')) {
       for (const file of files) {

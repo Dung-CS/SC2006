@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      rollback_run_id:
+        description: 'Rollback: run ID of the last good deploy. Its tested ZIP is redeployed instead of a new build.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -182,7 +187,8 @@ jobs:
             scratchpad/ci-release/archive.sha256
           if-no-files-found: error
           compression-level: 0
-          retention-days: 7
+          # Rollback can only redeploy a release that still exists.
+          retention-days: 30
 
   deploy:
     name: Deploy production
@@ -193,6 +199,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      # Download a release from an earlier run when rolling back.
+      actions: read
     concurrency:
       group: dfence-production
       cancel-in-progress: false
@@ -200,8 +208,7 @@ jobs:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      EXPECTED_ARCHIVE_SHA256: ${{ needs.test-and-package.outputs.archive_sha256 }}
-      EXPECTED_SERVER_SHA256: ${{ needs.test-and-package.outputs.server_sha256 }}
+      ROLLBACK_RUN_ID: ${{ inputs.rollback_run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -210,19 +217,49 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
-      - name: Check Azure identity configuration
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check Azure and database configuration
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: |
-          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID PROD_DATABASE_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing repository Actions secret: $name"
               exit 1
             fi
           done
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Download this run's tested release
+        if: ${{ !inputs.rollback_run_id }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.test-and-package.outputs.artifact_id }}
           path: scratchpad/ci-release
           merge-multiple: true
+      - name: Download the last good release (rollback)
+        if: ${{ inputs.rollback_run_id }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          run-id: ${{ inputs.rollback_run_id }}
+          github-token: ${{ github.token }}
+          pattern: dfence-release-*
+          path: scratchpad/ci-release
+          merge-multiple: true
+      # A normal deploy expects the hashes this run just built. A rollback expects the hashes that
+      # the earlier run recorded in its own manifest when it tested that release.
+      - name: Set the expected hashes
+        env:
+          BUILT_ARCHIVE_SHA256: ${{ needs.test-and-package.outputs.archive_sha256 }}
+          BUILT_SERVER_SHA256: ${{ needs.test-and-package.outputs.server_sha256 }}
+        run: |
+          if [ -n "$ROLLBACK_RUN_ID" ]; then
+            manifest=scratchpad/ci-release/release-manifest.json
+            echo "EXPECTED_ARCHIVE_SHA256=$(node -p "require('./$manifest').archiveSha256")" >> "$GITHUB_ENV"
+            echo "EXPECTED_SERVER_SHA256=$(node -p "require('./$manifest').serverSha256")" >> "$GITHUB_ENV"
+          else
+            echo "EXPECTED_ARCHIVE_SHA256=$BUILT_ARCHIVE_SHA256" >> "$GITHUB_ENV"
+            echo "EXPECTED_SERVER_SHA256=$BUILT_SERVER_SHA256" >> "$GITHUB_ENV"
+          fi
       - name: Verify the exact tested archive
         run: node tools/package-release.mjs --verify scratchpad/ci-release/deploy.zip "$EXPECTED_ARCHIVE_SHA256"
       - name: Azure login with short-lived GitHub identity
@@ -231,6 +268,16 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # Expand: additions run before the new code goes live, so the code never runs ahead of its
+      # schema. The old code ignores what was added, so a rollback is a plain redeploy and skips this.
+      - name: Add new schema (expand migrations)
+        if: ${{ !inputs.rollback_run_id }}
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          npx tsx src/tools/migrate.ts --phase=expand | tee migrate-expand.log
+          echo "Expand migrations applied: $(grep -c '^  + ' migrate-expand.log || true)" >> "$GITHUB_STEP_SUMMARY"
       - name: Deploy the checked ZIP
         uses: azure/webapps-deploy@b686016b4de8820a23519503685d8d03fbfa03a6 # v3
         with:
@@ -289,6 +336,35 @@ jobs:
           echo "Verified server SHA256: $remote_hash"
           {
             echo '## Deploy'
-            echo "Deployed commit ${GITHUB_SHA} to ${AZURE_WEBAPP_NAME}. Server hash matches the tested build."
-            echo 'Migrations are NOT applied by CI. Apply any new ones by hand (see the Migrations section of the guard job).'
+            if [ -n "$ROLLBACK_RUN_ID" ]; then
+              echo "Rolled back ${AZURE_WEBAPP_NAME} to the release from run ${ROLLBACK_RUN_ID}. Server hash matches that release."
+            else
+              echo "Deployed commit ${GITHUB_SHA} to ${AZURE_WEBAPP_NAME}. Server hash matches the tested build."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
+      # Contract: removals run only once the new code is live, healthy and hash-checked. A
+      # *.contract.sql file may remove only schema that the previous release already stopped
+      # using, so that release stays a safe rollback target.
+      - name: Remove old schema (contract migrations)
+        if: ${{ !inputs.rollback_run_id }}
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          npx tsx src/tools/migrate.ts --phase=contract | tee migrate-contract.log
+          echo "Contract migrations applied: $(grep -c '^  + ' migrate-contract.log || true)" >> "$GITHUB_STEP_SUMMARY"
+      # The schema just shrank under running code. Confirm the app is still up before calling it done.
+      - name: Check live health after removals
+        if: ${{ !inputs.rollback_run_id }}
+        run: |
+          deadline=$((SECONDS + 120))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "https://${AZURE_WEBAPP_NAME}.azurewebsites.net/api/health" > /dev/null; then
+              echo 'Health after removals: OK.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo '::error::The app is unhealthy after the contract migrations. A removed table or column is still in use. Restore it with a new migration.'
+          echo 'Health after removals: FAILED.' >> "$GITHUB_STEP_SUMMARY"
+          exit 1

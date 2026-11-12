@@ -28,7 +28,7 @@ const changed = lines.filter(([s]) => s !== 'A').map(([s, f]) => `${s} ${f.slice
 
 summary('## Migrations');
 if (added.length) {
-  summary('New migrations. Apply to production by hand (`npx tsx src/tools/migrate.ts`), CI never does:');
+  summary('New migrations. The deploy job applies additions before the code goes live and `*.contract.sql` removals after the health and file checks pass:');
   for (const f of added) summary(`- ${f}`);
 } else {
   summary('No new migrations.');
