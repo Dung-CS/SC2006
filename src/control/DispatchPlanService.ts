@@ -9,6 +9,9 @@ import type { DispatchAssignment } from '../ports/DispatchAssignmentStore';
 const SNAPSHOT_TTL_MS = 5 * 60_000;
 const RETRY_DELAY_MS = 30_000;
 const RANGE_BUDGET_MS = 30_000;
+// Egress guard (2026-11-12): only plans read this recently are recomputed eagerly on a change.
+// Others are marked stale and recomputed on their next read, so an idle server reads nothing.
+const ACTIVE_VIEW_MS = 10 * 60_000;
 const COMMITTED_REASON = 'Already assigned, accepted or in progress; retain existing assignment and exclude from new allocation.';
 const isCommitted = (job: RouteJob): boolean =>
   [WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress, WorkOrderStatus.Rejected].includes(job.status as WorkOrderStatus);
@@ -66,6 +69,8 @@ interface CachedRange {
   retryAt: number | null;
   expiresAt: number | null;
   fingerprints: Array<string | null>;
+  lastReadAt: number;
+  stale: boolean;
 }
 
 export const validDispatchDate = (date: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(date) &&
@@ -98,6 +103,8 @@ interface CachedPlan {
   timer: ReturnType<typeof setTimeout> | null;
   retryAt: number | null;
   expiresAt: number | null;
+  lastReadAt: number;
+  stale: boolean;
 }
 
 /** Compute in the background. Page requests only read a snapshot and never wait for road APIs. */
@@ -125,7 +132,8 @@ export class DispatchPlanService {
     const existed = this.entries.has(date);
     const entry = this.entry(date);
     const now = Date.now();
-    if (!existed || entry.retryAt !== null && entry.retryAt <= now ||
+    entry.lastReadAt = now;
+    if (!existed || entry.stale || entry.retryAt !== null && entry.retryAt <= now ||
         entry.value.planStatus === 'ready' && entry.expiresAt !== null && entry.expiresAt <= now) this.invalidate(date);
     return structuredClone(entry.value);
   }
@@ -148,17 +156,19 @@ export class DispatchPlanService {
           error: 'Planning capacity is busy. This range has not started; the next poll will retry.' };
       }
       entry = { requested: false, running: null, timer: null, retryAt: null, expiresAt: null, fingerprints: [],
-        value };
+        lastReadAt: Date.now(), stale: false, value };
       this.ranges.set(key, entry);
       this.invalidateRange(entry);
-    } else if (entry.retryAt !== null && entry.retryAt <= Date.now() ||
+    } else if (entry.stale || entry.retryAt !== null && entry.retryAt <= Date.now() ||
       entry.value.planStatus === 'ready' && entry.expiresAt !== null && entry.expiresAt <= Date.now()) {
       this.invalidateRange(entry);
     }
+    entry.lastReadAt = Date.now();
     return structuredClone(entry.value);
   }
 
   private invalidateRange(entry: CachedRange): void {
+    entry.stale = false;
     entry.retryAt = null;
     entry.requested = true;
     entry.value.planStatus = entry.value.computedAt ? 'refreshing' : 'pending';
@@ -171,12 +181,21 @@ export class DispatchPlanService {
 
   invalidateAll(): void {
     const today = singaporeDate(new Date());
-    for (const date of new Set([today, ...this.entries.keys()])) this.invalidate(date);
-    for (const entry of this.ranges.values()) this.invalidateRange(entry);
+    const watched = Date.now() - ACTIVE_VIEW_MS;
+    for (const date of new Set([today, ...this.entries.keys()])) {
+      const entry = this.entry(date);
+      if (date === today || entry.lastReadAt >= watched) this.invalidate(date);
+      else entry.stale = true;
+    }
+    for (const entry of this.ranges.values()) {
+      if (entry.lastReadAt >= watched) this.invalidateRange(entry);
+      else entry.stale = true;
+    }
   }
 
   invalidate(date: string): void {
     const entry = this.entry(date);
+    entry.stale = false;
     entry.retryAt = null;
     entry.requested = true;
     entry.value.planStatus = entry.value.computedAt ? 'refreshing' : 'pending';
@@ -205,7 +224,8 @@ export class DispatchPlanService {
         const old = [...this.entries].find(([key, item]) => key !== singaporeDate(new Date()) && !item.running && !item.timer);
         if (old) this.entries.delete(old[0]);
       }
-      entry = { fingerprint: null, requested: false, running: null, timer: null, retryAt: null, expiresAt: null, value: {
+      entry = { fingerprint: null, requested: false, running: null, timer: null, retryAt: null, expiresAt: null,
+        lastReadAt: 0, stale: false, value: {
         date, planStatus: 'pending', computedAt: null, planningDurationSeconds: null, error: null,
         routes: [], unplanned: [], referrals: [],
       } };

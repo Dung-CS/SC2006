@@ -105,20 +105,35 @@ export class PriorityScoreRepository implements PriorityScoreStore {
    * would produce a table whose ranks come from different runs, which is a ranking of nothing.
    */
   async latest(): Promise<PriorityScore[]> {
-    const rows = await this.db.query(
-      `SELECT * FROM priority_score
-        WHERE computed_at = (SELECT max(computed_at) FROM priority_score)
-        ORDER BY rank`,
-    );
-    return this.withContributions(rows);
+    // Egress guard (2026-11-12). Dispatch planning calls this on every input load; reading ~100
+    // scores and ~600 contributions each time was 66 KB a call and most of a 23 GB Supabase
+    // overrun. A one-row probe on the indexed `computed_at` decides whether the cached rows are
+    // still the newest cycle. Rows are cached, not entities, so callers still get fresh objects.
+    const [probe] = await this.db.query(`SELECT max(computed_at) AS at FROM priority_score`);
+    const stamp = probe?.at ? new Date(probe.at as Date).toISOString() : null;
+    if (stamp === null) return [];
+    if (this.latestCache?.stamp !== stamp) {
+      const rows = await this.db.query(
+        `SELECT * FROM priority_score WHERE computed_at = $1 ORDER BY rank`,
+        [stamp],
+      );
+      const contributions = rows.length === 0 ? [] : await this.db.query(
+        `SELECT * FROM driver_contribution WHERE priority_score_id = ANY($1)`,
+        [rows.map((r) => String(r.id))],
+      );
+      this.latestCache = { stamp, rows, contributions };
+    }
+    return this.withContributions(this.latestCache.rows, this.latestCache.contributions);
   }
 
-  private async withContributions(rows: Row[]): Promise<PriorityScore[]> {
+  private latestCache: { stamp: string; rows: Row[]; contributions: Row[] } | null = null;
+
+  private async withContributions(rows: Row[], preloaded?: Row[]): Promise<PriorityScore[]> {
     if (rows.length === 0) {
       return [];
     }
     const ids = rows.map((r) => String(r.id));
-    const contributions = await this.db.query(
+    const contributions = preloaded ?? await this.db.query(
       `SELECT * FROM driver_contribution WHERE priority_score_id = ANY($1)`,
       [ids],
     );
@@ -141,11 +156,11 @@ export class PriorityScoreRepository implements PriorityScoreStore {
       // pest type and 7.2.x could not tell a rat from a mosquito in the queue it renders.
       score.pestType = (row.pest_type as PestType | null) ?? PestType.Mosquito;
       score.localityId = String(row.cluster_id);
-      score.computedAt = row.computed_at as Date;
+      score.computedAt = new Date(row.computed_at as Date);
       score.score = Number(row.score);
       score.tier = row.tier as PriorityTier;
       score.isDegraded = Boolean(row.is_degraded);
-      score.excludedDrivers = ((row.excluded_drivers as string[]) ?? []) as Driver[];
+      score.excludedDrivers = [...((row.excluded_drivers as string[]) ?? [])] as Driver[];
       score.rank = Number(row.rank);
       // Left unassigned when the column is NULL — a row written before 007 does not know these,
       // and `describe` renders "?" for an absent one. Assigning Number(null) would quietly turn
