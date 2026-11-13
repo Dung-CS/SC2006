@@ -47,6 +47,9 @@ export interface WalkingRouteLeg extends DrivingRouteLeg {
 
 /** Conservative access tolerance: a road snapped farther away does not serve this task. */
 export const MAX_ROAD_SNAP_METRES = 250;
+/** Farthest a task pin may sit from OneMap's footpath network, and the pace used to walk that gap. */
+const MAX_OFF_PATH_METRES = 150;
+const WALK_SPEED_MPS = 1.2;
 
 export function isUsableDrivingRoute(route: DrivingRouteLeg, stops: GeoPoint[]): boolean {
   if (!Number.isFinite(route.distanceMetres) || route.distanceMetres < 0 ||
@@ -215,9 +218,14 @@ export class OneMapGateway implements GeocodingSource {
 
   async walkingRoute(start: GeoPoint, end: GeoPoint): Promise<WalkingRouteLeg> {
     const route = await this.profileRoute(start, end, 'walk', false, true);
-    if (route.durationSeconds > 600 || start.distanceTo(route.coordinates[0]!) > 25 ||
-        end.distanceTo(route.coordinates.at(-1)!) > 25) throw new Error('OneMap walking route did not verify ten-minute access');
-    return { ...route, source: 'onemap', mode: 'walk' };
+    // A task pin often sits inside a block or a garden, off OneMap's footpath network. Accept a
+    // short off-network gap at each end, walked at 1.2 m/s, and still require ten minutes in total.
+    const gap = start.distanceTo(route.coordinates[0]!) + end.distanceTo(route.coordinates.at(-1)!);
+    const durationSeconds = route.durationSeconds + gap / WALK_SPEED_MPS;
+    if (start.distanceTo(route.coordinates[0]!) > MAX_OFF_PATH_METRES || end.distanceTo(route.coordinates.at(-1)!) > MAX_OFF_PATH_METRES ||
+        durationSeconds > 600) throw new Error('OneMap walking route did not verify ten-minute access');
+    return { ...route, coordinates: [start, ...route.coordinates, end], durationSeconds,
+      distanceMetres: route.distanceMetres + gap, source: 'onemap', mode: 'walk' };
   }
 
   // OneMap documents drive/walk profiles and route_summary time in seconds; no traffic-time claim.

@@ -265,7 +265,9 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
   const accepts = (teamId?: string, taskType?: string) =>
     (selectedHqs === null || selectedHqs.includes(hqKey(teamId))) &&
     (selectedTypes === null || selectedTypes.includes(typeKey(taskType)));
+  // Every HQ is listed, even one with no route today, so the filter always shows all five.
   const hqOptions = [...new Set([
+    ...Object.values(HqLocation) as string[],
     ...horizonRoutes.map((route) => hqKey(route.teamId)),
     ...(horizon?.unassigned ?? []).map((job) => hqKey(job.teamId)),
     ...(value?.proposals ?? []).map((proposal) => hqKey(proposalTeam(proposal))),

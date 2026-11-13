@@ -188,7 +188,8 @@ export class DispatchPlanService {
       else entry.stale = true;
     }
     for (const entry of this.ranges.values()) {
-      if (entry.lastReadAt >= watched) this.invalidateRange(entry);
+      // A horizon starting today stays precomputed, so the dispatch screen never waits on a change.
+      if (entry.lastReadAt >= watched || entry.value.startDate === today) this.invalidateRange(entry);
       else entry.stale = true;
     }
   }
@@ -335,7 +336,9 @@ export class DispatchPlanService {
             recomputed = true;
             // Leave time to publish the planner's accepted routes before the outer
             // horizon timer fires. Equal deadlines can discard a valid partial day.
-            const dailyDeadline = Date.now() + Math.max(0, (deadline - Date.now() - 1000) / (plans.length - index));
+            // Each day takes half of what is left, so today gets the most and the last day the rest.
+            const share = index === plans.length - 1 ? 1 : 0.5;
+            const dailyDeadline = Date.now() + Math.max(0, (deadline - Date.now() - 1000) * share);
             return bounded(() => this.planner.plan(teams, jobs, vehicles, roadUnverified, { deadline: dailyDeadline }));
           } });
           await daily.refresh(date);

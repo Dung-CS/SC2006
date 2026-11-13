@@ -956,6 +956,8 @@ async function main(): Promise<void> {
   app.mount(new VehicleRoutes(ac, new VehicleController(ac, vehicleStore, invalidateDispatchPlans)));
   app.mount(new WorkOrderRoutes(ac, dispatch, lifecycle, staff, routePlanner, routeInputs, null, dispatchPlans));
   dispatchPlans.invalidate(singaporeDate(new Date()));
+  // Warm the seven-day horizon the dispatch screen opens on, so its first read is already planned.
+  dispatchPlans.snapshotRange(singaporeDate(new Date()), 7);
   // Singapore date rollover only. Every in-process write already invalidates (mutations, reports,
   // each scoring cycle), and a cached plan expires after five minutes on read. The old blind
   // 30-second invalidation reloaded every cached day from Postgres ~47,000 times a day, which was
@@ -963,7 +965,7 @@ async function main(): Promise<void> {
   let planDate = singaporeDate(new Date());
   setInterval(() => {
     const today = singaporeDate(new Date());
-    if (today !== planDate) { planDate = today; invalidateDispatchPlans(); }
+    if (today !== planDate) { planDate = today; invalidateDispatchPlans(); dispatchPlans.snapshotRange(today, 7); }
   }, 60_000);
   app.mount(new CrewRoutes(ac, dispatch, lifecycle));
   // 10.4.3, 10.4.4 — deletion, and the attribution every government source obliges us to show.

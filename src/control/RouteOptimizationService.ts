@@ -307,6 +307,7 @@ export class RouteOptimizationService {
         candidates.sort((a, b) => a.cost - b.cost);
         let selected: { candidate: typeof candidates[number]; plan: RoutePlan; delta: number } | undefined;
         let anyVerified = false;
+        let fits = 0;
         for (const candidate of candidates) {
           if (evaluated >= 6 || Date.now() >= cpuDeadline || providerCalls >= maxProviderCalls || searchSteps >= maxSearchSteps) break;
           evaluated++;
@@ -347,6 +348,9 @@ export class RouteOptimizationService {
           if (!Number.isFinite(plan.durationSeconds) || plan.durationSeconds < 0 || duration > MAX_DISPATCH_SECONDS) continue;
           const delta = plan.durationSeconds - (candidate.existing?.plan.durationSeconds ?? 0);
           if (!selected || delta < selected.delta) selected = { candidate, plan, delta };
+          // Candidates arrive nearest first: the closest routes and HQs. Compare the first two that
+          // verify and fit by road time, rather than road-check all six.
+          if (++fits >= 2) break;
         }
         if (selected) {
           const candidate = selected.candidate;
@@ -365,7 +369,7 @@ export class RouteOptimizationService {
           break;
         }
         if (candidates.length > 0 && !anyVerified && !roadVerified.has(job.workOrderId)) roadUnverified.add(job.workOrderId);
-        if (!allocated && candidates.length > evaluated) roadUnverified.add(job.workOrderId);
+        if (!allocated && !anyVerified && candidates.length > evaluated) roadUnverified.add(job.workOrderId);
         if (allocated) break;
       }
       if (!allocated) break;

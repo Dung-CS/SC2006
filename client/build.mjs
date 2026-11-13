@@ -142,13 +142,13 @@ await writeFile(
   resolve(outdir, 'styles.css'),
   `/* --- Inter and IBM Plex Mono, self-hosted rather than fetched from Google Fonts --- */
 ${fontCss}
+/* --- Leaflet 1.9.4, bundled rather than fetched from a CDN. First, so the dark theme below wins --- */
+${leafletCss}
+
 ${ourCss}
 
 /* --- Tailwind utilities (client/tailwind.css) --- */
 ${tailwindCss}
-
-/* --- Leaflet 1.9.4, bundled rather than fetched from a CDN --- */
-${leafletCss}
 `,
 );
 

@@ -253,7 +253,9 @@ describe('Background dispatch horizon', () => {
     expect(result.planStatus).toBe('ready');
     expect(result.plans.every((plan) => plan.planStatus === 'ready')).toBe(true);
     expect(planner.plan).toHaveBeenCalledTimes(7);
-    expect(dates[0]).toBeLessThan(5000);
+    // Today takes half the shared budget; later days split what is left.
+    expect(dates[0]).toBeGreaterThan(10_000);
+    expect(dates[0]).toBeLessThan(15_000);
     expect(result.unassigned.map((item) => item.workOrderId)).toEqual(['unverified']);
   });
 

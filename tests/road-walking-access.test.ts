@@ -167,4 +167,14 @@ describe('OneMap walking profile boundary', () => {
     const gateway = new OneMapGateway({ get: async () => new Response(JSON.stringify(response(overrides)), { status: 200 }) } as unknown as HttpClient, 'https://onemap.test', token);
     await expect(gateway.walkingRoute(access, target)).rejects.toThrow();
   });
+  it('walks a short off-path gap to the pin and costs it, but rejects a gap over 150 m', async () => {
+    const gatewayEndingAt = (latitude: number) => new OneMapGateway({ get: async () => new Response(JSON.stringify(
+      response({ route_geometry: [[access.latitude, access.longitude], [latitude, target.longitude]] })), { status: 200 }) } as unknown as HttpClient,
+      'https://onemap.test', token);
+    const near = new GeoPoint(target.latitude - 0.0009, target.longitude);
+    const route = await gatewayEndingAt(near.latitude).walkingRoute(access, target);
+    expect(route.coordinates.at(-1)).toEqual(target);
+    expect(route.durationSeconds).toBeCloseTo(400 + near.distanceTo(target) / 1.2, 0);
+    await expect(gatewayEndingAt(target.latitude - 0.0018).walkingRoute(access, target)).rejects.toThrow();
+  });
 });

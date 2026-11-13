@@ -6,6 +6,8 @@ import { IRouteStrategy, RoutePlan, WalkingVisit, isVerifiedAccessRoute, isInsid
 // retries every thirty seconds and reuses these legs to reach jobs a single budget cannot verify.
 const LEG_TTL_MS = 6 * 60 * 60_000;
 const MAX_CACHED_LEGS = 4096;
+/** Farthest a re-queried leg may start or end from its parked access point. */
+const MAX_JOIN_METRES = 150;
 
 export class OneMapRoadRoutingStrategy implements IRouteStrategy {
   private readonly legs = new Map<string, { value: DrivingRouteLeg; expiresAt: number }>();
@@ -163,10 +165,14 @@ export class OneMapRoadRoutingStrategy implements IRouteStrategy {
         // Reuse the raw leg only if it actually joins the chosen vehicle access points.
         const result = leg.coordinates[0]!.distanceTo(start) <= 25 && leg.coordinates.at(-1)!.distanceTo(end) <= 25
           ? leg : await this.drivingLeg(start, end, controller.signal);
-        if (result.coordinates[0]!.distanceTo(start) > 25 || result.coordinates.at(-1)!.distanceTo(end) > 25) {
+        // On a one-way road OneMap snaps a re-queried start to the next node along the kerb. Bridge
+        // a short gap from the parked access point rather than reject the whole circuit.
+        if (result.coordinates[0]!.distanceTo(start) > MAX_JOIN_METRES || result.coordinates.at(-1)!.distanceTo(end) > MAX_JOIN_METRES) {
           throw new Error('OneMap driving legs do not join verified access points');
         }
-        return result;
+        return { ...result, coordinates: [
+          ...(result.coordinates[0]!.distanceTo(start) > 25 ? [start] : []), ...result.coordinates,
+          ...(result.coordinates.at(-1)!.distanceTo(end) > 25 ? [end] : [])] };
       }));
       const coordinates: GeoPoint[] = [];
       for (const leg of legs) {
