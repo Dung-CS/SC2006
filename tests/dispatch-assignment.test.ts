@@ -351,3 +351,32 @@ describe('dispatch assignment: report reject removes its stop', () => {
     expect(withRemoved[0]!.item).toBe('Fogging Nozzle');
   });
 });
+
+describe('dispatch assignment: auto-commit stays tentative until accepted', () => {
+  it('commits the route a verified report joined, shows it tentative, and confirms on accept or manager commit', async () => {
+    const f = await fixture();
+    await expect(f.service.autoCommit(date, f.route.teamId, 'report-src-zzz', manager)).rejects.toThrow(/does not yet route/);
+    const saved = await f.service.autoCommit(date, f.route.teamId, 'report-src-a', manager);
+    expect(saved.autoCommitted).toBe(true);
+    expect(saved.isFixed).toBe(true);
+    expect((await f.service.list(date, manager))[0]!.status).toBe('Tentative');
+    const crew = principalFor(Role.CleaningCrew, saved.crewIds[0]!);
+    expect((await f.service.crewDispatch(date, crew)).tentative).toBe(true);
+
+    const first = await f.order(saved.workOrderIds[0]!);
+    first.applyStatus(WorkOrderStatus.Accepted);
+    await f.workOrders.save(first);
+    expect((await f.service.list(date, manager))[0]!.status).toBe('Assigned');
+    expect((await f.service.crewDispatch(date, crew)).tentative).toBe(false);
+
+    const committed = await f.service.commit(date, saved.id, manager);
+    expect(committed.autoCommitted).toBe(false);
+  });
+
+  it('a manager commit clears the tentative state before any crew accepts', async () => {
+    const f = await fixture();
+    const saved = await f.service.autoCommit(date, f.route.teamId, 'report-src-b', manager);
+    await f.service.commit(date, saved.id, manager);
+    expect((await f.service.list(date, manager))[0]!.status).toBe('Assigned');
+  });
+});

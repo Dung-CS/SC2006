@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { AccessControlService } from './AccessControlService';
 import { Principal } from './Principal';
 import { DispatchController, DuplicateWorkOrder } from './DispatchController';
-import { DispatchJob, DispatchPlanService, validDispatchDate, withLocalities } from './DispatchPlanService';
+import { DispatchJob, DispatchPlanService, routeHoldsReport, validDispatchDate, withLocalities } from './DispatchPlanService';
 import { PlannedTeamRoute, PlannedWaypoint, RouteOptimizationService, RouteTeam } from './RouteOptimizationService';
 import { HQ_COORDINATES } from './DispatchRouteInputs';
 import type { WorkOrderLifecycleController } from './WorkOrderLifecycleController';
@@ -54,6 +54,8 @@ export interface AssignDispatchRequest {
   /** Manual set: the ordered stop list when the manager changed the planned route. */
   workOrderIds?: string[];
   checklist?: ChecklistItem[];
+  /** Set by the server only, never by the HTTP body: a system commit that stays tentative until accepted. */
+  autoCommitted?: boolean;
 }
 
 export interface EditDispatchRequest {
@@ -71,6 +73,9 @@ export interface ManualRouting {
 const cancellable = [WorkOrderStatus.Created, WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress, WorkOrderStatus.Rejected];
 const settled = (order: WorkOrder): boolean => [WorkOrderStatus.Completed, WorkOrderStatus.Verified, WorkOrderStatus.Cancelled].includes(order.currentStatus());
 const committed = (order: WorkOrder): boolean => [WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress, WorkOrderStatus.Rejected].includes(order.currentStatus());
+/** Auto-committed and no task yet accepted, started or finished. */
+const tentative = (assignment: DispatchAssignment, orders: Array<WorkOrder | null>): boolean => !!assignment.autoCommitted &&
+  assignment.status !== 'Cancelled' && orders.length > 0 && orders.every((order) => order?.currentStatus() === WorkOrderStatus.Assigned);
 const stopsOf = (route: PlannedTeamRoute) => route.waypointOrder.filter((stop) => !stop.isHq);
 const memberCard = (member: Account) => ({ id: member.id, email: member.email, displayName: member.displayName });
 
@@ -330,7 +335,8 @@ export class DispatchAssignmentService {
   private async withStatus(context: AssignmentContext, assignment: DispatchAssignment) {
     const { crew, vehicle, orders } = await assignmentDetail(context, assignment);
     return { ...assignment, crew, vehicle,
-      status: assignment.status ?? (orders.length && orders.every((order) => order !== null && settled(order)) ? 'Completed' : 'Assigned') };
+      status: assignment.status ?? (tentative(assignment, orders) ? 'Tentative'
+        : orders.length && orders.every((order) => order !== null && settled(order)) ? 'Completed' : 'Assigned') };
   }
 
   async assign(request: AssignDispatchRequest, by: Principal): Promise<DispatchAssignment> {
@@ -373,12 +379,52 @@ export class DispatchAssignmentService {
       const assignment: DispatchAssignment = { id: randomUUID(), date: request.date, teamId: request.teamId,
         crewIds: [...request.crewIds], vehicleId: request.vehicleId, workOrderIds: [], computedAt,
         routeSnapshot: this.snapshot(route, selected, vehicle, [], checklist), createdBy: by.accountId, createdAt: new Date().toISOString(),
-        isFixed: true, checklist };
+        isFixed: true, checklist, ...(request.autoCommitted ? { autoCommitted: true } : {}) };
       await context.assignments.save(assignment);
       assignment.workOrderIds = await this.book(context, route, assignment, by);
       assignment.routeSnapshot = this.snapshot(route, selected, vehicle, assignment.workOrderIds, checklist);
       await context.assignments.save(assignment);
       return assignment;
+    });
+    this.invalidate();
+    return result;
+  }
+
+  /**
+   * System commit of the planned route a newly verified report joined. Keeps the planned crew and vehicle
+   * when they are still free, else the first eligible ones. The dispatch stays tentative until the crew
+   * accepts a task or the manager commits it. Throws a retryable rejection while the plan lacks the report.
+   */
+  async autoCommit(date: string, teamId: string, reportId: string, by: Principal): Promise<DispatchAssignment> {
+    const found = this.plans.findReadyRoute(date, teamId);
+    if (!found || found.route.isFixed || !routeHoldsReport(found.route, reportId)) {
+      throw new DispatchAssignmentRejected('The plan does not yet route this report.', 503);
+    }
+    const opts = await this.options(date, teamId, by);
+    if (opts.assignment) return opts.assignment;
+    const free = new Set(opts.crew.map((member) => member.id));
+    const planned = (found.route.crewMembers ?? []).map((member) => member.id);
+    const crewIds = planned.length >= opts.requiredStaff && planned.every((id) => free.has(id))
+      ? planned : opts.crew.slice(0, opts.requiredStaff).map((member) => member.id);
+    const vehicleId = opts.vehicles.find((vehicle) => vehicle.id === found.route.vehicleId)?.id ?? opts.vehicles[0]?.id;
+    if (crewIds.length < opts.requiredStaff || !vehicleId) {
+      throw new DispatchAssignmentRejected('No free crew or vehicle can take this route.');
+    }
+    return this.assign({ date, teamId, crewIds, vehicleId, computedAt: opts.computedAt, autoCommitted: true }, by);
+  }
+
+  /** The manager commits a tentative dispatch: it becomes a fixed dispatch, whatever the crew has done. */
+  async commit(date: string, assignmentId: string, by: Principal): Promise<DispatchAssignment> {
+    await this.authorise(by);
+    if (!validDispatchDate(date) || typeof assignmentId !== 'string' || !assignmentId) {
+      throw new DispatchAssignmentRejected('Choose a saved dispatch to commit.', 400);
+    }
+    const result = await this.unit.run(async (context) => {
+      const saved = (await context.assignments.list(date)).find((item) => item.id === assignmentId);
+      if (!saved || saved.status === 'Cancelled') throw new DispatchAssignmentRejected('This saved dispatch no longer exists. Refresh the assignments.', 404);
+      Object.assign(saved, { autoCommitted: false, isFixed: true, updatedAt: new Date().toISOString(), updatedBy: by.accountId });
+      await context.assignments.save(saved);
+      return saved;
     });
     this.invalidate();
     return result;
@@ -430,7 +476,7 @@ export class DispatchAssignmentService {
       checked: false,
     }));
     Object.assign(saved, { crewIds: chosen.selected.map((member) => member.id), vehicleId: chosen.vehicle.id,
-      updatedAt: new Date().toISOString(), updatedBy: by.accountId, needsRoadCheck: false, isFixed: true, checklist: list });
+      updatedAt: new Date().toISOString(), updatedBy: by.accountId, needsRoadCheck: false, isFixed: true, autoCommitted: false, checklist: list });
     saved.workOrderIds = await this.book(context, route, saved, by, saved.id);
     saved.routeSnapshot = this.snapshot(route, chosen.selected, chosen.vehicle, saved.workOrderIds, list);
     await context.assignments.save(saved);
@@ -591,12 +637,12 @@ export class DispatchAssignmentService {
     return result;
   }
 
-  async crewDispatch(date: string, by: Principal): Promise<{ assignment: DispatchAssignment | null; checklist: ChecklistItem[]; stops: CrewDispatchStop[] }> {
+  async crewDispatch(date: string, by: Principal): Promise<{ assignment: DispatchAssignment | null; checklist: ChecklistItem[]; stops: CrewDispatchStop[]; tentative: boolean }> {
     const context = this.unit.read();
     const assignments = await context.assignments.listByCrew(by.accountId);
     const assignment = assignments.find((a) => a.date === date && a.status !== 'Cancelled') ?? null;
     if (!assignment) {
-      return { assignment: null, checklist: [], stops: [] };
+      return { assignment: null, checklist: [], stops: [], tentative: false };
     }
 
     const waypoints = assignment.routeSnapshot?.waypointOrder?.filter((wp) => !wp.isHq) ?? [];
@@ -632,6 +678,7 @@ export class DispatchAssignmentService {
       };
     });
 
-    return { assignment, checklist: assignment.checklist ?? [], stops };
+    const own = await Promise.all(assignment.workOrderIds.map((id) => context.workOrders.findById(id)));
+    return { assignment, checklist: assignment.checklist ?? [], stops, tentative: tentative(assignment, own) };
   }
 }

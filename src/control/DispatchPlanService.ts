@@ -16,6 +16,11 @@ const COMMITTED_REASON = 'Already assigned, accepted or in progress; retain exis
 const isCommitted = (job: RouteJob): boolean =>
   [WorkOrderStatus.Assigned, WorkOrderStatus.Accepted, WorkOrderStatus.InProgress, WorkOrderStatus.Rejected].includes(job.status as WorkOrderStatus);
 
+/** True when a planned route visits the stop raised from this report. */
+export const routeHoldsReport = (route: PlannedTeamRoute, reportId: string): boolean =>
+  route.waypointOrder.some((stop) => !stop.isHq && (stop.sourceReportId === reportId ||
+    stop.workOrderId === `report-${reportId}` || !!stop.reportIds?.includes(reportId)));
+
 export interface DispatchPlanInputs {
   teams: RouteTeam[];
   jobs: DispatchJob[];
@@ -124,6 +129,19 @@ export class DispatchPlanService {
     for (const day of days) {
       const route = day.routes.find((candidate) => candidate.teamId === teamId);
       if (route) return { route: structuredClone(route), computedAt: day.computedAt! };
+    }
+    return null;
+  }
+
+  /** The newest unfixed planned route that holds this report, from memory only. */
+  findReportRoute(reportId: string): { date: string; teamId: string } | null {
+    const days = [...this.entries.values()].map((entry) => entry.value)
+      .concat([...this.ranges.values()].flatMap((entry) => entry.value.plans))
+      .filter((plan) => plan.computedAt !== null)
+      .sort((left, right) => Date.parse(right.computedAt!) - Date.parse(left.computedAt!));
+    for (const day of days) {
+      const route = day.routes.find((candidate) => !candidate.isFixed && routeHoldsReport(candidate, reportId));
+      if (route) return { date: day.date, teamId: route.teamId };
     }
     return null;
   }
@@ -439,9 +457,11 @@ export class DispatchPlanService {
         const allocatable = input.jobs.filter((job) => !isCommitted(job) && !fixedJobIds.has(job.workOrderId));
         const availableVehicles = input.vehicles.filter((v) => !fixedVehicleIds.has(v.id));
         const computedRoutes = withLocalities(await this.planner.plan(teamsToPlan, allocatable, availableVehicles, roadUnverified), input.jobs);
+        const jobStatus = new Map(input.jobs.map((job) => [job.workOrderId, job.status]));
         const fixedRoutes: PlannedTeamRoute[] = fixedAssignments.map((a) => ({
           ...a.routeSnapshot,
           isFixed: true,
+          isTentative: !!a.autoCommitted && a.workOrderIds.every((id) => jobStatus.get(id) === WorkOrderStatus.Assigned),
           assignmentId: a.id,
           checklist: a.checklist ?? a.routeSnapshot.checklist,
         }));

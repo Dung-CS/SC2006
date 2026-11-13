@@ -93,6 +93,7 @@ export function statusTone(status: string): 'good' | 'warn' | 'bad' | 'neutral' 
     case 'Rejected':
     case 'Cancelled':
       return 'bad';
+    case 'Tentative':
     case 'Submitted':
     case 'Created':
     case 'Assigned':

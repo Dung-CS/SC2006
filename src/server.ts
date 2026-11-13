@@ -113,6 +113,7 @@ import { WorkOrderTransitionTable } from './control/WorkOrderTransitionTable';
 import { WorkOrderLifecycleController } from './control/WorkOrderLifecycleController';
 import { DispatchController } from './control/DispatchController';
 import { AccessControlService } from './control/AccessControlService';
+import { Principal } from './control/Principal';
 import { AccessPolicy } from './control/AccessPolicy';
 import { DashboardController, principalFor } from './control/DashboardController';
 import { SourceHealthController } from './control/SourceHealthController';
@@ -190,6 +191,7 @@ async function main(): Promise<void> {
   const config = ConfigLoader.load();
   const http = new HttpClient();
   let invalidateDispatchPlans = (): void => {};
+  let autoCommitReport = (_reportId: string): void => {};
 
   // Bound first, because the audit store now depends on the persistence choice — 2.4.1's trail
   // was being written to an array in production, and a container restart is not a retention policy.
@@ -329,7 +331,7 @@ async function main(): Promise<void> {
   // still takes reports; it simply cannot enforce the wildlife-needs-a-location-context rule.
   const residentReports = new ReportController(
     ac0, reports, locator, reportLifecycle, auditStore, objectStorage, config,
-    () => invalidateDispatchPlans(),
+    (reportId) => { invalidateDispatchPlans(); autoCommitReport(reportId); },
   );
   // 8.6 — referral, the path a wildlife case takes instead of a work order (8.1.14).
   //
@@ -952,6 +954,28 @@ async function main(): Promise<void> {
   moderation.linkDispatch(assignmentService);
   app.mount(new DispatchAssignmentRoutes(ac, assignmentService));
   invalidateDispatchPlans = () => dispatchPlans.invalidateAll();
+  // Auto-commit: once the background plan routes a newly verified report, commit that route as a tentative
+  // dispatch. Polls the in-memory plan only (no DB read per tick), every 5 s for up to 5 minutes.
+  autoCommitReport = (reportId) => {
+    const started = Date.now();
+    let failures = 0;
+    const tick = async (): Promise<void> => {
+      const found = dispatchPlans.findReportRoute(reportId);
+      if (found) {
+        try {
+          const [manager] = await assignmentUnit.read().accounts.findByRole(Role.OperationsManager);
+          if (!manager) return;
+          await assignmentService.autoCommit(found.date, found.teamId, reportId, new Principal(manager.id, Role.OperationsManager, 'auto-commit'));
+          console.log(`auto-commit: report ${reportId.slice(0, 8)} -> ${found.teamId} on ${found.date}`);
+          return;
+        } catch (error) {
+          if (++failures >= 3) { console.warn(`auto-commit gave up on report ${reportId.slice(0, 8)}: ${(error as Error).message}`); return; }
+        }
+      }
+      if (Date.now() - started < 5 * 60_000) setTimeout(() => void tick(), 5_000);
+    };
+    setTimeout(() => void tick(), 5_000);
+  };
   app.onSuccessfulMutation(invalidateDispatchPlans);
   app.mount(new VehicleRoutes(ac, new VehicleController(ac, vehicleStore, invalidateDispatchPlans)));
   app.mount(new WorkOrderRoutes(ac, dispatch, lifecycle, staff, routePlanner, routeInputs, null, dispatchPlans));

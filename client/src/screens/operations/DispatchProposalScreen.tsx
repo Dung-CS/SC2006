@@ -142,6 +142,7 @@ interface PlannedRoutesPayload {
     loadVolumePercentage?: number;
     loadBasis?: string;
     isFixed?: boolean;
+    isTentative?: boolean;
     assignmentId?: string;
     checklist?: ChecklistItem[];
   }>;
@@ -426,6 +427,18 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
   const [newChecklistText, setNewChecklistText] = useState('');
   const [newChecklistQty, setNewChecklistQty] = useState('');
 
+  const [commitFailure, setCommitFailure] = useState<string | null>(null);
+  const commitDispatch = async (assignmentId: string) => {
+    setCommitFailure(null);
+    try {
+      await props.api.post('/api/ops/dispatch/assignment-commit', { date: selectedDay, assignmentId });
+      setAssignmentNotice('Dispatch committed. It is now fixed.');
+      routesLoad.retry();
+    } catch {
+      setCommitFailure('The dispatch could not be committed. Refresh and try again.');
+    }
+  };
+
   const handleAddChecklistItem = async (teamId: string, assignmentId?: string) => {
     if (!newChecklistText.trim()) return;
     const item = newChecklistText.trim();
@@ -670,7 +683,19 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      {openedRoute.isFixed ? <Pill tone="good">Fixed / Manual</Pill> : null}
+                      {openedRoute.isTentative ? <Pill tone="warn">Tentative until crew accepts</Pill>
+                        : openedRoute.isFixed ? <Pill tone="good">Fixed / Manual</Pill> : null}
+                      {openedRoute.isTentative && openedRoute.assignmentId ? (
+                        <button
+                          type="button"
+                          data-action="commit-dispatch"
+                          onClick={() => void commitDispatch(openedRoute.assignmentId!)}
+                          className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-accent px-4 text-sm font-bold text-white hover:bg-accent-dark"
+                        >
+                          Commit
+                        </button>
+                      ) : null}
+                      {commitFailure ? <span role="alert" className="text-sm font-semibold text-ink">{commitFailure}</span> : null}
                       <Pill tone={openedRoute.status === 'Available' ? 'good' : 'warn'}>{openedRoute.status}</Pill>
                       <button
                         type="button"
@@ -931,7 +956,8 @@ export function DispatchProposalScreen(props: ScreenProps & { embedded?: boolean
                           <span className={`${CHIP} bg-accent-quiet text-accent`}>
                             <Building2 size={13} aria-hidden="true" />{cleanTitle(planned.depotLocation, 'Depot')} Depot
                           </span>
-                          {planned.isFixed ? <Pill tone="good">Fixed / Manual Dispatch</Pill> : null}
+                          {planned.isTentative ? <Pill tone="warn">Tentative until crew accepts</Pill>
+                            : planned.isFixed ? <Pill tone="good">Fixed / Manual Dispatch</Pill> : null}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">

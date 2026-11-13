@@ -276,7 +276,7 @@ export function SavedDispatches(props: { api: ApiClient; date: string; candidate
       return <article key={item.id} data-assignment-id={item.id}>
         <p><strong>{teamName(item)}</strong> · {stops.length} stops · {item.status === 'Cancelled' ? 'Cancelled' : item.status}
           {item.needsRoadCheck && item.status !== 'Cancelled' ? <span role="note"> · Road check needed: edit and save to re-verify the route</span> : null}</p>
-        {item.status === 'Assigned' ? <button type="button" onClick={() => setOpen(open === item.id ? null : item.id)}>{open === item.id ? 'Close editor' : 'Edit'}</button> : null}
+        {item.status === 'Assigned' || item.status === 'Tentative' ? <button type="button" onClick={() => setOpen(open === item.id ? null : item.id)}>{open === item.id ? 'Close editor' : 'Edit'}</button> : null}
         {open === item.id ? <DispatchAssignmentEditor api={props.api} date={props.date} teamId={item.teamId} assignmentId={item.id}
           proposedCrewIds={item.crewIds} proposedVehicleId={item.vehicleId} stops={stops} candidates={props.candidates}
           onAssigned={(result) => { props.onSaved(result); void load(); }} /> : null}

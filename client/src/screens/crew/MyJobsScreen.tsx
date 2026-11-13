@@ -93,6 +93,7 @@ interface ChecklistResponse {
   assignment: DispatchAssignmentPayload | null;
   checklist: ChecklistItem[];
   stops?: DispatchStopPayload[];
+  tentative?: boolean;
 }
 
 const FILTERS = ['Today', 'Upcoming', 'Completed', 'All'] as const;
@@ -141,7 +142,7 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
     ? Math.round((completedStopsCount / totalStopsCount) * 100)
     : (snapshot?.progressPercentage ?? 0);
 
-  const dispatchStatus = assignment?.status === 'Cancelled'
+  const dispatchStatus = checklistVal?.tentative ? 'Tentative' : assignment?.status === 'Cancelled'
     ? 'Cancelled'
     : totalStopsCount > 0 && completedStopsCount === totalStopsCount
     ? 'Completed'
@@ -202,6 +203,12 @@ export function MyJobsScreen(props: ScreenProps): JSX.Element {
                 <Pill tone={statusTone(dispatchStatus)}>{dispatchStatus}</Pill>
               </div>
             </div>
+
+            {checklistVal?.tentative ? (
+              <p role="note" data-part="tentative-dispatch" className="my-3 rounded-2xl border border-line bg-ground p-3 text-sm text-ink">
+                This dispatch is tentative. Accept a task to confirm it.
+              </p>
+            ) : null}
 
             {/* Assigned Crew */}
             <div data-part="dispatch-crew" className="my-3">

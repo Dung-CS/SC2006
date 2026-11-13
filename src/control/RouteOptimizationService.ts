@@ -106,6 +106,8 @@ export interface PlannedTeamRoute {
   loadVolumePercentage?: number;
   loadBasis: string;
   isFixed?: boolean;
+  /** Auto-committed and not yet accepted by the crew or committed by the manager. */
+  isTentative?: boolean;
   assignmentId?: string;
   checklist?: ChecklistItem[];
 }

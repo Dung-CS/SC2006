@@ -9,7 +9,7 @@ import type { ChecklistItem } from '../../ports/DispatchAssignmentStore';
 export class DispatchAssignmentRoutes extends RouteHandler {
   constructor(ac: AccessControlService, private readonly service: DispatchAssignmentService) { super(ac); }
   routes(): string[] { return ['/api/ops/dispatch/assignment-options', '/api/ops/dispatch/assignments', '/api/crew/dispatch/checklist']; }
-  override writeRoutes(): string[] { return ['/api/ops/dispatch/assign', '/api/ops/dispatch/assignment-edit', '/api/ops/dispatch/checklist/item', '/api/ops/dispatch/checklist/item/remove', '/api/crew/dispatch/checklist/toggle']; }
+  override writeRoutes(): string[] { return ['/api/ops/dispatch/assign', '/api/ops/dispatch/assignment-edit', '/api/ops/dispatch/assignment-commit', '/api/ops/dispatch/checklist/item', '/api/ops/dispatch/checklist/item/remove', '/api/crew/dispatch/checklist/toggle']; }
   async handle(req: Request, res: Response): Promise<void> {
     try {
       const by = await this.resolvePrincipal(req);
@@ -53,6 +53,13 @@ export class DispatchAssignmentRoutes extends RouteHandler {
             vehicleId: body.vehicleId, computedAt: body.computedAt as string | undefined,
             ...(body.workOrderIds ? { workOrderIds: body.workOrderIds as string[] } : {}),
             ...(Array.isArray(body.checklist) ? { checklist: body.checklist as ChecklistItem[] } : {}) }, by)); return;
+        }
+        case '/api/ops/dispatch/assignment-commit': {
+          const body = req.body as Record<string, unknown> | null;
+          if (!body || typeof body.date !== 'string' || typeof body.assignmentId !== 'string') {
+            throw new DispatchAssignmentRejected('Choose the saved dispatch to commit.', 400);
+          }
+          res.json(await this.service.commit(body.date, body.assignmentId, by)); return;
         }
         case '/api/ops/dispatch/assignment-edit': {
           const body = req.body as Record<string, unknown> | null;

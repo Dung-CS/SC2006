@@ -26,6 +26,9 @@ export interface DispatchAssignment {
   updatedBy?: string;
   /** Manually created or edited dispatches are fixed and unchanged by automatic assignment. */
   isFixed?: boolean;
+  /** Committed by the system when a verified report joined its planned route. Tentative until the crew
+   *  accepts a task or the manager commits it. */
+  autoCommitted?: boolean;
   /** Logistics equipment checklist verified by crew. */
   checklist?: ChecklistItem[];
   /** Cancelled when its last task was removed; its crew and vehicle are then free. */

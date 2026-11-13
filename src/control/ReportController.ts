@@ -101,7 +101,7 @@ export class ReportController {
      */
     private readonly config: ConfigSet | null = null,
     /** Called after a new report is verified, so dispatch plans refresh (debounced by DispatchPlanService). */
-    private readonly onVerifiedReport: (() => void) | null = null,
+    private readonly onVerifiedReport: ((reportId: string) => void) | null = null,
   ) {}
 
   /**
@@ -212,7 +212,7 @@ export class ReportController {
     await this.audit?.appendAction(by.accountId, 'report:submit', 'Report', saved.id);
     // Verified by default: the Submitted row above stays in the history, then the system verifies.
     const verified = await this.lifecycle.transition(saved.id, ReportStatus.Verified, 'SYSTEM', { at: now });
-    this.onVerifiedReport?.();
+    this.onVerifiedReport?.(saved.id);
     return verified;
   }
 
