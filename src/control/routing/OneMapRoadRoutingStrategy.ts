@@ -7,7 +7,7 @@ import { IRouteStrategy, RoutePlan, WalkingVisit, isVerifiedAccessRoute, isInsid
 const LEG_TTL_MS = 6 * 60 * 60_000;
 const MAX_CACHED_LEGS = 4096;
 /** Farthest a re-queried leg may start or end from its parked access point. */
-const MAX_JOIN_METRES = 150;
+const MAX_JOIN_METRES = 1000;
 
 export class OneMapRoadRoutingStrategy implements IRouteStrategy {
   private readonly legs = new Map<string, { value: DrivingRouteLeg; expiresAt: number }>();

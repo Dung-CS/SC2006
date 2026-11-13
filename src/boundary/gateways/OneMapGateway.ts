@@ -48,7 +48,7 @@ export interface WalkingRouteLeg extends DrivingRouteLeg {
 /** Conservative access tolerance: a road snapped farther away does not serve this task. */
 export const MAX_ROAD_SNAP_METRES = 250;
 /** Farthest a task pin may sit from OneMap's footpath network, and the pace used to walk that gap. */
-const MAX_OFF_PATH_METRES = 150;
+const MAX_OFF_PATH_METRES = 1000;
 const WALK_SPEED_MPS = 1.2;
 
 export function isUsableDrivingRoute(route: DrivingRouteLeg, stops: GeoPoint[]): boolean {
