@@ -133,13 +133,16 @@ export class DispatchPlanService {
     return null;
   }
 
-  /** The newest unfixed planned route that holds this report, from memory only. */
+  /** The unfixed route holding this report in the newest plan of its date (the plan findReadyRoute reads), from memory only. */
   findReportRoute(reportId: string): { date: string; teamId: string } | null {
     const days = [...this.entries.values()].map((entry) => entry.value)
       .concat([...this.ranges.values()].flatMap((entry) => entry.value.plans))
       .filter((plan) => plan.computedAt !== null)
       .sort((left, right) => Date.parse(right.computedAt!) - Date.parse(left.computedAt!));
+    const seen = new Set<string>();
     for (const day of days) {
+      if (seen.has(day.date)) continue;
+      seen.add(day.date);
       const route = day.routes.find((candidate) => !candidate.isFixed && routeHoldsReport(candidate, reportId));
       if (route) return { date: day.date, teamId: route.teamId };
     }

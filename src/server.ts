@@ -955,7 +955,8 @@ async function main(): Promise<void> {
   app.mount(new DispatchAssignmentRoutes(ac, assignmentService));
   invalidateDispatchPlans = () => dispatchPlans.invalidateAll();
   // Auto-commit: once the background plan routes a newly verified report, commit that route as a tentative
-  // dispatch. Polls the in-memory plan only (no DB read per tick), every 5 s for up to 5 minutes.
+  // dispatch. Polls the in-memory plan only (no DB read per tick), every 5 s for up to 15 minutes, which
+  // covers the plan settling after a restart.
   autoCommitReport = (reportId) => {
     const started = Date.now();
     let failures = 0;
@@ -964,15 +965,17 @@ async function main(): Promise<void> {
       if (found) {
         try {
           const [manager] = await assignmentUnit.read().accounts.findByRole(Role.OperationsManager);
-          if (!manager) return;
+          if (!manager) { console.warn('auto-commit: no OperationsManager account'); return; }
           await assignmentService.autoCommit(found.date, found.teamId, reportId, new Principal(manager.id, Role.OperationsManager, 'auto-commit'));
           console.log(`auto-commit: report ${reportId.slice(0, 8)} -> ${found.teamId} on ${found.date}`);
           return;
         } catch (error) {
-          if (++failures >= 3) { console.warn(`auto-commit gave up on report ${reportId.slice(0, 8)}: ${(error as Error).message}`); return; }
+          // A plan recomputed between the two reads answers 503; keep trying until the window closes.
+          if (++failures % 10 === 1) console.warn(`auto-commit retry ${failures} for report ${reportId.slice(0, 8)}: ${(error as Error).message}`);
         }
       }
-      if (Date.now() - started < 5 * 60_000) setTimeout(() => void tick(), 5_000);
+      if (Date.now() - started < 15 * 60_000) setTimeout(() => void tick(), 5_000);
+      else console.warn(`auto-commit: no planned route held report ${reportId.slice(0, 8)} within 15 minutes`);
     };
     setTimeout(() => void tick(), 5_000);
   };
