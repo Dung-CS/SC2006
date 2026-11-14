@@ -1,0 +1,12 @@
+[
+  {
+    "source": "gemini-web",
+    "file": "head-and-shoulders-portrait-photograph-o.jpg",
+    "model": "gemini.google.com default mode / Create image",
+    "prompt": "Head-and-shoulders portrait photograph of a Chinese Singaporean woman in her forties with short hair, wearing a smart blouse and a staff lanyard, in a modern operations office with monitors behind her, soft light, realistic photo, no text. Photographic, no text, no logos, room for overlaid text.",
+    "aspect": "16:9",
+    "refs": [],
+    "licence": "AI-generated (Gemini); no third-party attribution required",
+    "fetched": "2026-11-07T22:01:01+0800"
+  }
+]

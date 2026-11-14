@@ -1,0 +1,12 @@
+[
+  {
+    "source": "gemini-web",
+    "file": "head-and-shoulders-portrait-photograph-o.jpg",
+    "model": "gemini.google.com default mode / Create image",
+    "prompt": "Head-and-shoulders portrait photograph of a Malay Singaporean woman in her thirties wearing a light hijab, smiling, standing in an HDB void deck, soft natural daylight, realistic photo, no text. Photographic, no text, no logos, room for overlaid text.",
+    "aspect": "16:9",
+    "refs": [],
+    "licence": "AI-generated (Gemini); no third-party attribution required",
+    "fetched": "2026-11-07T21:36:07+0800"
+  }
+]

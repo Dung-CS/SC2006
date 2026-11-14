@@ -1,0 +1,460 @@
+{
+  "output": "D-Fence-W13-v2-new.pptx",
+  "template": "dfence-template.pptx",
+  "tracker": [
+    "Journey",
+    "Architecture",
+    "Delivery",
+    "Robustness"
+  ],
+  "layout_notes": [],
+  "roles": {
+    "primary": "8653E3",
+    "secondary": "AF89F4",
+    "accent": "75F9AA",
+    "light": "272036",
+    "text": "FFFFFF",
+    "muted": "888490",
+    "line": "C9C7CD"
+  },
+  "furniture": "generated",
+  "frame": {
+    "left": 334962,
+    "right": 11857038,
+    "title": [
+      334962,
+      137160,
+      11857038,
+      812764
+    ],
+    "row": [
+      334962,
+      6464808,
+      11857038,
+      6830568
+    ],
+    "stage_of": {
+      "Journey": "Journey",
+      "Architecture": "Architecture",
+      "Delivery": "Delivery",
+      "Robustness": "Robustness"
+    }
+  },
+  "icons_fetched": [],
+  "slides": [
+    {
+      "id": "S1",
+      "layout": "Deck - cover",
+      "section": "",
+      "issues": [],
+      "title": "D-Fence",
+      "sources": [],
+      "needs_source": false,
+      "stage": null,
+      "content": [
+        0,
+        0,
+        12192000,
+        6858000
+      ],
+      "component": "cover"
+    },
+    {
+      "id": "S2",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "Three roles share one loop, from the resident's report to the field team's fix",
+      "sources": [
+        "client/src/lib/staffVisuals.ts; resident portrait AI-generated"
+      ],
+      "needs_source": false,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S3",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "A resident uploads a photo, and an AI model detects and counts the pest in it",
+      "sources": [
+        "src/control/ReportController.ts"
+      ],
+      "needs_source": false,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S4",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "The server scores every task, for every pest, and shows how each score was reached",
+      "sources": [
+        "src/control/PriorityScoringEngine.ts"
+      ],
+      "needs_source": false,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S5",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "Every task, whatever the pest, gets one 0-100 score: severity times urgency",
+      "sources": [
+        "PEST-PRIORITY-MODEL.md; config/pests.default.json"
+      ],
+      "needs_source": true,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S6",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "The server builds road-checked team routes that fit one four-hour shift",
+      "sources": [
+        "src/control/RouteOptimizationService.ts"
+      ],
+      "needs_source": false,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S7",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "Cheap straight-line estimates shortlist each insertion; OneMap checks the best six",
+      "sources": [
+        "src/control/RouteOptimizationService.ts; ROUTING-ALGORITHM.md"
+      ],
+      "needs_source": true,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S8",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "Each dispatch is a full route: ordered stops, a crew, a vehicle and a logistics list",
+      "sources": [
+        "client/src/screens/operations/"
+      ],
+      "needs_source": false,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S9",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "The field officer opens one phone screen with the crew, van, load list and ordered stops",
+      "sources": [
+        "client/src/screens/crew/MyJobsScreen.tsx"
+      ],
+      "needs_source": false,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S10",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "A table-driven state machine needs photo evidence before a job can close",
+      "sources": [
+        "src/control/WorkOrderTransitionTable.ts"
+      ],
+      "needs_source": true,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S11",
+      "layout": "Deck - Journey",
+      "section": "Journey",
+      "issues": [],
+      "title": "The resident and the manager see the same verified status when the work is done",
+      "sources": [
+        "src/control/observer/"
+      ],
+      "needs_source": false,
+      "stage": "Journey",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S12",
+      "layout": "Deck - Architecture",
+      "section": "Architecture",
+      "issues": [],
+      "title": "Each use case runs down one chain of classes: route, controller, port, repository, entity",
+      "sources": [
+        "Import statements in src/; src/server.ts"
+      ],
+      "needs_source": false,
+      "stage": "Architecture",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S13",
+      "layout": "Deck - Architecture",
+      "section": "Architecture",
+      "issues": [],
+      "title": "Five design patterns keep algorithms swappable and data ingestion safe to fail",
+      "sources": [
+        "src/control/"
+      ],
+      "needs_source": true,
+      "stage": "Architecture",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S14",
+      "layout": "Deck - Architecture",
+      "section": "Architecture",
+      "issues": [],
+      "title": "One TypeScript stack runs from the browser to the cloud, grouped by purpose",
+      "sources": [
+        "package.json; client/package.json. Logos: Simple Icons (CC0)"
+      ],
+      "needs_source": false,
+      "stage": "Architecture",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S15",
+      "layout": "Deck - Delivery",
+      "section": "Delivery",
+      "issues": [],
+      "title": "Four parallel checks gate every commit, then OIDC deploys the exact tested build",
+      "sources": [
+        ".github/workflows/deploy.yml; tools/"
+      ],
+      "needs_source": false,
+      "stage": "Delivery",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S16",
+      "layout": "Deck - Delivery",
+      "section": "Delivery",
+      "issues": [],
+      "title": "Six test layers check domain rules, real SQL and the live release",
+      "sources": [
+        "tests/; tests-ui/; tools/smoke-release.mjs"
+      ],
+      "needs_source": false,
+      "stage": "Delivery",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S17",
+      "layout": "Deck - Robustness",
+      "section": "Robustness",
+      "issues": [],
+      "title": "Caching, spatial indexes and hardening keep the app fast and safe under load",
+      "sources": [
+        "src/control, persistence, entity, boundary"
+      ],
+      "needs_source": false,
+      "stage": "Robustness",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S18",
+      "layout": "Deck - cover",
+      "section": "",
+      "issues": [],
+      "title": "Report in. Resolved out.",
+      "sources": [],
+      "needs_source": false,
+      "stage": null,
+      "content": [
+        0,
+        0,
+        12192000,
+        6858000
+      ],
+      "component": "cover"
+    },
+    {
+      "id": "slide 19",
+      "layout": "Deck - Appendix",
+      "section": "appendix",
+      "issues": [],
+      "title": "One score multiplies fixed pest severity by evidence-driven urgency, then bands it",
+      "sources": [
+        "PEST-PRIORITY-MODEL.md s1, s5.2, s7; UrgencyCalculator.ts"
+      ],
+      "needs_source": true,
+      "stage": "Appendix",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "slide 20",
+      "layout": "Deck - Appendix",
+      "section": "appendix",
+      "issues": [],
+      "title": "Severity stops a flood of minor reports outranking real risk, and overrides put life-safety first",
+      "sources": [
+        "PEST-PRIORITY-MODEL.md s6 (overrides), s7 (worked example)"
+      ],
+      "needs_source": true,
+      "stage": "Appendix",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "slide 21",
+      "layout": "Deck - Appendix",
+      "section": "appendix",
+      "issues": [],
+      "title": "Cheap estimates rank every gap, OneMap checks the best six, and the smallest verified detour wins",
+      "sources": [
+        "ROUTING-ALGORITHM-STE100.md s4 to s7"
+      ],
+      "needs_source": true,
+      "stage": "Appendix",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "slide 22",
+      "layout": "Deck - Appendix",
+      "section": "appendix",
+      "issues": [],
+      "title": "Local search removes crossings and moves jobs between crews, keeping only verified time savings",
+      "sources": [
+        "ROUTING-ALGORITHM-STE100.md s8; RouteOptimizationService.ts. Timings illustrative"
+      ],
+      "needs_source": true,
+      "stage": "Appendix",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    }
+  ]
+}

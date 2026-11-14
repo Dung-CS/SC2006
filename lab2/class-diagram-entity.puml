@@ -323,6 +323,17 @@ package "Observation and referral" {
 }
 
 package "Dispatch and field work" {
+  class Vehicle <<entity>> {
+    registration
+    name
+    model
+    hqLocation : HqLocation
+    maxPayloadKg
+    maxCargoVolumeM3
+    seatCapacity
+    isAvailable
+    isDemo
+  }
   class WorkOrder <<entity>> {
     pestType : PestType
     taskType : TaskType
@@ -335,6 +346,9 @@ package "Dispatch and field work" {
     cancellationReason
     issueFlag
     issueReason
+    vehicleId
+    stopOrder
+    isFixed
   }
   class CompletionEvidence <<entity>> {
     completedAt
@@ -362,6 +376,11 @@ package "Dispatch and field work" {
     Verified
     Rejected
     Cancelled
+  }
+  enum HqLocation <<enumeration>> {
+    SOON_LEE
+    CENTRAL
+    EAST
   }
 }
 
@@ -437,6 +456,8 @@ WorkOrder "0..*" -- "0..1" Report : raised from >
 
 WorkOrder "1" -- "0..1" CompletionEvidence : closed by >
 WorkOrder "1" -- "0..1" TreatmentRecord : produces >
+WorkOrder "0..*" -- "0..1" Vehicle : transport by >
+Account "0..*" -- "0..1" Vehicle : assigned to >
 
 note bottom of TreatmentRecord
   Written only when a work order is Verified (8.3.12).

@@ -23,13 +23,17 @@ Run these, in this order, the morning of. Each takes under a minute except the l
 | 0.4 | `npm run demo:drive -- --base https://dfence-sc2006.azurewebsites.net` | The click path in §3–§5 still works in a real browser | Fix before rehearsing; the script is the source of truth for the clicks |
 | 0.5 | Open the site on the presenting phone and install it (§3.0) | The home-screen icon exists before anyone is watching | Fall back to the browser; the rest of the script is unchanged |
 
-**Accounts.** Three, and they must be the seeded ones — do not create fresh accounts in the room.
+**Accounts.** Simplified across all three roles for seamless demo execution without password friction:
 
-| Role | Email | Password |
+| Role | Username / Identifier | Password |
 |---|---|---|
-| Resident | `resident@d-fence.local` | `DFENCE_SEED_RESIDENT_PASSWORD` |
-| Operations Manager | the seeded manager address | `DFENCE_SEED_MANAGER_PASSWORD` |
-| Cleaning Crew | created live in beat C7, or the previous run's `uat-crew-…` account | as set in C7 |
+| Resident | `resident` | `resident` |
+| Operations Manager | `manager` | `manager` |
+| Field Officer / Crew | `crew` | `crew` |
+
+**Automated Webdriver Rehearsal Tools:**
+- **Live 6-Stage Demo Suite**: `python tools/w13_live_demo_webdriver.py --headed` (11/11 checks PASS live on Azure).
+- **Narrative 5-Act Walkthrough Suite**: `python tools/w13_video_walkthrough_webdriver.py --headed --pause 2.5` (12/12 checks PASS live on Azure with automatic report teardown).
 
 **Devices.** Two laptops (Presenter 2 and 4 share one) and one phone, all on the room's wifi, all
 signed in *before* the session starts. The phone is the demonstration's centrepiece and is

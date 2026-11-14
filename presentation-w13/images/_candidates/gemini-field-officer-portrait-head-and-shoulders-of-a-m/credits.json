@@ -1,0 +1,12 @@
+[
+  {
+    "source": "gemini-web",
+    "file": "field-officer-portrait-head-and-shoulder.jpg",
+    "model": "gemini.google.com default mode / Create image",
+    "prompt": "Field officer portrait, head and shoulders, of a Malay Singaporean man in his forties wearing a bright orange high-visibility vest over a work polo shirt and a cap, standing outdoors in an HDB estate with greenery, daylight, realistic photo, no text. Photographic, no text, no logos, room for overlaid text.",
+    "aspect": "16:9",
+    "refs": [],
+    "licence": "AI-generated (Gemini); no third-party attribution required",
+    "fetched": "2026-11-08T11:47:47+0800"
+  }
+]

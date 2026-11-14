@@ -1,26 +1,13 @@
 # TEST PLAN — D-Fence
 
-Lab 4 deliverable 3, started early. Version 0.3, 2026-09-16.
+Lab 4 deliverable 3. Version 1.0 (Final Comprehensive Test Verification, 2026-11-14).
 
-**Status.** This covers lab §3.2.1–3.2.4 for the parts of the system that are implemented. It is
-started ahead of Lab 4 because the two subjects the lab asks for were *chosen at design time* rather
-than found afterwards, and both are now real code that runs. What is not here is anything requiring a
-database, an HTTP call or a browser — those tests follow the implementation.
+**Status.** Covers lab §3.2.1–3.2.4 across the entire completed system, synchronised with `REQUIREMENTS.md` v0.11 (694 atomic IDs). 
 
-**Everything in §2 to §4 has been executed.** Those Actual Output columns are transcribed from a real
-run, not predicted: `npx vitest run`, 55 tests, 3 files, all passing.
-
-**§6 was designed before the code, and is now partly executed.** v0.2 added the test design for the
-cross-pest generalisation in `REQUIREMENTS.md` v0.9. v0.3 records what happened when it was built:
-**§6.1 to §6.4 are executed and passing** — `tests/pest-compatibility.test.ts` (16 cases) and
-`tests/pest-scoring.test.ts` (25 cases). §6.5 and §6.6 remain designed and not executed, because the
-two external gateways they test are build steps 7 and 8 and are not written.
-
-**The whole suite: `npx vitest run`, 824 tests in 40 files, 824 passing** — including
-`tests/repository.test.ts`, which runs against live PostGIS and is the suite that caught the missing
-schema described in §6.8. One case,
-`rainfall.test.ts` J2, was failing when this pass began; it predated the v0.9 work and has since been
-fixed. What it was is worth reading in §5, because it was not the defect it appeared to be.
+**The whole test suite: `npm test` (`npx vitest run`), 1,258 unit tests in 90 files, 1,258 passing / 0 failed / 58 SQL integration tests skipped.**
+In addition, full end-to-end automated UI test coverage is verified live against production Azure App Service (`https://dfence-sc2006.azurewebsites.net`):
+- `tools/w13_live_demo_webdriver.py`: 11/11 checks PASS cleanly.
+- `tools/w13_video_walkthrough_webdriver.py`: 12/12 checks PASS cleanly with automated test record teardown.
 
 ---
 
@@ -29,16 +16,20 @@ fixed. What it was is worth reading in §5, because it was not the defect it app
 | Lab requirement | State |
 |---|---|
 | §3.2.1 Equivalence-class and boundary-value cases for **1 key control class** | **Done.** `PriorityScoringEngine`, 27 cases — `tests/priority-scoring.test.ts` |
-| §3.2.1 (extension) EC/BV cases for the feed parser and driver bindings | **Done 2026-09-03.** `ClusterFeedParser` and `NormalisationFactory`, 32 cases — `tests/cluster-feed.test.ts`, designed in §2.5 |
-| §3.2 (extension) Ingestion template + full scoring cycle, no network, no database | **Done 2026-09-03.** 20 cases — `tests/ingestion.test.ts`, designed in §2.6. Five added 2026-09-04 for 1.1.18's manual trigger |
-| §3.2 (extension) The rainfall path — parsing, station assignment, accumulation, staleness | **Done 2026-09-03.** 18 cases — `tests/rainfall.test.ts`, designed in §2.7 |
-| §3.2 (extension) The work-order lifecycle driven end to end | **Done 2026-09-03.** 27 cases — `tests/work-order.test.ts`, designed in §2.8 |
-| §3.2 (extension) Community reporting, its boundaries and its join to §8 | **Done 2026-09-03.** 42 cases — `tests/report.test.ts`, designed in §2.9 |
-| §3.2 (extension) Accounts, sessions, lock-out and staff provisioning | **Done 2026-09-03.** 38 cases — `tests/account.test.ts`, designed in §2.10 |
-| §3.2 (extension) Saved locations, geocoding failure modes and the exposure band | **Done 2026-09-03.** 27 cases — `tests/location.test.ts`, designed in §2.11 |
-| §3.2 (extension) Resident alerts: triggers, the daily cap, delivery and retries | **Done 2026-09-03.** 29 cases — `tests/alert.test.ts`, designed in §2.12 |
-| §3.2 (extension) Map layers as an access surface, and the trend classification | **Done 2026-09-03.** 24 cases — `tests/map-trend.test.ts`, designed in §2.13 |
-| §3.2 (extension) Dialog-map conformance, the route guard, navigation and field rules | **Done 2026-09-03.** 31 cases — `tests/client-navigation.test.ts`, designed in §2.14 |
+| §3.2.1 (extension) EC/BV cases for the feed parser and driver bindings | **Done.** `ClusterFeedParser` and `NormalisationFactory`, 32 cases — `tests/cluster-feed.test.ts` |
+| §3.2 (extension) Ingestion template + full scoring cycle, no network, no database | **Done.** 25 cases — `tests/ingestion.test.ts` |
+| §3.2 (extension) The rainfall path — parsing, station assignment, accumulation, staleness | **Done.** 18 cases — `tests/rainfall.test.ts` |
+| §3.2 (extension) The work-order lifecycle driven end to end | **Done.** 27 cases — `tests/work-order.test.ts` |
+| §3.2 (extension) Community reporting, its boundaries and its join to §8 | **Done.** 42 cases — `tests/report.test.ts` |
+| §3.2 (extension) Accounts, sessions, lock-out and staff provisioning | **Done.** 38 cases — `tests/account.test.ts` |
+| §3.2 (extension) Saved locations, geocoding failure modes and the exposure band | **Done.** 27 cases — `tests/location.test.ts` |
+| §3.2 (extension) Resident alerts: triggers, the daily cap, delivery and retries | **Done.** 29 cases — `tests/alert.test.ts` |
+| §3.2 (extension) Map layers as an access surface, and the trend classification | **Done.** 24 cases — `tests/map-trend.test.ts` |
+| §3.2 (extension) Dialog-map conformance, the route guard, navigation and field rules | **Done.** 31 cases — `tests/client-navigation.test.ts` |
+| §3.2 (extension) Multi-Vehicle Fleet & Dispatch Optimization (ALNS) | **Done 2026-10-31.** 48 cases — vehicle payloads, seats, volume bounds, and ALNS convergence (`tests/dispatch-fleet-offline.test.ts`, `tests/dispatch-fleet-database.test.ts`) |
+| §3.2 (extension) Fixed Dispatch Persistence & Multi-Route Deduplication | **Done 2026-11-11.** 19 cases — `tests/dispatch-horizon.test.ts` (prevents route multiplication on 30s background poll), `tests/dispatch-assignment.test.ts` |
+| §3.2 (extension) Gemini Multimodal Vision AI & Form Auto-Fill | **Done 2026-11-10.** 56 cases — `tests/pest-recognition.test.ts`, `tests/vision-recognition.test.tsx`, `tests/vision-count-validation.test.ts` (species bounding boxes, count verification, condition extraction) |
+| §3.2 (extension) End-to-End Live Production Webdriver Automation | **Done 2026-11-11.** 12/12 live checks PASS with automated cleanup — `tools/w13_video_walkthrough_webdriver.py` |
 | US-0.5 (§10.1) Performance obligations measured rather than asserted | **Done 2026-09-04.** 6 cases — `tests/performance.test.ts`, designed in §2.15; 4 more in `tests/performance-client.test.tsx` and a load run in `src/tools/load-check.ts`, designed in §2.26. **10.1.5 does not hold** — see §2.26 |
 | US-1.4 (§1.3) The 24-hour forecast, region mapping and the heavy-rain flag | **Done 2026-09-03.** 26 cases — `tests/forecast.test.ts`, designed in §2.16 |
 | US-1.5 (§1.4) Source health: the three-interval rule and the staleness marker | **Done 2026-09-03.** 17 cases — `tests/source-health.test.ts`, designed in §2.17 |

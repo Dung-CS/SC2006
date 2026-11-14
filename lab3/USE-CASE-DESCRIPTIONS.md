@@ -25,6 +25,24 @@ model can be checked against `REQUIREMENTS.md` v0.3 rather than taken on trust.
 
 ---
 
+## 1. Actors
+
+| ID | Actor | Type | Description |
+|---|---|---|---|
+| A0 | Registered User | Abstract (`<<abstract>>`) | Generalisation superclass of the three human roles (`Resident`, `Operations Manager`, `Cleaning Crew Member`). Owns common credential and session use cases (`1.2 Sign In`, `1.3 Reset Password`, `1.5 Sign Out`). Never instantiated directly. |
+| A1 | Resident | Primary, human | Member of the public. Submits pest reports, saves locations, views alerts, and tracks own submissions. Inherits from `Registered User`. |
+| A2 | Operations Manager | Primary, human | Agency / town council officer. Reviews priority ranking, moderates reports, dispatches and verifies work orders. Inherits from `Registered User`. |
+| A3 | Cleaning Crew Member | Primary, human | Field team operative. Views assigned jobs, accepts/starts field work, raises issues, and submits completion evidence. Inherits from `Registered User`. |
+| A4 | Scheduler | Primary, system | Internal time-triggered engine. Triggers automated periodic jobs (`7.1–7.10`), including periodic alert evaluation (`7.6`). |
+| A5 | NEA Data Service | Secondary, external | Government environmental API supplying dengue cluster polygons and case counts. |
+| A6 | Weather Data Service | Secondary, external | Meteorological API supplying 24-hour rainfall readings and regional forecasts. |
+| A7 | OneMap | Secondary, external | SLA geospatial API supplying geocoding and reverse geocoding services. |
+| A8 | Telegram Service | Secondary, external | Messaging gateway delivering real-time alert notifications and job assignments. |
+| A9 | Observation Data Service | Secondary, external | Community biodiversity observation API supplying wildlife sighting coordinates. |
+| A10 | Wildlife Authority (AVS) | Secondary, external | External statutory board receiving referrals for wild animal reports. |
+
+---
+
 ## Use Case 1.1 — Register Account
 
 | Field | Value |
@@ -1718,10 +1736,14 @@ cancel.
 **Assumptions.** The crew member has network access in the field; otherwise the flag is raised on
 return.
 
-**Notes and Issues.** **Corrected in Lab 2 following AI critique point 1.** This was previously
+**Notes and Issues.** **Corrected in Lab 2 following AI critique.** This was previously
 modelled as `<<extend>>` on 6.6 Complete Job with Evidence, which confined it to the completion flow
-and would have forced a crew member to claim completion in order to report an obstruction. It is now
-a direct association from Cleaning Crew Member, guarded by the status precondition above.
+and would have forced a crew member to claim completion in order to report an obstruction. A subsequent
+suggestion to model `6.7` as extending both `6.5 Accept and Start Job` and `6.6 Complete Job with Evidence`
+was also explicitly **rejected**: under UML rules, `<<extend>>` restricts execution to an extension point
+inside the base use case, which would prevent reporting issues during ongoing field execution (`In Progress`
+state) or before site arrival. Direct association from `Cleaning Crew Member` (guarded by precondition
+`status in {Assigned, Accepted, In Progress}`) correctly satisfies Requirement 8.3.8 ("at any time before completion").
 
 **Traces.** 8.3.8, 7.5.4, 7.5.5, 11.2.20.
 
@@ -2286,6 +2308,17 @@ had no refresh path. An eleven-week project would otherwise have lost geocoding 
 diagnosis.
 
 **Traces.** 3.1.14, 3.1.15, 3.1.16, 3.1.17, 1.4.1, 1.4.3.
+
+---
+
+## 8. Supporting & Reusable Sub-Functions (Included Use Cases)
+
+> **Architectural Note on Supporting Use Cases (8.1–8.5).**
+> Use cases in this section represent factored-out, reusable sub-functions invoked strictly via `<<include>>`
+> by primary use cases (e.g., `8.1 Geocode Address` is invoked by `2.1 Add Saved Location` and `3.1 Submit Pest Report`;
+> `8.4 Record Treatment` is invoked by `6.8 Verify Completed Work`). They are **not** standalone user goals or
+> "technical use cases", and have no direct primary human associations. Factoring them out eliminates duplicate
+> specifications and ensures consistency across workflows.
 
 ---
 

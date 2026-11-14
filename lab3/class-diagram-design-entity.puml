@@ -120,6 +120,24 @@ package "Entity — domain model" #F7F7F7 {
     + isVerified() : boolean
   }
 
+  class Vehicle <<entity>> {
+    + id : string
+    + registration : string
+    + name : string
+    + model : string
+    + photoUrl : string
+    + hqLocation : HqLocation
+    + maxPayloadKg : number
+    + maxCargoVolumeM3 : number
+    + cargoLengthCm : number
+    + cargoWidthCm : number
+    + cargoHeightCm : number
+    + seatCapacity : number
+    + isAvailable : boolean
+    + isDemo : boolean
+    + isAvailableForService() : boolean
+  }
+
   class WorkOrder <<entity>> {
     + id : Uuid
     + clusterId : Uuid
@@ -135,6 +153,9 @@ package "Entity — domain model" #F7F7F7 {
     + cancellationReason : string
     + issueFlag : boolean
     + issueReason : string
+    + vehicleId : string
+    + stopOrder : number
+    + isFixed : boolean
     + currentStatus() : WorkOrderStatus
     + applyStatus(next : WorkOrderStatus) : void
     + isOverdue(now : Date) : boolean
@@ -393,6 +414,8 @@ Account "1" -- "0..*" Referral : referred by >
 Report "0..*" -- "0..1" WorkOrder : actioned by >
 WorkOrder "0..*" -- "0..1" Report : raised from >
 WorkOrder "1" -- "0..1" TreatmentRecord
+WorkOrder "0..*" -- "0..1" Vehicle : transport by >
+Account "0..*" -- "0..1" Vehicle : assigned to >
 SavedLocation "1" -- "0..*" Alert
 SavedLocation "0..*" -- "0..1" Cluster
 Cluster *-- Polygon

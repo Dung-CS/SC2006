@@ -1,0 +1,282 @@
+{
+  "output": "D-Fence-W13.pptx",
+  "template": "dfence-template.pptx",
+  "tracker": [
+    "Product",
+    "Algorithms",
+    "Architecture",
+    "Delivery",
+    "Robustness"
+  ],
+  "layout_notes": [],
+  "roles": {
+    "primary": "8653E3",
+    "secondary": "AF89F4",
+    "accent": "75F9AA",
+    "light": "272036",
+    "text": "FFFFFF",
+    "muted": "888490",
+    "line": "C9C7CD"
+  },
+  "furniture": "generated",
+  "frame": {
+    "left": 334962,
+    "right": 11857038,
+    "title": [
+      334962,
+      137160,
+      11857038,
+      812764
+    ],
+    "row": [
+      334962,
+      6464808,
+      11857038,
+      6830568
+    ],
+    "stage_of": {
+      "Product": "Product",
+      "Algorithms": "Algorithms",
+      "Architecture": "Architecture",
+      "Delivery": "Delivery",
+      "Robustness": "Robustness"
+    }
+  },
+  "icons_fetched": [],
+  "slides": [
+    {
+      "id": "S1",
+      "layout": "Deck - cover",
+      "section": "",
+      "issues": [],
+      "title": "D-Fence",
+      "sources": [],
+      "needs_source": false,
+      "stage": null,
+      "content": [
+        0,
+        0,
+        12192000,
+        6858000
+      ],
+      "component": "cover"
+    },
+    {
+      "id": "S2",
+      "layout": "Deck - Product",
+      "section": "Product",
+      "issues": [],
+      "title": "One app gives four parties one closed loop",
+      "sources": [],
+      "needs_source": false,
+      "stage": "Product",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S3",
+      "layout": "Deck - Product",
+      "section": "Product",
+      "issues": [],
+      "title": "Four outcomes set D-Fence apart",
+      "sources": [
+        "Grader remarks 2026-08-28; course grading brief"
+      ],
+      "needs_source": false,
+      "stage": "Product",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S4",
+      "layout": "Deck - Product",
+      "section": "Product",
+      "issues": [],
+      "title": "One report moves through five steps to resolved",
+      "sources": [],
+      "needs_source": false,
+      "stage": "Product",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S5",
+      "layout": "Deck - Algorithms",
+      "section": "Algorithms",
+      "issues": [],
+      "title": "Seven weighted drivers turn live data into a ranked queue",
+      "sources": [
+        "config/scoring.default.json; src/control/Priority*.ts"
+      ],
+      "needs_source": false,
+      "stage": "Algorithms",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S6",
+      "layout": "Deck - Algorithms",
+      "section": "Algorithms",
+      "issues": [],
+      "title": "Priority-first routing builds crew routes inside hard limits",
+      "sources": [
+        "RouteOptimizationService.ts, routing/"
+      ],
+      "needs_source": false,
+      "stage": "Algorithms",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S7",
+      "layout": "Deck - Architecture",
+      "section": "Architecture",
+      "issues": [],
+      "title": "A thin client calls a layered server on one database",
+      "sources": [],
+      "needs_source": false,
+      "stage": "Architecture",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S8",
+      "layout": "Deck - Architecture",
+      "section": "Architecture",
+      "issues": [],
+      "title": "Mainstream tools carry the stack from browser to cloud",
+      "sources": [
+        "Logos: Simple Icons (CC0); Azure, PostGIS, OneMap from owners' pages"
+      ],
+      "needs_source": false,
+      "stage": "Architecture",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S9",
+      "layout": "Deck - Delivery",
+      "section": "Delivery",
+      "issues": [],
+      "title": "Two managed services run the app with no keys in the repo",
+      "sources": [],
+      "needs_source": false,
+      "stage": "Delivery",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S10",
+      "layout": "Deck - Delivery",
+      "section": "Delivery",
+      "issues": [],
+      "title": "Four gates run on every push and only main deploys",
+      "sources": [
+        ".github/workflows/deploy.yml",
+        "CI-CD.md"
+      ],
+      "needs_source": false,
+      "stage": "Delivery",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S11",
+      "layout": "Deck - Delivery",
+      "section": "Delivery",
+      "issues": [],
+      "title": "Six test layers run from one function to the live site",
+      "sources": [
+        "tests/, tests-ui/; vitest run 2026-10-31"
+      ],
+      "needs_source": false,
+      "stage": "Delivery",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S12",
+      "layout": "Deck - Robustness",
+      "section": "Robustness",
+      "issues": [],
+      "title": "Targeted limits keep the app fast, cheap and safe",
+      "sources": [],
+      "needs_source": false,
+      "stage": "Robustness",
+      "content": [
+        334962,
+        1052512,
+        11857038,
+        6273800
+      ],
+      "component": null
+    },
+    {
+      "id": "S13",
+      "layout": "Deck - cover",
+      "section": "",
+      "issues": [],
+      "title": "Report in. Resolved out.",
+      "sources": [],
+      "needs_source": false,
+      "stage": null,
+      "content": [
+        0,
+        0,
+        12192000,
+        6858000
+      ],
+      "component": "cover"
+    }
+  ]
+}

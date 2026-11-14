@@ -64,6 +64,12 @@ package "Boundary — External services" #F7FAFD {
   class NEAFeedGateway <<boundary>> {
     fetchClusters()
   }
+  class GravitrapGateway <<boundary>> {
+    fetchAedesIndices()
+  }
+  class PestVisionGateway <<boundary>> {
+    classifyPhoto(photoBytes, mimeType)
+  }
   class RainfallGateway <<boundary>> {
     fetchStations()
     fetchReadings()
@@ -341,3 +347,5 @@ note bottom of PriorityScoringEngine
 end note
 
 @enduml
+
+ReportController ..> PestVisionGateway : uses >

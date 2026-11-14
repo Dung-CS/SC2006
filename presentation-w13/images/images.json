@@ -1,0 +1,34 @@
+[
+  {
+    "file": "gemini-head-and-shoulders-portrait-photograph-of-a-mala.jpg",
+    "source": "gemini",
+    "query": "Head-and-shoulders portrait photograph of a Malay Singaporean woman in her thirties wearing a light hijab, smiling, standing in an HDB void deck, soft natural daylight, realistic photo, no text",
+    "why": "2752x1536, 256 colours, aspect 1.79",
+    "url": null,
+    "source_page": null
+  },
+  {
+    "file": "gemini-head-and-shoulders-portrait-photograph-of-a-chin.jpg",
+    "source": "gemini",
+    "query": "Head-and-shoulders portrait photograph of a Chinese Singaporean woman in her forties with short hair, wearing a smart blouse and a staff lanyard, in a modern operations office with monitors behind her, soft light, realistic photo, no text",
+    "why": "2752x1536, 256 colours, aspect 1.79",
+    "url": null,
+    "source_page": null
+  },
+  {
+    "file": "gemini-head-and-shoulders-portrait-photograph-of-an-ind.jpg",
+    "source": "gemini",
+    "query": "Head-and-shoulders portrait photograph of an Indian Singaporean man in his forties wearing a bright orange high-visibility vest over a work polo shirt and a cap, standing outdoors in an HDB estate with greenery, daylight, realistic photo, no text",
+    "why": "2752x1536, 256 colours, aspect 1.79",
+    "url": null,
+    "source_page": null
+  },
+  {
+    "file": "gemini-field-officer-portrait-head-and-shoulders-of-a-m.jpg",
+    "source": "gemini",
+    "query": "Field officer portrait, head and shoulders, of a Malay Singaporean man in his forties wearing a bright orange high-visibility vest over a work polo shirt and a cap, standing outdoors in an HDB estate with greenery, daylight, realistic photo, no text",
+    "why": "2752x1536, 255 colours, aspect 1.79",
+    "url": null,
+    "source_page": null
+  }
+]

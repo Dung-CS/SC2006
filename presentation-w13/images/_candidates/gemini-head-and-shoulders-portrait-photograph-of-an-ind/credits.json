@@ -1,0 +1,12 @@
+[
+  {
+    "source": "gemini-web",
+    "file": "head-and-shoulders-portrait-photograph-o.jpg",
+    "model": "gemini.google.com default mode / Create image",
+    "prompt": "Head-and-shoulders portrait photograph of an Indian Singaporean man in his forties wearing a bright orange high-visibility vest over a work polo shirt and a cap, standing outdoors in an HDB estate with greenery, daylight, realistic photo, no text. Photographic, no text, no logos, room for overlaid text.",
+    "aspect": "16:9",
+    "refs": [],
+    "licence": "AI-generated (Gemini); no third-party attribution required",
+    "fetched": "2026-11-07T22:01:35+0800"
+  }
+]

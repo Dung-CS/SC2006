@@ -121,6 +121,13 @@ package "Boundary — external gateway adapters (src/boundary/gateways)" #F7FAFD
     - datasetId : string
     + fetchRegistry() : Promise<RawPayload>
   }
+  class GravitrapGateway <<boundary>> {
+    + fetchAedesIndices() : Promise<RawPayload>
+  }
+  class PestVisionGateway <<boundary>> {
+    - apiKey : string
+    + classifyPhoto(photoBytes : Buffer, mimeType : string) : Promise<PestClassificationResult>
+  }
   class TelegramGateway <<boundary>>
   class SupabaseAuthGateway <<boundary>> {
     - serviceKey : string
@@ -137,7 +144,9 @@ package "Boundary — external gateway adapters (src/boundary/gateways)" #F7FAFD
   ExternalGateway <|-- GeocodingSource
   ExternalGateway <|-- ObservationSource
   ExternalGateway <|-- OperatorRegistrySource
+  ExternalGateway <|-- PestVisionSource
   ObservationSource <|.. INaturalistGateway
+  PestVisionSource <|.. PestVisionGateway
   OperatorRegistrySource <|.. VCORegistryGateway
   ClusterSource <|.. NEAFeedGateway
   RainfallSource <|.. RainfallGateway
@@ -158,6 +167,8 @@ package "Boundary — external gateway adapters (src/boundary/gateways)" #F7FAFD
   TelegramGateway --> HttpClient
   INaturalistGateway --> HttpClient
   VCORegistryGateway --> HttpClient
+  GravitrapGateway --> HttpClient
+  PestVisionGateway --> HttpClient
 
   note bottom of INaturalistGateway
     **The only live feed for any pest but the mosquito.**
